@@ -1,0 +1,46 @@
+name: Validação contínua
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Qualidade e responsividade
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v6
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar tipos
+        run: npm run typecheck
+      - name: Executar lint
+        run: npm run lint
+      - name: Executar testes unitários
+        run: npm test -- --run
+      - name: Gerar build de produção
+        run: npm run build
+      - name: Instalar Chromium do Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Verificar interface em desktop e mobile
+        run: npm run test:e2e
+      - name: Publicar artefatos de falha
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-falhas
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
