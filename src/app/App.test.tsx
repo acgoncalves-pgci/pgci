@@ -19,7 +19,7 @@ const renderApp = () => {
 const choose = async (label: string | RegExp, option: string, scope = screen) => {
   const trigger = await scope.findByRole('combobox', { name: label })
   fireEvent.click(trigger)
-  fireEvent.click(scope.getByRole('option', { name: option }))
+  fireEvent.click(screen.getByRole('option', { name: option }))
 }
 
 describe('jornada principal da interface', () => {
@@ -30,6 +30,26 @@ describe('jornada principal da interface', () => {
   })
   afterEach(() => cleanup())
 
+  it('apresenta a visão geral e o header no novo padrão', async () => {
+    window.history.replaceState({}, '', '/dashboard')
+    renderApp()
+
+    expect(screen.getByText('PGCI')).not.toBeNull()
+    await screen.findByRole('heading', { name: 'Meus Processos' })
+    expect(screen.getByRole('textbox', { name: 'Buscar protocolo' })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Na minha caixa/ })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Prazo vencido/ })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Vence em 24h/ })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Sem ciência/ })).not.toBeNull()
+  })
+  it('mostra o indicador com o SVG durante uma troca de tela', async () => {
+    window.history.replaceState({}, '', '/dashboard')
+    renderApp()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Documentos' }))
+    const loading = await screen.findByRole('status', { name: 'Carregando tela' })
+    expect(loading.querySelector('img')?.getAttribute('src')).toBe('/assets/file-sync.svg')
+  })
   it('abre, tramita, dá ciência, cria documento e anexo, conclui e mantém o resultado após recarga', async () => {
     renderApp()
 
@@ -45,14 +65,14 @@ describe('jornada principal da interface', () => {
     const forwardDialog = await screen.findByRole('dialog')
     const forwardScope = within(forwardDialog)
     fireEvent.click(forwardScope.getByRole('combobox', { name: 'Unidade destino *' }))
-    fireEvent.click(forwardScope.getByRole('option', { name: 'Administração' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Administração' }))
     fireEvent.click(forwardScope.getByRole('combobox', { name: 'Destinatário' }))
-    fireEvent.click(forwardScope.getByRole('option', { name: 'Bruno Lima' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Bruno Lima' }))
     fireEvent.change(within(forwardDialog).getByLabelText('Despacho *'), { target: { value: 'Encaminhado para análise administrativa.' } })
     fireEvent.click(forwardScope.getByRole('button', { name: 'Tramitar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await choose('Usuário de demonstração', 'Bruno · Operador')
+    await choose('Usuário de demonstração', 'Bruno Lima · Operador')
     fireEvent.click(await screen.findByRole('button', { name: 'Dar ciência' }))
     await screen.findByRole('button', { name: 'Tramitar' })
 
@@ -87,3 +107,7 @@ describe('jornada principal da interface', () => {
     expect(JSON.parse(localStorage.getItem(DATABASE_KEY)!).protocols.some((protocol: { subject: string; status: string }) => protocol.subject === 'Fluxo integrado de teste' && protocol.status === 'CONCLUIDO')).toBe(true)
   })
 })
+
+
+
+
