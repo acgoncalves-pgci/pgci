@@ -1,0 +1,21 @@
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
+import type { AppUser, Database } from '../../domain/model';
+import { api } from '../../services/api';
+import { useSession } from '../../app/session';
+import { invalidateAll, useDb } from '../../app/queries';
+import { Dialog } from '../../components/ui/Dialog';
+import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
+import { Switch } from '../../components/ui/Switch';
+import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback';
+import { UnitName } from '../processos/ProtocolTable';
+export function UsersPage() { const ctx = useSession(); const { data: db, isLoading } = useDb(); const [editing, setEditing] = useState<AppUser | 'new' | null>(null); if (isLoading || !db)
+    return <Loading variant="list"/>; return <><PageTitle title="Usuários" action={ctx.user?.role === 'ADMIN' ? <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Novo usuário</button> : undefined}/><div className="grid gap-3 md:grid-cols-2">{db.users.map((user) => <article className="panel p-4" key={user.id}><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{user.name}</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{user.email} · {user.role === 'ADMIN' ? 'Admin' : 'Operador'}</p></div>{ctx.user?.role === 'ADMIN' && <button className="btn-secondary !py-1" onClick={() => setEditing(user)}>Editar</button>}</div><p className="mt-3 text-sm"><UnitName db={db} unitId={user.unitId}/> · <span className={user.active ? 'font-semibold text-emerald-700 dark:text-emerald-300' : 'font-semibold text-slate-500 dark:text-slate-400'}>{user.active ? 'Ativo' : 'Inativo'}</span></p></article>)}</div>{editing && <UserEditor user={editing === 'new' ? undefined : editing} db={db} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>}</>; }
+function UserEditor({ user, db, onClose, onSaved }: {
+    user?: AppUser;
+    db: Database;
+    onClose: () => void;
+    onSaved: () => void;
+}) { const ctx = useSession(); const client = useQueryClient(); const [name, setName] = useState(user?.name ?? ''); const [email, setEmail] = useState(user?.email ?? ''); const [role, setRole] = useState<AppUser['role']>(user?.role ?? 'OPERADOR'); const [unitId, setUnitId] = useState(user?.unitId ?? db.units.find((unit) => unit.active)?.id ?? ''); const [active, setActive] = useState(user?.active ?? true); const mutation = useMutation({ mutationFn: () => { const input = { name, email, role, unitId, active }; return user ? api.updateUser(ctx, user.id, input) : api.createUser(ctx, input); }, onSuccess: () => { invalidateAll(client); onSaved(); } }); return <Dialog title={user ? 'Editar usuário' : 'Novo usuário'} onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome *"><Input className="field" value={name} onChange={(event) => setName(event.target.value)}/></Field><Field label="E-mail *"><Input className="field" type="email" value={email} onChange={(event) => setEmail(event.target.value)}/></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Perfil"><Select className="field" value={role} onChange={(event) => setRole(event.target.value as AppUser['role'])}><option value="OPERADOR">Operador</option><option value="ADMIN">Admin</option></Select></Field><Field label="Unidade"><Select className="field" value={unitId} onChange={(event) => setUnitId(event.target.value)}>{db.units.filter((unit) => unit.active).map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</Select></Field></div>{user && <label className="block text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Usuário ativo</label>}{mutation.error && <ErrorBox error={mutation.error}/>}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div></form></Dialog>; }

@@ -72,7 +72,7 @@ describe('jornada principal da interface', () => {
     fireEvent.click(forwardScope.getByRole('button', { name: 'Tramitar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await choose('Usuário de demonstração', 'Bruno Lima · Operador')
+    await choose('Usuário de demonstração', 'Bruno Lima')
     fireEvent.click(await screen.findByRole('button', { name: 'Dar ciência' }))
     await screen.findByRole('button', { name: 'Tramitar' })
 
@@ -90,7 +90,21 @@ describe('jornada principal da interface', () => {
     fireEvent.change(fileInput, { target: { files: [new File(['anexo de teste'], 'jornada.txt', { type: 'text/plain' })] } })
     await screen.findByText('jornada.txt')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Concluir' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar fase' }))
+    const firstPhaseDialog = await screen.findByRole('dialog')
+    fireEvent.click(within(firstPhaseDialog).getByRole('checkbox', { name: 'Conferir dados de abertura' }))
+    fireEvent.click(within(firstPhaseDialog).getByRole('button', { name: 'Avançar fase' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await screen.findByText('Análise')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Avançar fase' }))
+    const secondPhaseDialog = await screen.findByRole('dialog')
+    fireEvent.click(within(secondPhaseDialog).getByRole('checkbox', { name: 'Registrar despacho ou resultado' }))
+    fireEvent.click(within(secondPhaseDialog).getByRole('button', { name: 'Avançar fase' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await screen.findByText('Conclusão')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Concluir' }))
     const completeDialog = await screen.findByRole('dialog')
     fireEvent.change(within(completeDialog).getByLabelText('Resultado da conclusão *'), { target: { value: 'Jornada concluída com sucesso.' } })
     fireEvent.click(within(completeDialog).getByRole('button', { name: 'Concluir' }))
@@ -99,7 +113,7 @@ describe('jornada principal da interface', () => {
     cleanup()
     renderApp()
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
-    expect(screen.getByText('Concluído')).not.toBeNull()
+    expect(screen.getAllByText('Concluído').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: 'Documentos' }))
     expect(await screen.findByText('Memorando da jornada')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Anexos' }))

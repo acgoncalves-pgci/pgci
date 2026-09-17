@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StorageError, cleanupOrphanedBlobs, deleteBlob, getBlob, putBlob } from './database'
+import { seedDatabase } from '../mocks/seed'
+import { migrateDatabase } from './migrations'
 
 const createIndexedDb = () => {
   const blobs = new Map<string, Blob>()
@@ -60,5 +62,36 @@ describe('armazenamento de anexos', () => {
       code: 'UNAVAILABLE',
       name: StorageError.name
     })
+  })
+})
+
+describe('migração do banco local', () => {
+  it('converte a versão 1 em estrutura ordenada e vínculos de unidades', () => {
+    const legacy = structuredClone(seedDatabase()) as unknown as {
+      schemaVersion: number
+      units: Array<{ position?: number }>
+      memberships?: unknown
+      auditEvents?: unknown
+    }
+    legacy.schemaVersion = 1
+    legacy.units.forEach((unit) => delete unit.position)
+    delete legacy.memberships
+    delete legacy.auditEvents
+
+    const migrated = migrateDatabase(legacy)
+
+    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.units.map((unit) => unit.position)).toEqual([0, 1, 0, 2, 3])
+    expect(migrated.memberships).toHaveLength(migrated.users.length + migrated.units.filter((unit) => unit.active).length - 1)
+    expect(migrated.memberships.find((membership) => membership.userId === 'usr-admin')).toMatchObject({
+      unitId: 'u-prot',
+      role: 'ADMIN',
+      active: true,
+    })
+    expect(migrated.auditEvents).toEqual([])
+    expect(migrated.flows).toHaveLength(1)
+    expect(migrated.phases.map((phase) => phase.code)).toEqual(['TRIAGEM', 'ANALISE', 'CONCLUSAO'])
+    expect(migrated.protocolTypes.every((type) => type.flowId === migrated.flows[0].id)).toBe(true)
+    expect(migrated.protocols.every((protocol) => protocol.flowSnapshot?.flowId === migrated.flows[0].id)).toBe(true)
   })
 })

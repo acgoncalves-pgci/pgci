@@ -1,6 +1,6 @@
 # Matriz de Validação — Fase 0 do Plano 2
 
-**Status:** aguardando validação do produto  
+**Status:** aprovada em 16/09/2026  
 **Origem:** `plano-2.md` — primeiro passo executável  
 **Finalidade:** fechar regras de negócio antes de migração, telas e permissões. Os valores marcados como **Proposta** só se tornam regra após aprovação.
 
@@ -13,19 +13,19 @@ A aprovação desta matriz deve entregar quatro definições implementáveis:
 3. Catálogo de tipos de protocolo, fluxos e fases atribuídas.
 4. Políticas de anexos, consulta externa e assinatura eletrônica.
 
-Nenhuma alteração de regra deve ser implementada enquanto o respectivo item estiver como **Pendente**.
+Nenhuma alteração de regra deve ser implementada enquanto o respectivo item estiver pendente de aprovação.
 
 ## 2. Estrutura organizacional e contexto de unidade
 
 | Decisão | Proposta para validação | Status |
 | --- | --- | --- |
-| Estrutura | Árvore de unidades com raiz e quantidade ilimitada de subníveis. | Pendente |
-| Identificação | Unidade possui ID estável, nome, sigla, situação, unidade-pai opcional e posição. A numeração visual (`1.`, `1.1.`) é calculada pela posição, não é o ID. | Pendente |
-| Movimentação | Administrador autorizado pode reordenar, subordinar uma unidade a outra ou movê-la para a raiz. Toda movimentação gera auditoria. | Pendente |
-| Integridade | Não permitir ciclos, inativar unidade com vínculos ativos sem orientar a transferência e nunca apagar históricos de protocolos. | Pendente |
-| Usuários | Um usuário pode ter vários vínculos ativos, cada um com unidade, papel, cargo/assinatura e vigência própria. | Pendente |
-| Contexto | O usuário escolhe um vínculo válido para operar. Ter vínculo na unidade-pai não concede acesso automático a descendentes, nem o inverso. | Pendente |
-| Encaminhamento | A lista de destino vem da mesma árvore e respeita o contexto, o fluxo e a permissão do ator. | Pendente |
+| Estrutura | Árvore de unidades com raiz e quantidade ilimitada de subníveis. | Aprovada |
+| Identificação | Unidade possui ID estável, nome, sigla, situação, unidade-pai opcional e posição. A numeração visual (`1.`, `1.1.`) é calculada pela posição, não é o ID. | Aprovada |
+| Movimentação | Administrador autorizado pode reordenar, subordinar uma unidade a outra ou movê-la para a raiz. Toda movimentação gera auditoria. | Aprovada |
+| Integridade | Não permitir ciclos, inativar unidade com vínculos ativos sem orientar a transferência e nunca apagar históricos de protocolos. | Aprovada |
+| Usuários | Um usuário pode ter vários vínculos ativos, cada um com unidade, papel, cargo/assinatura e vigência própria. | Aprovada |
+| Contexto | O usuário escolhe um vínculo válido para operar. Ter vínculo na unidade-pai não concede acesso automático a descendentes, nem o inverso. | Aprovada |
+| Encaminhamento | A lista de destino vem da mesma árvore e respeita o contexto, o fluxo e a permissão do ator. | Aprovada |
 
 **Confirmações necessárias:** quem pode mover/inativar unidades; se determinada unidade deve enxergar seus descendentes; e a política para protocolos em andamento quando uma unidade muda de posição ou é inativada.
 
@@ -139,21 +139,21 @@ Os itens desta seção foram extraídos dos tipos de protocolo de **demonstraç�
 
 | Tema | Proposta para validação | Status |
 | --- | --- | --- |
-| Inclusão de anexo | Permitir incluir enquanto o protocolo estiver na caixa do ator e a fase/permissão autorizarem; bloquear após o encaminhamento para fora da caixa, salvo exceção aprovada. | Pendente |
-| Metadados | Anexo contém arquivo, tipo/extensão aceita, descrição/observação, autor e eventos de renomear/remover. | Pendente |
-| Consulta pública/QR Code | Não liberar até definir dados expostos, autenticação por CPF/CNPJ + protocolo, URL, expiração e requisitos de LGPD. | Pendente |
-| Assinatura eletrônica | Não prometer validade jurídica até definição do provedor, autenticação/token, evidências e política de assinatura. | Pendente |
+| Inclusão de anexo | Permitir incluir enquanto o protocolo estiver na caixa do ator e a fase/permissão autorizarem; bloquear após o encaminhamento para fora da caixa, salvo exceção aprovada. | Aprovada |
+| Metadados | Anexo contém arquivo, tipo/extensão aceita, descrição/observação, autor e eventos de renomear/remover. | Aprovada |
+| Consulta pública/QR Code | Não liberar até definir dados expostos, autenticação por CPF/CNPJ + protocolo, URL, expiração e requisitos de LGPD. | Aprovada |
+| Assinatura eletrônica | Não prometer validade jurídica até definição do provedor, autenticação/token, evidências e política de assinatura. | Aprovada |
 
 ## 7. Critério para encerrar a validação
 
 A Fase 0 estará apta a iniciar quando:
 
-- [ ] A estrutura de unidades, seus administradores e suas regras de escopo forem aprovadas.
-- [ ] Os papéis e permissões tiverem responsável institucional e tabela aprovada.
-- [ ] Os status, transições e justificativas tiverem sido aprovados.
-- [ ] Cada tipo inicial possuir um fluxo, e cada fluxo possuir fases ordenadas e responsáveis definidos.
-- [ ] A política de anexos estiver aprovada.
-- [ ] Itens de consulta pública e assinatura estiverem aprovados ou explicitamente adiados.
+- [x] A estrutura de unidades, seus administradores e suas regras de escopo forem aprovadas.
+- [x] Os papéis e permissões tiverem responsável institucional e tabela aprovada.
+- [x] Os status, transições e justificativas tiverem sido aprovados.
+- [x] Cada tipo inicial possuir um fluxo, e cada fluxo possuir fases ordenadas e responsáveis definidos.
+- [x] A política de anexos estiver aprovada.
+- [x] Itens de consulta pública e assinatura estiverem aprovados ou explicitamente adiados.
 
 ## 8. Próxima ação do responsável funcional
 

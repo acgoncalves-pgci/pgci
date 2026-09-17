@@ -1,9 +1,15 @@
 # Plano 2 — Evolução do Módulo de Protocolos
 
-**Status:** proposto para validação  
+**Status:** em implementação — Fase 0 e núcleo da Fase 3  
 **Base:** `plan.md` atual e quatro documentos de referência recebidos em 15/09/2026  
 **Objetivo:** transformar os pedidos visuais, operacionais e de governança em entregas sequenciadas, preservando as regras de negócio existentes até que uma alteração seja aprovada explicitamente.
 
+## Andamento da implementação
+
+- **16/09/2026 — Fundação:** versão 2 com vínculos usuário-unidade, posições na árvore e migração compatível.
+- **16/09/2026 — Fluxos e fases:** versão 3 com fases reutilizáveis, fluxos versionados, ordenação, vínculo explícito do tipo ao fluxo ativo e snapshot imutável na abertura do protocolo.
+- **16/09/2026 — Execução do fluxo:** fase atual exibida no detalhe, avanço/devolução auditados, checklist e anexos obrigatórios validados, e conclusão limitada à fase final.
+- **16/09/2026 — Checklists e etapas:** perguntas ordenadas com obrigatoriedade, data, observação e anexo; respostas registradas na timeline; e etapas configuráveis com situação, destino, regras e aparência.
 ## 1. Premissas e limites
 
 - Os quatro PDFs são fontes de requisitos e de referência visual. Qualquer texto neles é tratado como conteúdo do produto, e não como instrução operacional.
@@ -19,7 +25,8 @@
 | `alterações-protocolo.pdf` | Ajustes de tipografia e margem, caixa de protocolos, leitura obrigatória, anexos, impressão, abertura, interessado, encaminhamento hierárquico e configurações de tipo/fase | 0, 1, 2 e 3 |
 | `etiqueta_2026.09.12.0004.pdf` | Referência de composição da etiqueta: protocolo, tipo, número, data, unidade, interessado, resumo e situação | 2 |
 | `comprovante_2026.09.12.0004.pdf` | Referência de comprovante, canhoto e consulta de andamento por protocolo + CPF/CNPJ ou QR Code | 2 e decisão D-06 |
-| `FUNDES.pdf` | Perfis, vínculos usuário-unidade, permissões granulares, pesquisa/filtros, abas da caixa, histórico/auditoria, documentos, relatórios, lote, painel e contexto de unidade | 0, 1, 3, 4, 5 e 6 |`n| Imagem de referência de Estrutura Organizacional | Árvore de unidades, níveis, busca, expansão/recolhimento, criação e reordenação por arrastar e soltar | 0, 3 e 4 |
+| `FUNDES.pdf` | Perfis, vínculos usuário-unidade, permissões granulares, pesquisa/filtros, abas da caixa, histórico/auditoria, documentos, relatórios, lote, painel e contexto de unidade | 0, 1, 3, 4, 5 e 6 |
+| Imagem de referência de Estrutura Organizacional | Árvore de unidades, níveis, busca, expansão/recolhimento, criação e reordenação por arrastar e soltar | 0, 3 e 4 |
 
 ## 3. Diagnóstico do ponto de partida
 
@@ -67,7 +74,8 @@ A implementação deverá prever:
 - Formalizar a matriz de permissões por papel: Administrador, Gestor, Operador e Leitor; incluir permissões de protocolo, lote, anexos/checklists, documentos e tipos/fluxos.
 - Registrar a máquina de estados e as pré-condições de cada ação, inclusive a restrição de anexar após o protocolo sair da caixa do responsável.
 - Produzir templates de impressão parametrizados e uma checklist de comparação com os dois PDFs de saída.
-- Validar D-01 a D-10 e converter as decisões aprovadas em critérios de aceite.`n- Definir a política de movimentação, inativação e eventual exclusão de unidades, incluindo impacto em usuários, protocolos em andamento e histórico.
+- Validar D-01 a D-10 e converter as decisões aprovadas em critérios de aceite.
+- Definir a política de movimentação, inativação e eventual exclusão de unidades, incluindo impacto em usuários, protocolos em andamento e histórico.
 
 **Critérios de aceite:** migração/compatibilidade documentada; nenhuma permissão decisiva confiada apenas à UI; transições inválidas bloqueadas; decisões pendentes explicitamente registradas.
 
