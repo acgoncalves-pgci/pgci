@@ -192,7 +192,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       onMouseEnter={() => setSidebarDismissed(false)}
       onMouseLeave={() => setSidebarDismissed(false)}
       onFocusCapture={() => setSidebarDismissed(false)}
-      className={`pgci-sidebar ${sidebarDismissed ? "pgci-sidebar-dismissed" : ""} ${compactSidebar ? "pgci-sidebar-compact" : ""} flex h-full w-[240px] flex-col bg-[#ededed] text-[#474747] dark:bg-slate-900 dark:text-slate-200`}
+      className={`pgci-sidebar ${sidebarDismissed ? "pgci-sidebar-dismissed" : ""} ${compactSidebar ? "pgci-sidebar-compact" : ""} flex h-full w-[240px] flex-col text-[#474747] dark:text-slate-200`}
     >
       <Link
         to="/dashboard"
@@ -286,7 +286,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           tabIndex={-1}
           className="min-w-0 bg-white dark:bg-slate-950"
         >
-          <header className="no-print sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-slate-300 bg-[#ededed] px-4 dark:border-slate-700 dark:bg-slate-900 sm:px-7">
+          <header className="pgci-header no-print sticky top-0 z-30 flex h-[72px] items-center justify-between border-b px-4 sm:px-7">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 aria-label="Abrir menu"
