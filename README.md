@@ -41,3 +41,9 @@ A interface depende de contratos assíncronos em `src/services/api.ts`. Para usa
 
 A primeira entrega não implementa autenticação, assinatura, portal público, fluxos BPMN, integrações, ações em lote ou edição posterior de documentos. Os cadastros aparecem prontos para demonstração; sua manutenção administrativa extensa fica como próxima etapa.
 
+
+## Relatórios e capa do processo
+
+O menu **Relatórios**, logo abaixo de **Dashboard**, reúne as abas de processos, relatório individual e produtividade. Os filtros respeitam o escopo do usuário e as datas de abertura no fuso de São Paulo. Os PDFs são gerados e baixados no navegador; a capa também está disponível em **Ações → Imprimir capa** no processo.
+
+Em **Configurações → Geral**, envie e salve a logo e os dados do timbre. Em **Portal**, salve o endereço de consulta existente. O QR code usa esse endereço com o parâmetro `numero`; sem endereço, ou com consulta pública desabilitada, aponta para o detalhe do processo neste sistema. Essa configuração não publica nem cria um portal externo. A capa inclui dados do processo, informações complementares, movimentações, QR code, código de barras e paginação automática.

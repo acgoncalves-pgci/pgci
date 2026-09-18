@@ -35,6 +35,11 @@ type GeneralSettings = {
   sequencePadding: string;
   labelWidth: string;
   labelHeight: string;
+  logoDataUrl: string;
+  logoName: string;
+  portalName: string;
+  publicUrl: string;
+  publicConsultation: boolean;
 };
 const GENERAL_KEY = "fluxo-publico:settings-general";
 const defaultGeneral: GeneralSettings = {
@@ -51,6 +56,11 @@ const defaultGeneral: GeneralSettings = {
   sequencePadding: "4",
   labelWidth: "425",
   labelHeight: "283",
+  logoDataUrl: "",
+  logoName: "",
+  portalName: "",
+  publicUrl: "",
+  publicConsultation: true,
 };
 const readGeneral = () => {
   try {
@@ -75,7 +85,7 @@ export function SettingsPage() {
   const { theme, setTheme, appearance, setAppearance } = useSession();
   const [tab, setTab] = useState<Tab>("general");
   const [general, setGeneral] = useState<GeneralSettings>(readGeneral);
-  const [logoName, setLogoName] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (db && !general.organizationName)
@@ -86,12 +96,40 @@ export function SettingsPage() {
       }));
   }, [db, general.organizationName]);
   if (isLoading || !db) return <Loading variant="detail" />;
-  const update = (key: keyof GeneralSettings, value: string) =>
+  const update = (key: keyof GeneralSettings, value: string | boolean) =>
     setGeneral((current) => ({ ...current, [key]: value }));
   const saveGeneral = () => {
-    localStorage.setItem(GENERAL_KEY, JSON.stringify(general));
+    try {
+      if (general.publicUrl.trim()) {
+        if (/^[a-z][a-z0-9+.-]*:/i.test(general.publicUrl.trim()) && !/^https?:\/\//i.test(general.publicUrl.trim())) throw new Error('Informe um endereço público HTTP ou HTTPS válido.');
+        const address = new URL(/^https?:\/\//i.test(general.publicUrl.trim()) ? general.publicUrl.trim() : `https://${general.publicUrl.trim()}`);
+        if (!['http:', 'https:'].includes(address.protocol) || address.username || address.password) throw new Error('Informe um endereço público HTTP ou HTTPS válido.');
+      }
+      localStorage.setItem(GENERAL_KEY, JSON.stringify(general));
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'error', message: error instanceof Error ? error.message : 'Não foi possível salvar as configurações.' } }));
+      return;
+    }
     window.dispatchEvent(new Event("fluxo-publico:settings-general"));
     notify("Configurações gerais salvas com sucesso.");
+  };
+  const uploadLogo = async (file?: File) => {
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      if (!['image/png', 'image/jpeg', 'image/svg+xml'].includes(file.type) || file.size > 2 * 1024 * 1024) throw new Error('Envie uma logo PNG, JPG ou SVG de até 2 MB.');
+      const url = URL.createObjectURL(file);
+      try {
+        const image = new Image();
+        await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('Não foi possível ler esta imagem.')); image.src = url; });
+        const scale = Math.min(1, 600 / image.naturalWidth, 400 / image.naturalHeight);
+        const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext('2d'); if (!context) throw new Error('Não foi possível processar a logo.');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        setGeneral((current) => ({ ...current, logoDataUrl: canvas.toDataURL('image/png'), logoName: file.name }));
+      } finally { URL.revokeObjectURL(url); }
+    } catch (error) { window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'error', message: error instanceof Error ? error.message : 'Falha ao enviar a logo.' } })); }
+    finally { setUploadingLogo(false); if (logoInput.current) logoInput.current.value = ''; }
   };
   const previewNumber = `2026.09.16.${String(42).padStart(Number(general.sequencePadding) || 4, "0")}`;
   const tabs: {
@@ -109,7 +147,7 @@ export function SettingsPage() {
         eyebrow="Administração"
         title="Configurações"
         action={
-          <button className="btn-primary" onClick={saveGeneral}>
+          <button className="btn-primary" onClick={saveGeneral} disabled={uploadingLogo}>
             <Save size={16} />
             Salvar configurações
           </button>
@@ -257,15 +295,13 @@ export function SettingsPage() {
                 className="hidden"
                 type="file"
                 accept="image/png,image/jpeg,image/svg+xml"
-                onChange={(event) =>
-                  setLogoName(event.target.files?.[0]?.name ?? "")
-                }
+                onChange={(event) => void uploadLogo(event.target.files?.[0])}
               />
               <div className="rounded-lg border bg-slate-50 p-4 dark:bg-slate-950/40">
                 <p className="label">Brasão / logo da entidade</p>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <span className="grid size-16 place-items-center rounded-md border bg-white text-public-700 dark:bg-slate-900">
-                    <Landmark size={29} />
+                    {general.logoDataUrl ? <img src={general.logoDataUrl} alt="Logo da entidade" className="max-h-full max-w-full object-contain p-1" /> : <Landmark size={29} />}
                   </span>
                   <div className="min-w-0">
                     <div className="flex flex-wrap gap-2">
@@ -277,11 +313,11 @@ export function SettingsPage() {
                         <ImagePlus size={16} />
                         Enviar logo
                       </button>
-                      {logoName && (
+                      {general.logoDataUrl && (
                         <button
                           className="btn-secondary"
                           type="button"
-                          onClick={() => setLogoName("")}
+                          onClick={() => setGeneral((current) => ({ ...current, logoDataUrl: "", logoName: "" }))}
                         >
                           <Trash2 size={16} />
                           Remover
@@ -289,7 +325,7 @@ export function SettingsPage() {
                       )}
                     </div>
                     <p className="mt-2 truncate text-xs text-slate-500">
-                      {logoName ||
+                      {general.logoName ||
                         "PNG, JPG ou SVG (máx. 2MB). A imagem é otimizada para 100px de altura."}
                     </p>
                   </div>
@@ -353,10 +389,10 @@ export function SettingsPage() {
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <SettingField label="Nome exibido no portal">
-                  <Input defaultValue={db.organization.name} />
+                  <Input value={general.portalName || db.organization.name} onChange={(event) => update("portalName", event.target.value)} />
                 </SettingField>
                 <SettingField label="Endereço público">
-                  <Input defaultValue="portal.exemplo.gov.br/protocolos" />
+                  <Input placeholder="https://portal.entidade.gov.br/consulta" value={general.publicUrl} onChange={(event) => update("publicUrl", event.target.value)} />
                 </SettingField>
               </div>
               <div className="mt-5 flex items-center justify-between gap-4 rounded-lg border bg-slate-50 p-4 dark:bg-slate-950/40">
@@ -365,10 +401,10 @@ export function SettingsPage() {
                     Permitir consulta pública
                   </strong>
                   <small className="mt-1 block text-xs text-slate-500">
-                    Exige número e código verificador do protocolo.
+                    O QR code da capa usa este endereço com o número do protocolo.
                   </small>
                 </span>
-                <Switch defaultChecked aria-label="Permitir consulta pública" />
+                <Switch checked={general.publicConsultation} onCheckedChange={(checked) => update("publicConsultation", checked)} aria-label="Permitir consulta pública" />
               </div>
             </SettingsSection>
           </div>

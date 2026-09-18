@@ -9,6 +9,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  BarChart3,
   Bell,
   ClipboardList,
   FileText,
@@ -100,6 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   } = useSession();
   const { data: sessionDb } = useDb();
   const compactSidebar = appearance.sidebar === 'compact';
+  const [sidebarDismissed, setSidebarDismissed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [organizationDetails, setOrganizationDetails] = useState<OrganizationHeaderDetails>(readOrganizationHeaderDetails);
   const [resetting, setResetting] = useState(false);
@@ -117,7 +119,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     {
       group: "Trabalho",
       items: [
-        ["/dashboard", "Visão geral", Home],
+        ["/dashboard", "Dashboard", Home],
+        ["/relatorios", "Relatórios", BarChart3],
         ["/protocolos", "Protocolos", ClipboardList],
         ["/documentos", "Documentos", FileText],
       ],
@@ -160,6 +163,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       (link.target && link.target !== "_self")
     )
       return;
+    if (link.closest('aside[aria-label="Navegação principal"]')) {
+      setMobile(false);
+      if (compactSidebar) {
+        setSidebarDismissed(true);
+        if (document.activeElement instanceof HTMLElement && link.closest('aside')?.contains(document.activeElement)) document.activeElement.blur();
+      }
+    }
     const destination = new URL(link.href, window.location.href);
     const current = new URL(window.location.href);
     if (
@@ -179,7 +189,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <aside
       aria-label="Navegação principal"
-      className={`pgci-sidebar ${compactSidebar ? "pgci-sidebar-compact" : ""} flex h-full w-[240px] flex-col bg-[#ededed] text-[#474747] dark:bg-slate-900 dark:text-slate-200`}
+      onMouseEnter={() => setSidebarDismissed(false)}
+      onMouseLeave={() => setSidebarDismissed(false)}
+      onFocusCapture={() => setSidebarDismissed(false)}
+      className={`pgci-sidebar ${sidebarDismissed ? "pgci-sidebar-dismissed" : ""} ${compactSidebar ? "pgci-sidebar-compact" : ""} flex h-full w-[240px] flex-col bg-[#ededed] text-[#474747] dark:bg-slate-900 dark:text-slate-200`}
     >
       <Link
         to="/dashboard"

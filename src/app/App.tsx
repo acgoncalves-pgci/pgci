@@ -10,14 +10,16 @@ import { StructurePage } from '../features/estrutura/StructurePage';
 import { ProtocolTypesPage } from '../features/tipos-protocolo/ProtocolTypesPage';
 import { DocumentTypesPage } from '../features/tipos-documento/DocumentTypesPage';
 import { UsersPage } from '../features/usuarios/UsersPage';
+import { ReportsPage } from '../features/relatorios/ReportsPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 function NotFound() {
-    return <div className="py-12"><PageTitle title="Página não encontrada"/><Empty title="Não encontramos esta página" detail="Verifique o endereço ou volte para a visão geral." action={<Link className="btn-primary" to="/dashboard">Ir para a visão geral</Link>}/></div>;
+    return <div className="py-12"><PageTitle title="Página não encontrada"/><Empty title="Não encontramos esta página" detail="Verifique o endereço ou volte para a dashboard." action={<Link className="btn-primary" to="/dashboard">Ir para a dashboard</Link>}/></div>;
 }
 export function App() {
     return <BrowserRouter><RecoveryGate><AppShell><Routes>
     <Route path="/" element={<Navigate to="/dashboard" replace/>}/>
     <Route path="/dashboard" element={<Dashboard />}/>
+    <Route path="/relatorios" element={<ReportsPage />}/>
     <Route path="/protocolos" element={<Protocols />}/>
     <Route path="/protocolos/novo" element={<NewProtocol />}/>
     <Route path="/protocolos/:id" element={<ProtocolDetail />}/>
