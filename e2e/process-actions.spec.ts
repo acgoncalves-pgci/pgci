@@ -112,28 +112,9 @@ test('processo concluído não permite edição', async ({ page }) => {
   await expect(edit).toBeDisabled()
   await expect(edit).toHaveAttribute('title', 'Processos concluídos ou arquivados não podem ser editados.')
 })
-test('dossiê da movimentação em processo concluído baixa sem alterar anexos', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
+test('processo concluído não exibe botão de dossiê', async ({ page }) => {
   await page.goto('/processos/pr-10')
-
-  const attachmentsTab = page.getByRole('button', { name: /Anexos/ })
-  const attachmentsBefore = await attachmentsTab.textContent()
-  await page.getByRole('button', { name: 'Dossiê' }).first().click()
-
-  const dialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
-  await expect(dialog).toContainText('baixado sem alterar o processo concluído')
-  const downloadPromise = page.waitForEvent('download')
-  await dialog.getByRole('button', { name: 'Gerar dossiê' }).click()
-
-  const download = await downloadPromise
-  expect(download.suggestedFilename()).toMatch(/^dossie_.*\.pdf$/)
-  const downloadedPath = await download.path()
-  expect(downloadedPath).not.toBeNull()
-  const dossier = await PDFDocument.load(await readFile(downloadedPath!))
-  expect(dossier.getTitle()).toBe('Dossiê do processo 2026.000010')
-  expect(dossier.getPageCount()).toBeGreaterThanOrEqual(2)
-  await expect(dialog).toBeHidden()
-  await expect(attachmentsTab).toHaveText(attachmentsBefore ?? '')
+  await expect(page.getByRole('button', { name: 'Dossiê' })).toHaveCount(0)
 })
 test('etiqueta usa uma página no formato 150 por 100 mm', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
@@ -216,9 +197,10 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await expect(movementToggles).toHaveCount(movementCount)
   await expect(page.getByText('anexo-integrado.pdf', { exact: true })).toBeVisible()
   await expect(page.getByText('anexo-com-duas-paginas.pdf', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Dossiê' }).first()).toBeVisible()
+  const dossierButton = page.getByRole('button', { name: 'Dossiê' })
+  await expect(dossierButton).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'Dossiê' }).first().click()
+  await dossierButton.click()
   const dialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
   await expect(dialog).toContainText('anexos em PDF')
   const downloadPromise = page.waitForEvent('download')
@@ -232,7 +214,7 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await expect(movementToggles).toHaveCount(movementCount)
   await expect(page.getByText(download.suggestedFilename(), { exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Dossiê' }).first().click()
+  await dossierButton.click()
   const secondDialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
   const secondDownloadPromise = page.waitForEvent('download')
   await secondDialog.getByRole('button', { name: 'Gerar dossiê' }).click()

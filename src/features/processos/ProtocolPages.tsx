@@ -670,7 +670,7 @@ function TimelineRow({ event: e, flowPhase, db, protocol, assignment, attachment
               {canEdit && isLatest ? <Link className="timeline-action-button" to={`/documentos/novo?protocolId=${protocol.id}&movementEventId=${e.id}`}><FilePlus2 size={14}/>Anexar documento</Link> : <button type="button" className="timeline-action-button" disabled><FilePlus2 size={14}/>Anexar documento</button>}
               <button type="button" className="timeline-action-button" disabled={!canEdit || !isLatest} onClick={onAttachFile}><Paperclip size={14}/>Anexar arquivo</button>
               <button type="button" className="timeline-action-button" onClick={() => onReceipt(e)}><Printer size={14}/>Comprovante</button>
-              <button type="button" className="timeline-action-button" onClick={onDossier}><FileArchive size={14}/>Dossiê</button>
+              {isLatest && isActive(protocol) && <button type="button" className="timeline-action-button" onClick={onDossier}><FileArchive size={14}/>Dossiê</button>}
             </div>}
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Clock3 size={13}/>Registro em {dateTime(e.createdAt)}</span>
           </footer>
