@@ -3,6 +3,8 @@ import { ArrowRight, Eye, Paperclip, Printer } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Database, Protocol, ProtocolStatus } from "../../domain/model";
 import { eventLabel, statusLabel } from "../../domain/model";
+import { currentProtocolSituation } from "../../domain/situations";
+import { IconGlyph } from "../../components/ui/IconSelect";
 import { dateTime } from "../../lib/format";
 
 export const Name = ({ db, userId }: { db: Database; userId?: string }) => (
@@ -12,25 +14,23 @@ export const UnitName = ({ db, unitId }: { db: Database; unitId?: string }) => (
   <>{db.units.find((unit) => unit.id === unitId)?.abbreviation ?? "—"}</>
 );
 
-export function StatusBadge({ status }: { status: ProtocolStatus }) {
-  const styles: Record<ProtocolStatus, string> = {
-    CADASTRADO: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
-    EM_ANDAMENTO:
-      "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-    CONCLUIDO:
-      "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-    ARQUIVADO:
-      "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100",
+export function StatusBadge({ status, situation }: { status: ProtocolStatus; situation?: ReturnType<typeof currentProtocolSituation> }) {
+  const fallbackStyles: Record<ProtocolStatus, string> = {
+    CADASTRADO: "border-sky-200 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200",
+    EM_ANDAMENTO: "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200",
+    CONCLUIDO: "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+    ARQUIVADO: "border-slate-300 bg-slate-200 text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
   };
   return (
     <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${styles[status]}`}
+      className={"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide " + (situation ? "" : fallbackStyles[status])}
+      style={situation ? { backgroundColor: situation.color + "18", borderColor: situation.color + "55", color: situation.color } : undefined}
     >
-      {statusLabel[status]}
+      {situation && <IconGlyph name={situation.icon} size={11}/>}
+      {situation?.name ?? statusLabel[status]}
     </span>
   );
 }
-
 function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
   const [printOpen, setPrintOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -53,13 +53,12 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
     };
   }, [printOpen]);
   const type = db.protocolTypes.find((item) => item.id === process.typeId);
+  const situation = currentProtocolSituation(db, process);
   const events = db.events
     .filter((event) => event.protocolId === process.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const latest = events[0];
-  const receiptEvent = events.find((event) =>
-    ["TRAMITACAO", "REABERTURA", "ABERTURA"].includes(event.kind),
-  );
+
   const unit = db.units.find((item) => item.id === process.currentUnitId);
   const attachmentCount = db.attachments.filter(
     (attachment) => attachment.protocolId === process.id,
@@ -72,7 +71,7 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
       const pdf = await import("../relatorios/reportPdf");
       if (action === "cover") await pdf.downloadCover(db, process);
       if (action === "receipt")
-        await pdf.downloadMovementReceipt(db, process, receiptEvent);
+        await pdf.downloadProtocolReceipt(db, process);
       if (action === "label") await pdf.downloadProcessLabel(db, process);
       if (action === "details") await pdf.downloadProcessDetails(db, process);
     } catch (error) {
@@ -92,7 +91,7 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
     ["details", "Imprimir detalhamento"],
   ] as const;
   return (
-    <article className="process-card" data-status={process.status}>
+    <article className="process-card" data-status={process.status} data-situation={situation?.id}>
       <Link
         className="process-card-content"
         to={`/processos/${process.id}`}
@@ -101,7 +100,7 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
         <div className="process-card-reference">
           <strong className="process-card-number">{process.number}</strong>
           <div className="process-card-state">
-            <StatusBadge status={process.status} />
+            <StatusBadge status={process.status} situation={situation} />
             <span title={`${attachmentCount} anexo(s)`}>
               <Paperclip size={11} />
               {String(attachmentCount).padStart(2, "0")}

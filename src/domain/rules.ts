@@ -26,17 +26,32 @@ const isMembershipCurrent = (membership: UserUnitMembership, now = new Date()) =
   new Date(membership.startsAt) <= now &&
   (!membership.endsAt || new Date(membership.endsAt) >= now)
 
-export const findActiveMembership = (db: Database, ctx: Context) =>
+export const findActiveMembershipForUnit = (db: Database, userId: string, unitId: string) =>
   db.memberships.find(
     (membership) =>
-      membership.userId === ctx.userId &&
-      membership.unitId === ctx.activeUnitId &&
+      membership.userId === userId &&
+      membership.unitId === unitId &&
       isMembershipCurrent(membership),
   )
+
+export const findActiveMembership = (db: Database, ctx: Context) =>
+  findActiveMembershipForUnit(db, ctx.userId, ctx.activeUnitId)
+
+export const canReceiveWorkInUnit = (db: Database, userId: string, unitId: string) => {
+  const membership = findActiveMembershipForUnit(db, userId, unitId)
+  return Boolean(membership && membership.role !== 'LEITOR')
+}
 
 export const requireActiveMembership = (db: Database, ctx: Context) =>
   findActiveMembership(db, ctx) ??
   fail('FORBIDDEN', 'Você não possui vínculo ativo com a unidade selecionada.')
+
+export const requireOperationalMembership = (db: Database, ctx: Context) => {
+  const membership = requireActiveMembership(db, ctx)
+  if (membership.role === 'LEITOR')
+    fail('FORBIDDEN', 'Seu vínculo com a unidade selecionada permite somente leitura.')
+  return membership
+}
 
 export const roleForContext = (db: Database, ctx: Context): Role =>
   requireActiveMembership(db, ctx).role
@@ -59,6 +74,13 @@ export const unitIdsForScope = (db: Database, ctx: Context) => {
     .map((membership) => membership.unitId)
 }
 
+export const hasParticipated = (db: Database, protocol: Protocol, userId: string) =>
+  db.events.some(
+    (event) =>
+      event.protocolId === protocol.id &&
+      (event.actorUserId === userId || event.toUserId === userId || event.fromUserId === userId),
+  )
+
 export const canView = (db: Database, protocol: Protocol, ctx: Context) => {
   const user = getUser(db, ctx.userId)
   const unitIds = unitIdsForScope(db, ctx)
@@ -69,14 +91,12 @@ export const canView = (db: Database, protocol: Protocol, ctx: Context) => {
       isMembershipCurrent(membership),
   )
   if (!memberships.length) return false
-  if (ctx.scopeUnitId && ctx.scopeUnitId !== 'ALL') return unitIds.includes(protocol.currentUnitId)
+  const participated = hasParticipated(db, protocol, user.id)
+  if (ctx.scopeUnitId && ctx.scopeUnitId !== 'ALL')
+    return unitIds.includes(protocol.currentUnitId) || participated
   if (memberships.some((membership) => membership.role === 'ADMIN') || unitIds.includes(protocol.currentUnitId) || protocol.createdById === user.id)
     return true
-  return db.events.some(
-    (event) =>
-      event.protocolId === protocol.id &&
-      (event.actorUserId === user.id || event.toUserId === user.id || event.fromUserId === user.id),
-  )
+  return participated
 }
 
 export const canAct = (db: Database, protocol: Protocol, ctx: Context) => {

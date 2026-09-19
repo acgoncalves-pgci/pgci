@@ -1,4 +1,4 @@
-import type { ProtocolStatus, SituationCategory, SituationType } from './model'
+import type { Database, Protocol, ProtocolStatus, SituationCategory, SituationSnapshot, SituationType } from './model'
 
 export const situationCategoryLabel: Record<SituationCategory, string> = {
   CADASTRADO: 'Cadastrado',
@@ -28,3 +28,18 @@ const legacySituationIds: Record<ProtocolStatus, string> = {
 }
 
 export const legacySituationTypeId = (status: ProtocolStatus | undefined) => status ? legacySituationIds[status] : undefined
+
+export const currentProtocolSituation = (db: Pick<Database, 'situations' | 'events'>, protocol: Protocol): SituationSnapshot | SituationType | undefined => {
+  const systemSituation = (status: ProtocolStatus) => db.situations.find((situation) => situation.id === legacySituationTypeId(status))
+  if (protocol.status === 'CONCLUIDO' || protocol.status === 'ARQUIVADO') return systemSituation(protocol.status)
+
+  const phaseSituation = protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)?.situationType
+  if (phaseSituation) return phaseSituation
+
+  const latestMovement = db.events
+    .filter((event) => event.protocolId === protocol.id && event.nextStatus)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+  if (latestMovement?.kind === 'REABERTURA') return db.situations.find((situation) => situation.id === 'situation-reopened')
+
+  return systemSituation(protocol.status)
+}

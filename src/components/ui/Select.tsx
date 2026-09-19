@@ -1,21 +1,67 @@
-import { Children, forwardRef, isValidElement, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Children, forwardRef, isValidElement, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ButtonHTMLAttributes, ChangeEvent, ChangeEventHandler, CSSProperties, KeyboardEvent, ReactNode, SelectHTMLAttributes } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import type { ButtonHTMLAttributes, ChangeEvent, ChangeEventHandler, CSSProperties, KeyboardEvent, ReactNode, SelectHTMLAttributes, UIEvent } from 'react';
+import { Check, ChevronDown, LoaderCircle, Search } from 'lucide-react';
+import { OverlayLayerContext } from './Dialog';
+
 type Option = {
     disabled: boolean;
     label: ReactNode;
     value: string;
     ariaLabel?: string;
 };
+
 type NativeProps = SelectHTMLAttributes<HTMLSelectElement>;
+
 export type SelectProps = Omit<NativeProps, 'children' | 'value' | 'defaultValue' | 'onChange' | 'onBlur'> & {
     children: ReactNode;
     value?: string | number | readonly string[];
     defaultValue?: string | number | readonly string[];
     onChange?: ChangeEventHandler<HTMLSelectElement>;
     onBlur?: ChangeEventHandler<HTMLSelectElement>;
+    searchable?: boolean;
+    searchPlaceholder?: string;
+    searchAriaLabel?: string;
+    emptyText?: string;
+    searchValue?: string;
+    onSearchChange?: (query: string) => void;
+    filterOptions?: boolean;
+    loading?: boolean;
+    loadingText?: string;
+    hasMore?: boolean;
+    onLoadMore?: () => void;
+    loadMoreText?: string;
+    errorText?: string;
+    onRetry?: () => void;
 };
+
+export type AdvancedSelectOption = {
+    value: string | number;
+    label: ReactNode;
+    disabled?: boolean;
+    ariaLabel?: string;
+};
+
+export type AdvancedSelectRequest = {
+    query: string;
+    page: number;
+    pageSize: number;
+    signal: AbortSignal;
+};
+
+export type AdvancedSelectPage = {
+    options: AdvancedSelectOption[];
+    hasMore: boolean;
+};
+
+export type AdvancedSelectProps = Omit<SelectProps, 'children' | 'searchable' | 'searchValue' | 'onSearchChange' | 'filterOptions' | 'loading' | 'hasMore' | 'onLoadMore' | 'errorText' | 'onRetry'> & {
+    loadOptions: (request: AdvancedSelectRequest) => Promise<AdvancedSelectPage>;
+    initialOptions?: AdvancedSelectOption[];
+    selectedOption?: AdvancedSelectOption;
+    debounceMs?: number;
+    pageSize?: number;
+};
+
 const optionsFromChildren = (children: ReactNode): Option[] => Children.toArray(children).flatMap((child) => {
     if (!isValidElement(child) || child.type !== 'option')
         return [];
@@ -27,22 +73,90 @@ const optionsFromChildren = (children: ReactNode): Option[] => Children.toArray(
     };
     return [{ disabled: Boolean(props.disabled), label: props.children, value: String(props.value ?? props.children ?? ''), ariaLabel: props['aria-label'] }];
 });
-export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, className = '', value, defaultValue, name, id, disabled = false, required, onChange, onBlur, 'aria-label': ariaLabel, 'aria-invalid': ariaInvalid, ...props }, ref) => {
+
+const textFromNode = (node: ReactNode): string => Children.toArray(node).map((part) => {
+    if (typeof part === 'string' || typeof part === 'number')
+        return String(part);
+    if (isValidElement(part))
+        return textFromNode((part.props as { children?: ReactNode }).children);
+    return '';
+}).join(' ');
+
+const normaliseSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
+
+const normaliseAdvancedOptions = (options: AdvancedSelectOption[]): Option[] => options.map((option) => ({
+    disabled: Boolean(option.disabled),
+    label: option.label,
+    value: String(option.value),
+    ariaLabel: option.ariaLabel,
+}));
+
+const mergeOptions = (...groups: Option[][]): Option[] => {
+    const merged = new Map<string, Option>();
+    groups.flat().forEach((option) => merged.set(option.value, option));
+    return [...merged.values()];
+};
+
+export const Select = forwardRef<HTMLInputElement, SelectProps>(({
+    children,
+    className = '',
+    value,
+    defaultValue,
+    name,
+    id,
+    disabled = false,
+    required,
+    onChange,
+    onBlur,
+    searchable = false,
+    searchPlaceholder = 'Buscar...',
+    searchAriaLabel = 'Buscar opções',
+    emptyText = 'Nenhuma opção encontrada.',
+    searchValue,
+    onSearchChange,
+    filterOptions = true,
+    loading = false,
+    loadingText = 'Carregando opções...',
+    hasMore = false,
+    onLoadMore,
+    loadMoreText = 'Carregar mais',
+    errorText,
+    onRetry,
+    'aria-label': ariaLabel,
+    'aria-invalid': ariaInvalid,
+    ...props
+}, ref) => {
     const options = optionsFromChildren(children);
     const initialValue = Array.isArray(defaultValue) ? defaultValue[0] : defaultValue;
     const [uncontrolledValue, setUncontrolledValue] = useState(String(initialValue ?? options[0]?.value ?? ''));
     const [open, setOpen] = useState(false);
+    const [uncontrolledSearch, setUncontrolledSearch] = useState('');
     const [contentStyle, setContentStyle] = useState<CSSProperties | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const listboxId = useId();
+    const overlayLayer = useContext(OverlayLayerContext);
+    const selectLayer = Math.max(120, overlayLayer + 20);
     const isControlled = value !== undefined;
     const rawValue = Array.isArray(value) ? value[0] : value;
     const currentValue = String(isControlled ? rawValue ?? '' : uncontrolledValue);
     const selected = options.find((option) => option.value === currentValue);
     const selectedLabel = selected?.label ?? 'Selecione';
+    const query = searchValue ?? uncontrolledSearch;
+    const normalisedQuery = normaliseSearch(query);
+    const visibleOptions = searchable && filterOptions && normalisedQuery
+        ? options.filter((option) => normaliseSearch(`${option.ariaLabel ?? ''} ${textFromNode(option.label)}`).includes(normalisedQuery))
+        : options;
+
+    const updateSearch = (nextQuery: string) => {
+        if (searchValue === undefined)
+            setUncontrolledSearch(nextQuery);
+        onSearchChange?.(nextQuery);
+    };
+
     const updateContentPosition = useCallback(() => {
         const rect = triggerRef.current?.getBoundingClientRect();
         if (!rect)
@@ -53,16 +167,18 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         const viewportHeight = window.innerHeight;
         const spaceAbove = Math.max(0, rect.top - padding);
         const spaceBelow = Math.max(0, viewportHeight - rect.bottom - padding);
-        const estimatedHeight = Math.min(320, Math.max(88, options.length * 44 + 8));
+        const searchHeight = searchable ? 52 : 0;
+        const estimatedHeight = Math.min(320, Math.max(88, options.length * 44 + searchHeight + 8));
         const opensUpward = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
         const maxHeight = Math.max(1, Math.min(320, (opensUpward ? spaceAbove : spaceBelow) - gap));
         const maxWidth = Math.max(1, viewportWidth - padding * 2);
         const width = Math.min(Math.max(rect.width, Math.min(240, maxWidth)), maxWidth);
         const left = Math.min(Math.max(padding, rect.left), Math.max(padding, viewportWidth - width - padding));
         setContentStyle(opensUpward
-            ? { position: 'fixed', zIndex: 120, bottom: viewportHeight - rect.top + gap, left, width, maxHeight }
-            : { position: 'fixed', zIndex: 120, top: rect.bottom + gap, left, width, maxHeight });
-    }, [options.length]);
+            ? { position: 'fixed', zIndex: selectLayer, bottom: viewportHeight - rect.top + gap, left, width, maxHeight }
+            : { position: 'fixed', zIndex: selectLayer, top: rect.bottom + gap, left, width, maxHeight });
+    }, [options.length, searchable, selectLayer]);
+
     useEffect(() => {
         if (!open) {
             setContentStyle(null);
@@ -83,6 +199,14 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
             document.removeEventListener('scroll', updateContentPosition, true);
         };
     }, [open, updateContentPosition]);
+
+    useEffect(() => {
+        if (!open || !searchable || !contentStyle)
+            return;
+        const frame = window.requestAnimationFrame(() => searchRef.current?.focus());
+        return () => window.cancelAnimationFrame(frame);
+    }, [contentStyle, open, searchable]);
+
     const setInputRef = useCallback((node: HTMLInputElement | null) => {
         inputRef.current = node;
         if (typeof ref === 'function')
@@ -90,6 +214,7 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         else if (ref)
             Object.assign(ref, { current: node });
     }, [ref]);
+
     const eventFor = (nextValue: string) => {
         const input = inputRef.current;
         if (input) {
@@ -98,6 +223,7 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         }
         return { type: 'change', target: { name, value: nextValue }, currentTarget: { name, value: nextValue } } as ChangeEvent<HTMLSelectElement>;
     };
+
     const choose = (nextValue: string) => {
         if (!isControlled)
             setUncontrolledValue(nextValue);
@@ -106,29 +232,185 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         onBlur?.(event);
         setOpen(false);
     };
+
+    const moveSelection = (direction: 1 | -1) => {
+        const enabled = visibleOptions.filter((option) => !option.disabled);
+        if (!enabled.length)
+            return;
+        const index = enabled.findIndex((option) => option.value === currentValue);
+        const start = index < 0 ? (direction === 1 ? -1 : 0) : index;
+        const next = enabled[(start + direction + enabled.length) % enabled.length];
+        if (next)
+            choose(next.value);
+    };
+
     const onTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
         if (disabled)
             return;
         if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
             setOpen(false);
             return;
         }
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
+            if (!open && searchable)
+                updateSearch('');
             setOpen((current) => !current);
             return;
         }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
-            const enabled = options.filter((option) => !option.disabled);
-            const index = enabled.findIndex((option) => option.value === currentValue);
-            const next = enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length];
-            if (next)
-                choose(next.value);
+            moveSelection(event.key === 'ArrowDown' ? 1 : -1);
         }
     };
+
+    const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            triggerRef.current?.focus();
+            return;
+        }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            moveSelection(event.key === 'ArrowDown' ? 1 : -1);
+            return;
+        }
+        if (event.key === 'Enter') {
+            const firstEnabled = visibleOptions.find((option) => !option.disabled);
+            if (firstEnabled) {
+                event.preventDefault();
+                choose(firstEnabled.value);
+            }
+        }
+    };
+
+    const onContentScroll = (event: UIEvent<HTMLDivElement>) => {
+        if (!hasMore || loading || !onLoadMore)
+            return;
+        const element = event.currentTarget;
+        if (element.scrollHeight - element.scrollTop - element.clientHeight <= 48)
+            onLoadMore();
+    };
+
     const triggerProps = props as unknown as ButtonHTMLAttributes<HTMLButtonElement>;
-    const content = open && contentStyle && <div ref={contentRef} id={listboxId} role="listbox" aria-label={ariaLabel} style={contentStyle} className="ui-select-content overflow-y-auto rounded-md border bg-white p-1 shadow-lg dark:bg-slate-900">{options.map((option) => <button key={option.value} type="button" role="option" aria-label={option.ariaLabel} aria-selected={option.value === currentValue} disabled={option.disabled} className="ui-select-option" onClick={() => choose(option.value)}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{option.label}</span>{option.value === currentValue && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-public-700"/>}</button>)}</div>;
-    return <div ref={rootRef} className="relative min-w-0 w-full"><input ref={setInputRef} type="hidden" aria-hidden="true" name={name} value={currentValue} disabled={disabled} required={required}/><button {...triggerProps} ref={triggerRef} id={id} type="button" role="combobox" aria-label={ariaLabel} aria-invalid={ariaInvalid} aria-expanded={open} aria-controls={listboxId} disabled={disabled} onClick={() => setOpen((current) => !current)} onKeyDown={onTriggerKeyDown} className={`field ui-select ${className}`}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{selectedLabel}</span><ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}/></button>{content && createPortal(content, document.body)}</div>;
+    const content = open && contentStyle && (
+        <div ref={contentRef} style={contentStyle} onScroll={onContentScroll} className="ui-select-content overflow-y-auto rounded-md border bg-white p-1 shadow-lg dark:bg-slate-900">
+            {searchable && <div className="sticky top-0 z-10 bg-white p-1 dark:bg-slate-900"><div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"/><input ref={searchRef} type="search" value={query} onChange={(event) => updateSearch(event.target.value)} onKeyDown={onSearchKeyDown} aria-label={searchAriaLabel} placeholder={searchPlaceholder} autoComplete="off" className="field ui-input !h-9 !pl-9"/></div></div>}
+            <div id={listboxId} role="listbox" aria-label={ariaLabel ? `Opções de ${ariaLabel}` : 'Opções'}>
+                {visibleOptions.map((option) => <button key={option.value} type="button" role="option" aria-label={option.ariaLabel} aria-selected={option.value === currentValue} disabled={option.disabled} className="ui-select-option" onClick={() => choose(option.value)}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{option.label}</span>{option.value === currentValue && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-public-700"/>}</button>)}
+            </div>
+            {!loading && !errorText && visibleOptions.length === 0 && <p className="px-3 py-3 text-center text-sm text-slate-500">{emptyText}</p>}
+            {loading && <p role="status" className="flex items-center justify-center gap-2 px-3 py-3 text-sm text-slate-500"><LoaderCircle aria-hidden="true" className="size-4 animate-spin"/>{loadingText}</p>}
+            {errorText && <div role="alert" className="px-3 py-3 text-center text-sm text-red-700"><p>{errorText}</p>{onRetry && <button type="button" className="mt-2 font-semibold underline" onClick={onRetry}>Tentar novamente</button>}</div>}
+            {hasMore && !loading && !errorText && onLoadMore && <button type="button" className="ui-select-option justify-center font-semibold text-public-700" onClick={onLoadMore}>{loadMoreText}</button>}
+        </div>
+    );
+
+    const toggleOpen = () => {
+        if (!open && searchable)
+            updateSearch('');
+        setOpen((current) => !current);
+    };
+
+    return <div ref={rootRef} className="relative min-w-0 w-full"><input ref={setInputRef} type="hidden" aria-hidden="true" name={name} value={currentValue} disabled={disabled} required={required}/><button {...triggerProps} ref={triggerRef} id={id} type="button" role="combobox" aria-label={ariaLabel} aria-invalid={ariaInvalid} aria-expanded={open} aria-controls={listboxId} aria-haspopup="listbox" aria-autocomplete={searchable ? 'list' : 'none'} disabled={disabled} onClick={toggleOpen} onKeyDown={onTriggerKeyDown} className={`field ui-select ${className}`}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{selectedLabel}</span><ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}/></button>{content && createPortal(content, document.body)}</div>;
 });
 Select.displayName = 'Select';
+
+/** Select com busca local, indicado para listas pequenas ou médias já carregadas. */
+export const SearchableSelect = forwardRef<HTMLInputElement, SelectProps>((props, ref) => <Select {...props} ref={ref} searchable/>);
+SearchableSelect.displayName = 'SearchableSelect';
+
+/** Select paginado com busca remota, indicado para conjuntos de dados grandes. */
+export const AdvancedSelect = forwardRef<HTMLInputElement, AdvancedSelectProps>(({
+    loadOptions,
+    initialOptions = [],
+    selectedOption,
+    debounceMs = 300,
+    pageSize = 50,
+    value,
+    ...props
+}, ref) => {
+    const [query, setQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const [options, setOptions] = useState<Option[]>(() => normaliseAdvancedOptions(initialOptions));
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [reloadToken, setReloadToken] = useState(0);
+    const loaderRef = useRef(loadOptions);
+    const requestIdRef = useRef(0);
+    const pendingControllerRef = useRef<AbortController | null>(null);
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const currentValue = String(rawValue ?? '');
+
+    useEffect(() => {
+        loaderRef.current = loadOptions;
+    }, [loadOptions]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => setDebouncedQuery(query), Math.max(0, debounceMs));
+        return () => window.clearTimeout(timer);
+    }, [debounceMs, query]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        pendingControllerRef.current?.abort();
+        pendingControllerRef.current = controller;
+        const requestId = ++requestIdRef.current;
+        setLoading(true);
+        setError('');
+        void loaderRef.current({ query: debouncedQuery, page: 1, pageSize, signal: controller.signal }).then((result) => {
+            if (controller.signal.aborted || requestId !== requestIdRef.current)
+                return;
+            const nextOptions = normaliseAdvancedOptions(result.options);
+            setOptions((current) => mergeOptions(current.filter((option) => option.value === currentValue), nextOptions));
+            setPage(1);
+            setHasMore(result.hasMore);
+        }).catch((reason: unknown) => {
+            if (controller.signal.aborted || requestId !== requestIdRef.current)
+                return;
+            setError(reason instanceof Error ? reason.message : 'Não foi possível carregar as opções.');
+        }).finally(() => {
+            if (!controller.signal.aborted && requestId === requestIdRef.current)
+                setLoading(false);
+        });
+        return () => controller.abort();
+    }, [currentValue, debouncedQuery, pageSize, reloadToken]);
+
+    useEffect(() => () => pendingControllerRef.current?.abort(), []);
+
+    const loadMore = () => {
+        if (loading || !hasMore)
+            return;
+        const controller = new AbortController();
+        pendingControllerRef.current?.abort();
+        pendingControllerRef.current = controller;
+        const requestId = ++requestIdRef.current;
+        const nextPage = page + 1;
+        setLoading(true);
+        setError('');
+        void loaderRef.current({ query: debouncedQuery, page: nextPage, pageSize, signal: controller.signal }).then((result) => {
+            if (controller.signal.aborted || requestId !== requestIdRef.current)
+                return;
+            setOptions((current) => mergeOptions(current, normaliseAdvancedOptions(result.options)));
+            setPage(nextPage);
+            setHasMore(result.hasMore);
+        }).catch((reason: unknown) => {
+            if (controller.signal.aborted || requestId !== requestIdRef.current)
+                return;
+            setError(reason instanceof Error ? reason.message : 'Não foi possível carregar mais opções.');
+        }).finally(() => {
+            if (!controller.signal.aborted && requestId === requestIdRef.current)
+                setLoading(false);
+        });
+    };
+
+    const visibleOptions = selectedOption ? mergeOptions(normaliseAdvancedOptions([selectedOption]), options) : options;
+    return <Select {...props} ref={ref} value={value} searchable searchValue={query} onSearchChange={setQuery} filterOptions={false} loading={loading} hasMore={hasMore} onLoadMore={loadMore} errorText={error} onRetry={() => setReloadToken((current) => current + 1)}>{visibleOptions.map((option) => <option key={option.value} value={option.value} disabled={option.disabled} aria-label={option.ariaLabel}>{option.label}</option>)}</Select>;
+});
+AdvancedSelect.displayName = 'AdvancedSelect';

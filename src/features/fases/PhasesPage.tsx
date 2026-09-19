@@ -79,7 +79,7 @@ export function PhasesPage() {
 
     {editing && <PhaseEditor phase={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>}
     {filtersOpen && <Dialog title="Filtros de fases" onClose={() => setFiltersOpen(false)}><div className="space-y-4">
-      <label className="block text-sm"><Switch checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)}/> Mostrar somente fases ativas</label>
+      <label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)}/> Mostrar somente fases ativas</label>
       <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setActiveOnly(true)}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
     </div></Dialog>}
     {deleting && <Dialog title="Excluir tipo de fase" onClose={() => setDeleting(null)}>
@@ -131,7 +131,7 @@ function PhaseEditor({ phase, onClose, onSaved }: {
       <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7}/></div></Field>
       <Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field>
       <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
-      {phase && <label className="block text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Fase ativa</label>}
+      {phase && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Fase ativa</label>}
       {mutation.error && <ErrorBox error={mutation.error}/>}
       <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
     </form>

@@ -32,6 +32,14 @@ test('troca entre uma estrutura vinculada e o contexto Todos', async ({ page, is
     scope: localStorage.getItem('fluxo-publico:scope-unit'),
   }))).toEqual({ unit: 'u-fin', scope: 'u-fin' })
 
+  await page.getByRole('link', { name: 'Processos', exact: true }).click()
+  await page.getByRole('button', { name: /Minha Unidade/ }).click()
+  const processUnits = page.locator('.process-card-movement > div:nth-child(2) dd')
+  await expect(processUnits.first()).toBeVisible()
+  const financeUnits = await processUnits.allTextContents()
+  expect(financeUnits.length).toBeGreaterThan(0)
+  expect(financeUnits.every((unit) => unit === 'Financeiro')).toBe(true)
+
   const activeSelector = page.getByRole('button', { name: 'Selecionar contexto de estrutura. Atual: Financeiro' })
   await expect(activeSelector).toContainText('Financeiro')
   await expect(activeSelector).toContainText('Administração')
@@ -42,6 +50,9 @@ test('troca entre uma estrutura vinculada e o contexto Todos', async ({ page, is
     unit: localStorage.getItem('fluxo-publico:unit'),
     scope: localStorage.getItem('fluxo-publico:scope-unit'),
   }))).toEqual({ unit: 'u-fin', scope: 'ALL' })
+
+  await expect.poll(async () => (await processUnits.allTextContents()).some((unit) => unit !== 'Financeiro')).toBe(true)
+  expect(await processUnits.allTextContents()).toContain('Financeiro')
 })
 
 test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMobile }) => {

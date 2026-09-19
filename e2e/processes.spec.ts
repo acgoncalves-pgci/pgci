@@ -16,6 +16,7 @@ test('lista, filtros rápidos e filtro avançado de processos', async ({ page })
   await page.getByLabel('Buscar processos').fill('2026.000002')
   await expect(page.locator('.process-card')).toHaveCount(1)
   await expect(page.locator('.process-card')).toContainText('Pagamento de fornecimento de água')
+  await expect(page.locator('.process-card')).toContainText('Em tramitação')
   await page.waitForTimeout(250)
   await expect(page.getByRole('status', { name: 'Carregando tela' })).toHaveCount(0)
 
@@ -26,19 +27,255 @@ test('lista, filtros rápidos e filtro avançado de processos', async ({ page })
   await page.getByRole('option', { name: 'Pagamento de fornecedor' }).click()
   await dialog.getByRole('combobox', { name: 'Credor' }).click()
   await page.getByRole('option', { name: 'Água Clara Serviços Ltda.' }).click()
-  await dialog.getByRole('button', { name: 'Em andamento' }).click()
+  await dialog.getByRole('button', { name: 'Em tramitação' }).click()
   await dialog.getByRole('button', { name: 'Sem anexos' }).click()
   await dialog.getByRole('button', { name: 'Buscar' }).click()
 
   await expect(page).toHaveURL(/typeId=pt-pay/)
   await expect(page).toHaveURL(/creditorId=p-9/)
+  await expect(page).toHaveURL(/situation=situation-processing/)
   await expect(page.getByRole('status', { name: 'Carregando tela' })).toHaveCount(0)
   await expect(page.locator('.process-card')).toHaveCount(1)
   await expect(page.locator('.process-card')).toHaveAttribute('data-status', 'EM_ANDAMENTO')
+  await expect(page.locator('.process-card')).toHaveAttribute('data-situation', 'situation-processing')
   await page.locator('.process-card').click()
   await expect(page).toHaveURL(/\/processos\/pr-2$/)
 })
 
+test('cards e filtro avançado usam a situação configurada na fase atual', async ({ page }) => {
+  await page.goto('/')
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+
+  await page.evaluate(() => {
+    const key = 'fluxo-publico:database:v1'
+    const database = JSON.parse(localStorage.getItem(key)!)
+    database.situations.push({
+      id: 'situation-awaiting-review-e2e',
+      name: 'Aguardando parecer',
+      category: 'EM_TRAMITACAO',
+      color: '#2563EB',
+      icon: 'Clock3',
+      observation: 'Situação criada para validar a fase atual.',
+      system: false,
+      active: true,
+    })
+    const protocol = database.protocols.find((item: { id: string }) => item.id === 'pr-2')
+    const phase = protocol.flowSnapshot.phases.find((item: { phaseId: string }) => item.phaseId === protocol.currentPhaseId)
+    phase.situationType = {
+      id: 'situation-awaiting-review-e2e',
+      name: 'Aguardando parecer',
+      category: 'EM_TRAMITACAO',
+      color: '#2563EB',
+      icon: 'Clock3',
+    }
+    localStorage.setItem(key, JSON.stringify(database))
+  })
+
+  await page.goto('/processos?tab=all&search=2026.000002')
+  const card = page.locator('.process-card')
+  await expect(card).toHaveCount(1)
+  await expect(card).toContainText('Aguardando parecer')
+  await expect(card).not.toContainText('Em andamento')
+  await expect(card).toHaveAttribute('data-situation', 'situation-awaiting-review-e2e')
+
+  await page.getByRole('button', { name: /Filtro avançado/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Pesquisar processos' })
+  await expect(dialog.getByRole('button', { name: 'Aguardando parecer' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Aguardando parecer' }).click()
+  await dialog.getByRole('button', { name: 'Buscar' }).click()
+
+  await expect(page).toHaveURL(/situation=situation-awaiting-review-e2e/)
+  await expect(page.locator('.process-card')).toHaveCount(1)
+  await expect(page.locator('.process-card')).toContainText('Aguardando parecer')
+})
+test('processo já tramitado abre somente para consulta fora da unidade atual', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+  })
+  await page.goto('/processos/pr-5')
+
+  await expect(page.getByRole('heading', { name: 'Processo 2026.000005' })).toBeVisible()
+  await expect(page.getByText('Somente leitura')).toBeVisible()
+  await expect(page.getByText(/Como você já participou dele/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Alterar para/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Ações', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Tramitar' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Dossiê' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Escolher outro responsável' })).toHaveCount(0)
+})
+test('dados de demonstração apresentam fila multiunidade com todas as fases', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+  })
+  await page.goto('/processos/pr-18')
+
+  await expect(page.getByRole('heading', { name: 'Processo 2026.000018' })).toBeVisible()
+  await expect(page.getByText('Troque a unidade para continuar')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Alterar para Financeiro' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ })).toBeVisible()
+
+  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Tramitado' }).locator('xpath=ancestor::section[1]')
+  await expect(movementCard.getByText('Financeiro', { exact: true })).toBeVisible()
+  await expect(movementCard.getByLabel('Unidade de destino').locator('svg')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Alterar para Financeiro' }).click()
+  await expect(page.getByRole('button', { name: 'Assumir e dar ciência' })).toBeVisible()
+})
+test('permite trocar para a unidade do processo quando o usuário possui vínculo', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-edu')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-edu')
+  })
+  await page.goto('/')
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.evaluate(() => {
+    const key = 'fluxo-publico:database:v1'
+    const database = JSON.parse(localStorage.getItem(key)!)
+    const protocol = database.protocols.find((item: { id: string }) => item.id === 'pr-18')
+    const assignment = database.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
+    protocol.currentUnitId = 'u-adm'
+    protocol.currentAssigneeId = 'usr-admin'
+    assignment.unitId = 'u-adm'
+    assignment.assigneeId = 'usr-admin'
+    assignment.receivedAt = new Date().toISOString()
+    assignment.receivedById = 'usr-admin'
+    database.events.push({
+      id: 'ev-assign-admin-18',
+      protocolId: protocol.id,
+      kind: 'ATRIBUICAO',
+      actorUserId: 'usr-admin',
+      actorUnitId: 'u-adm',
+      toUnitId: 'u-adm',
+      toUserId: 'usr-admin',
+      assignmentId: assignment.id,
+      createdAt: new Date().toISOString(),
+    })
+    localStorage.setItem(key, JSON.stringify(database))
+  })
+
+  await page.goto('/processos/pr-18')
+  await expect(page.getByText('Troque a unidade para continuar')).toBeVisible()
+  await expect(page.getByText('Unidade atual:').locator('..')).toContainText('Administração')
+
+  await page.getByRole('button', { name: 'Alterar para Administração' }).click()
+
+  await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
+  await expect(page.getByText('Troque a unidade para continuar')).toHaveCount(0)
+  const context = await page.evaluate(() => ({
+    activeUnitId: localStorage.getItem('fluxo-publico:unit'),
+    scopeUnitId: localStorage.getItem('fluxo-publico:scope-unit'),
+    primaryUnitId: JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).users.find((user: { id: string }) => user.id === 'usr-admin').unitId,
+  }))
+  expect(context).toEqual({
+    activeUnitId: 'u-adm',
+    scopeUnitId: 'u-adm',
+    primaryUnitId: 'u-prot',
+  })
+})
+test('mostra nome e ícone de unidade na tramitação sem destinatário', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-fin')
+  })
+  await page.goto('/')
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.evaluate(() => {
+    const key = 'fluxo-publico:database:v1'
+    const database = JSON.parse(localStorage.getItem(key)!)
+    const protocol = database.protocols.find((item: { id: string }) => item.id === 'pr-18')
+    const assignment = database.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
+    protocol.currentUnitId = 'u-fin'
+    protocol.currentAssigneeId = undefined
+    protocol.status = 'EM_ANDAMENTO'
+    assignment.unitId = 'u-fin'
+    assignment.assigneeId = undefined
+    assignment.receivedAt = undefined
+    assignment.receivedById = undefined
+    database.events.push({
+      id: 'ev-forward-financeiro-sem-destinatario',
+      protocolId: protocol.id,
+      kind: 'TRAMITACAO',
+      actorUserId: 'usr-admin',
+      actorUnitId: 'u-edu',
+      fromUnitId: 'u-edu',
+      toUnitId: 'u-fin',
+      fromUserId: 'usr-admin',
+      assignmentId: assignment.id,
+      message: 'Encaminhado para a fila do financeiro.',
+      previousStatus: 'CADASTRADO',
+      nextStatus: 'EM_ANDAMENTO',
+      createdAt: new Date().toISOString(),
+    })
+    localStorage.setItem(key, JSON.stringify(database))
+  })
+
+  await page.goto('/processos/pr-18')
+  await expect(page.getByText('Está com:').locator('..')).toContainText('Financeiro')
+  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Tramitado' }).locator('xpath=ancestor::section[1]')
+  await expect(movementCard.getByText('Financeiro', { exact: true })).toBeVisible()
+  await expect(movementCard.getByText('FIN', { exact: true })).toHaveCount(0)
+  await expect(movementCard.getByLabel('Unidade de destino').locator('svg')).toBeVisible()
+})
+test('andamento identifica fase, nome e situação configurada', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+  })
+  await page.goto('/processos/pr-1')
+
+  const phaseRow = page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })
+  await expect(phaseRow).toBeVisible()
+  await expect(phaseRow).toContainText('Fase')
+  await expect(phaseRow).toContainText('Triagem')
+  await expect(phaseRow).toContainText('Cadastrado')
+})
+test('abre processo pela unidade secundária sem alterar a unidade principal', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+  })
+  await page.goto('/processos/novo')
+
+  await expect(page.getByRole('heading', { name: 'Abrir processo' })).toBeVisible()
+  await expect(page.getByText('Para abrir processo, selecione sua unidade de vínculo.')).toHaveCount(0)
+  await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
+  await page.getByRole('option', { name: 'Pedido de informação' }).click()
+  await page.getByRole('combobox', { name: 'Interessado *' }).click()
+  await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
+  await page.getByRole('combobox', { name: 'Responsável *' }).click()
+  await expect(page.getByRole('option', { name: 'Marina Duarte' })).toBeVisible()
+  await page.getByRole('option', { name: 'Marina Duarte' }).click()
+  await page.getByLabel('Assunto *').fill('Operação E2E por unidade secundária')
+  await page.getByLabel('Descrição *').fill('Validação da unidade ativa baseada no vínculo.')
+  await page.getByRole('button', { name: 'Abrir processo' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Operação E2E por unidade secundária' })).toBeVisible()
+  const stored = await page.evaluate(() => {
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const protocol = database.protocols.find((item: { subject: string }) => item.subject === 'Operação E2E por unidade secundária')
+    return {
+      originUnitId: protocol.originUnitId,
+      currentUnitId: protocol.currentUnitId,
+      currentAssigneeId: protocol.currentAssigneeId,
+      primaryUnitId: database.users.find((user: { id: string }) => user.id === 'usr-admin').unitId,
+    }
+  })
+  expect(stored).toEqual({
+    originUnitId: 'u-adm',
+    currentUnitId: 'u-adm',
+    currentAssigneeId: 'usr-admin',
+    primaryUnitId: 'u-prot',
+  })
+})
 test('abertura revela e valida os campos configurados pelo tipo de processo', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('fluxo-publico:user', 'usr-clara')

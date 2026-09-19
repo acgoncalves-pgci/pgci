@@ -64,7 +64,7 @@ test('configuração persiste a logo e o endereço de consulta e gera capa pela 
   await expect(page.getByRole('img', { name: 'Logo da entidade' })).toBeVisible();
   await page.getByRole('tab', { name: 'Portal', exact: true }).click();
   await expect(page.getByLabel('Endereço público')).toHaveValue('https://portal.entidade.gov.br/consulta');
-  await page.goto('/processos/pr-5');
+  await page.goto('/processos/pr-1');
   await page.getByRole('button', { name: 'Ações', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Imprimir capa', exact: true }).click();

@@ -11,7 +11,7 @@ import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 
-export function ProcessCategoriesPage() {
+export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean }) {
   const ctx = useSession()
   const client = useQueryClient()
   const { data: db, isLoading } = useDb()
@@ -34,15 +34,20 @@ export function ProcessCategoriesPage() {
   ).sort((left, right) => left.code.localeCompare(right.code, 'pt-BR', { numeric: true }))
 
   return <>
-    <PageTitle
-      title="Categorias de Processo"
-      action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova</button></div> : undefined}
-    />
-    <p className="-mt-3 mb-5 text-sm text-muted-foreground">Organize os tipos de processo em categorias reutilizáveis.</p>
+    {!embedded && <>
+      <PageTitle
+        title="Categorias de Processo"
+        action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova</button></div> : undefined}
+      />
+      <p className="-mt-3 mb-5 text-sm text-muted-foreground">Organize os tipos de processo em categorias reutilizáveis.</p>
+    </>}
 
-    <div className="mb-5 flex flex-wrap items-center gap-2">
-      <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar categoria" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por código ou nome..." className="w-72 pl-9"/></label>
-      <button type="button" className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16}/>Mais filtros</button>
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar categoria" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por código ou nome..." className="w-72 pl-9"/></label>
+        <button type="button" className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16}/>Mais filtros</button>
+      </div>
+      {embedded && admin && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova categoria</button>}
     </div>
 
     <div className="space-y-2" role="region" aria-label="Lista de categorias de processo">
@@ -58,12 +63,12 @@ export function ProcessCategoriesPage() {
     </div>
 
     {editing && <CategoryEditor category={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>} 
-    {filtersOpen && <Dialog title="Filtros de categorias" onClose={() => setFiltersOpen(false)}><div className="space-y-4"><label className="block text-sm"><Switch checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)}/> Mostrar somente categorias ativas</label><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setActiveOnly(true)}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div></div></Dialog>}
+    {filtersOpen && <Dialog title="Filtros de categorias" onClose={() => setFiltersOpen(false)}><div className="space-y-4"><label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)}/> Mostrar somente categorias ativas</label><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setActiveOnly(true)}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div></div></Dialog>}
     {deleting && <Dialog title="Excluir categoria de processo" onClose={() => setDeleting(null)}><p className="text-sm text-muted-foreground">Deseja excluir a categoria <strong>{deleting.name}</strong>? Ela só poderá ser removida se não estiver vinculada a um tipo de processo.</p>{remove.error && <div className="mt-4"><ErrorBox error={remove.error}/></div>}<div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></div></Dialog>}
   </>
 }
 
-function CategoryEditor({ category, onClose, onSaved }: { category?: ProcessCategory; onClose: () => void; onSaved: () => void }) {
+export function CategoryEditor({ category, onClose, onSaved, stacked = false }: { category?: ProcessCategory; onClose: () => void; onSaved: (category: ProcessCategory) => void; stacked?: boolean }) {
   const ctx = useSession()
   const client = useQueryClient()
   const [code, setCode] = useState(category?.code ?? '')
@@ -77,18 +82,20 @@ function CategoryEditor({ category, onClose, onSaved }: { category?: ProcessCate
       const input = { code, name, color, icon, observation: observation || undefined, active }
       return category ? api.updateProcessCategory(ctx, category.id, input) : api.createProcessCategory(ctx, input)
     },
-    onSuccess: () => { invalidateAll(client); onSaved() },
+    onSuccess: async (savedCategory) => { await invalidateAll(client); onSaved(savedCategory) },
   })
 
-  return <Dialog title={category ? 'Editar Categoria de Processo' : 'Nova Categoria de Processo'} onClose={onClose}>
+  return <Dialog title={category ? 'Editar Categoria de Processo' : 'Nova Categoria de Processo'} onClose={onClose} stacked={stacked}>
     <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
       <div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Código *"><Input autoFocus className="field font-mono" value={code} onChange={(event) => setCode(event.target.value)} maxLength={20} placeholder="00"/></Field><Field label="Nome *"><Input className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120}/></Field></div>
-      <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7}/></div></Field>
-      <Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field>
-      <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
-      {category && <label className="block text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Categoria ativa</label>}
+      {!stacked && <>
+        <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7}/></div></Field>
+        <Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field>
+        <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
+      </>}
+      {category && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Categoria ativa</label>}
       {mutation.error && <ErrorBox error={mutation.error}/>} 
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !code.trim() || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
+      <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-border bg-white py-3 dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !code.trim() || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
     </form>
   </Dialog>
 }

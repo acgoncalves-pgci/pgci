@@ -50,9 +50,91 @@ test('lista compacta mostra anexos e menu de impressão completo', async ({ page
   const downloadPromise = page.waitForEvent('download')
   await menu.getByRole('menuitem', { name: 'Imprimir comprovante' }).click()
   const download = await downloadPromise
-  expect(download.suggestedFilename()).toMatch(/^comprovante_tramitacao_.*\.pdf$/)
+  expect(download.suggestedFilename()).toMatch(/^comprovante_protocolo_.*\.pdf$/)
 })
 
+test('lista exporta o comprovante do protocolo', async ({ page }) => {
+  await page.goto('/processos?tab=all')
+  const firstCard = page.locator('.process-card').first()
+  await firstCard.getByRole('button', { name: /Imprimir processo/ }).click()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Imprimir comprovante' }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^comprovante_protocolo_.*\.pdf$/)
+})
+test('detalhe exporta os mesmos quatro PDFs da listagem', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Validação dos quatro downloads executada no projeto desktop.')
+  await page.goto('/processos/pr-10')
+  await expect(page.getByRole('heading', { name: 'Processo 2026.000010' })).toBeVisible()
+
+  const actions = [
+    ['Imprimir capa', /^capa_.*\.pdf$/],
+    ['Imprimir comprovante', /^comprovante_protocolo_.*\.pdf$/],
+    ['Imprimir etiqueta', /^etiqueta_.*\.pdf$/],
+    ['Imprimir detalhamento', /^detalhamento_.*\.pdf$/],
+  ] as const
+
+  for (const [label, filename] of actions) {
+    await page.getByRole('button', { name: 'Ações', exact: true }).click()
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('menuitem', { name: label, exact: true }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(filename)
+    if (label === 'Imprimir comprovante' || label === 'Imprimir detalhamento') {
+      const downloadedPath = await download.path()
+      expect(downloadedPath).not.toBeNull()
+      const document = await PDFDocument.load(await readFile(downloadedPath!))
+      expect(document.getTitle()).toBe(label === 'Imprimir comprovante'
+        ? 'Comprovante de protocolo 2026.000010'
+        : 'Detalhamento do processo 2026.000010')
+    }
+  }
+})
+test('comprovante da movimentação continua separado do comprovante do protocolo', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
+  await page.goto('/processos/pr-10')
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Comprovante', exact: true }).first().click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^comprovante_tramitacao_.*\.pdf$/)
+  const downloadedPath = await download.path()
+  expect(downloadedPath).not.toBeNull()
+  const receipt = await PDFDocument.load(await readFile(downloadedPath!))
+  expect(receipt.getTitle()).toBe('Comprovante de tramitação 2026.000010')
+})
+test('processo concluído não permite edição', async ({ page }) => {
+  await page.goto('/processos/pr-10')
+  await page.getByRole('button', { name: 'Ações', exact: true }).click()
+
+  const edit = page.getByRole('menuitem', { name: 'Editar', exact: true })
+  await expect(edit).toBeDisabled()
+  await expect(edit).toHaveAttribute('title', 'Processos concluídos ou arquivados não podem ser editados.')
+})
+test('dossiê da movimentação em processo concluído baixa sem alterar anexos', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
+  await page.goto('/processos/pr-10')
+
+  const attachmentsTab = page.getByRole('button', { name: /Anexos/ })
+  const attachmentsBefore = await attachmentsTab.textContent()
+  await page.getByRole('button', { name: 'Dossiê' }).first().click()
+
+  const dialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
+  await expect(dialog).toContainText('baixado sem alterar o processo concluído')
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Gerar dossiê' }).click()
+
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^dossie_.*\.pdf$/)
+  const downloadedPath = await download.path()
+  expect(downloadedPath).not.toBeNull()
+  const dossier = await PDFDocument.load(await readFile(downloadedPath!))
+  expect(dossier.getTitle()).toBe('Dossiê do processo 2026.000010')
+  expect(dossier.getPageCount()).toBeGreaterThanOrEqual(2)
+  await expect(dialog).toBeHidden()
+  await expect(attachmentsTab).toHaveText(attachmentsBefore ?? '')
+})
 test('etiqueta usa uma página no formato 150 por 100 mm', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
 
@@ -123,13 +205,17 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   const attachmentPdf = await PDFDocument.create()
   attachmentPdf.addPage([320, 180])
   const attachmentBytes = await attachmentPdf.save()
-  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({
-    name: 'anexo-integrado.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from(attachmentBytes),
-  })
+  const secondAttachmentPdf = await PDFDocument.create()
+  secondAttachmentPdf.addPage([320, 180])
+  secondAttachmentPdf.addPage([320, 180])
+  const secondAttachmentBytes = await secondAttachmentPdf.save()
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles([
+    { name: 'anexo-integrado.pdf', mimeType: 'application/pdf', buffer: Buffer.from(attachmentBytes) },
+    { name: 'anexo-com-duas-paginas.pdf', mimeType: 'application/pdf', buffer: Buffer.from(secondAttachmentBytes) },
+  ])
   await expect(movementToggles).toHaveCount(movementCount)
   await expect(page.getByText('anexo-integrado.pdf', { exact: true })).toBeVisible()
+  await expect(page.getByText('anexo-com-duas-paginas.pdf', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Dossiê' }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Dossiê' }).first().click()
@@ -141,15 +227,26 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   const downloadedPath = await download.path()
   expect(downloadedPath).not.toBeNull()
   const dossier = await PDFDocument.load(await readFile(downloadedPath!))
-  expect(dossier.getPageCount()).toBeGreaterThanOrEqual(3)
+  expect(dossier.getPageCount()).toBe(7)
 
   await expect(movementToggles).toHaveCount(movementCount)
   await expect(page.getByText(download.suggestedFilename(), { exact: true })).toBeVisible()
 
+  await page.getByRole('button', { name: 'Dossiê' }).first().click()
+  const secondDialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
+  const secondDownloadPromise = page.waitForEvent('download')
+  await secondDialog.getByRole('button', { name: 'Gerar dossiê' }).click()
+  const secondDownload = await secondDownloadPromise
+  const secondDownloadedPath = await secondDownload.path()
+  expect(secondDownloadedPath).not.toBeNull()
+  const secondDossier = await PDFDocument.load(await readFile(secondDownloadedPath!))
+  expect(secondDossier.getPageCount()).toBe(7)
+  await expect(page.getByText(secondDownload.suggestedFilename(), { exact: true })).toBeVisible()
+
   await page.getByRole('button', { name: /Auditoria/ }).click()
-  await expect(page.getByText('Arquivo anexado', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('Arquivo anexado', { exact: true })).toHaveCount(4)
   await page.getByRole('button', { name: /Anexos/ }).click()
-  await expect(page.getByText(download.suggestedFilename(), { exact: true })).toBeVisible()
+  await expect(page.getByText(download.suggestedFilename(), { exact: true })).toHaveCount(2)
 })
 
 test('resumo separa informações do processo e situação atual', async ({ page }) => {

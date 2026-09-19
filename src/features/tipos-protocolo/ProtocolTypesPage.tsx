@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { ChevronRight, CircleDot, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Tags, Trash2 } from 'lucide-react'
 import type { Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
 import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
@@ -12,8 +13,14 @@ import { Select } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
+import { CategoryEditor, ProcessCategoriesPage } from '../categorias/ProcessCategoriesPage'
+import { SituationEditor, SituationsPage } from '../situacoes/SituationsPage'
 
-type Tab = 'types' | 'phases'
+type Tab = 'types' | 'phases' | 'categories' | 'situations'
+
+function QuickCreateField({ label, actionLabel, onCreate, children }: { label: string; actionLabel: string; onCreate: () => void; children: ReactNode }) {
+  return <div className="relative min-w-0"><span className="label">{label}</span><button type="button" aria-label={actionLabel} className="absolute right-0 top-0 inline-flex items-center gap-1 text-xs font-semibold text-public-700 transition-colors hover:text-public-800 hover:underline" onClick={onCreate}><Plus size={13}/>Nova</button>{children}</div>
+}
 export function ProtocolTypesPage() {
   const ctx = useSession()
   const { data: db, isLoading } = useDb()
@@ -35,10 +42,14 @@ export function ProtocolTypesPage() {
       {([
         ['types', ClipboardList, 'Tipos'],
         ['phases', ListChecks, 'Fases'],
+        ['categories', Tags, 'Categorias'],
+        ['situations', CircleDot, 'Situações'],
       ] as const).map(([key, Icon, label]) => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${tab === key ? 'border-public-700 text-public-700' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Icon size={16} />{label}</button>)}
     </div>
     {tab === 'types' && <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onNew={() => setTypeEditing('new')} />}
     {tab === 'phases' && <PhasesList phases={db.phases} editable={admin} onEdit={setPhaseEditing} onNew={() => setPhaseEditing('new')} />}
+    {tab === 'categories' && <ProcessCategoriesPage embedded />}
+    {tab === 'situations' && <SituationsPage embedded />}
     {typeEditing && <ProtocolTypeEditor categories={db.processCategories} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
     {phaseEditing && <PhaseEditor phase={phaseEditing === 'new' ? undefined : phaseEditing} onClose={() => setPhaseEditing(null)} onSaved={() => setPhaseEditing(null)} />}
     {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={admin} onClose={() => setTypeFilesEditing(null)} />}
@@ -326,14 +337,86 @@ function PhasesList({ phases, editable, onEdit, onNew }: { phases: ProtocolPhase
   </div>
 }
 function ProtocolTypeEditor({ type, categories, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; onClose: () => void; onSaved: () => void }) {
-  const ctx = useSession(); const client = useQueryClient(); const [name, setName] = useState(type?.name ?? ''); const [observation, setObservation] = useState(type?.description ?? ''); const [color, setColor] = useState(type?.color ?? '#3498db'); const [icon, setIcon] = useState(type?.icon ?? 'FileText'); const [flowMode, setFlowMode] = useState<FlowMode>(type?.flowMode ?? (type?.flowId ? 'REQUIRED' : 'NONE')); const [deadline, setDeadline] = useState(type?.defaultDeadlineDays?.toString() ?? ''); const [active, setActive] = useState(type?.active ?? true); const [categoryId, setCategoryId] = useState(type?.categoryId ?? categories.find((category) => category.active)?.id ?? '')
-  const [interested, setInterested] = useState(type?.fieldsConfig.interested ?? { enabled: false, required: false }); const [creditor, setCreditor] = useState(type?.fieldsConfig.creditor ?? { enabled: false, required: false }); const [amount, setAmount] = useState(type?.fieldsConfig.amount ?? { enabled: false, required: false }); const [responsavel, setResponsavel] = useState(type?.fieldsConfig.responsavel?.enabled ?? false); const [assunto, setAssunto] = useState(type?.fieldsConfig.assunto?.enabled ?? true); const [arquivos, setArquivos] = useState(type?.fieldsConfig.arquivos?.enabled ?? false); const [portal, setPortal] = useState(type?.fieldsConfig.portal?.enabled ?? false)
-  const mutation = useMutation({ mutationFn: () => { const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, portal: { enabled: portal } }; const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, active, fieldsConfig }; return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input) }, onSuccess: () => { invalidateAll(client); onSaved() } })
+  const ctx = useSession()
+  const client = useQueryClient()
+  const [name, setName] = useState(type?.name ?? '')
+  const [observation, setObservation] = useState(type?.description ?? '')
+  const [color, setColor] = useState(type?.color ?? '#3498db')
+  const [icon, setIcon] = useState(type?.icon ?? 'FileText')
+  const [flowMode, setFlowMode] = useState<FlowMode>(type?.flowMode ?? (type?.flowId ? 'REQUIRED' : 'NONE'))
+  const [deadline, setDeadline] = useState(type?.defaultDeadlineDays?.toString() ?? '')
+  const [active, setActive] = useState(type?.active ?? true)
+  const [categoryId, setCategoryId] = useState(type?.categoryId ?? categories.find((category) => category.active)?.id ?? '')
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [interested, setInterested] = useState(type?.fieldsConfig.interested ?? { enabled: false, required: false })
+  const [creditor, setCreditor] = useState(type?.fieldsConfig.creditor ?? { enabled: false, required: false })
+  const [amount, setAmount] = useState(type?.fieldsConfig.amount ?? { enabled: false, required: false })
+  const [responsavel, setResponsavel] = useState(type?.fieldsConfig.responsavel?.enabled ?? false)
+  const [assunto, setAssunto] = useState(type?.fieldsConfig.assunto?.enabled ?? true)
+  const [arquivos, setArquivos] = useState(type?.fieldsConfig.arquivos?.enabled ?? false)
+  const [portal, setPortal] = useState(type?.fieldsConfig.portal?.enabled ?? false)
+  const mutation = useMutation({
+    mutationFn: () => {
+      const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, portal: { enabled: portal } }
+      const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, active, fieldsConfig }
+      return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input)
+    },
+    onSuccess: () => { invalidateAll(client); onSaved() },
+  })
   const requirement = (label: string, checked: boolean, set: (checked: boolean) => void) => <label className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-b-0"><span>{label}</span><Switch checked={checked} onChange={(event) => set(event.target.checked)}/></label>
-  return <Dialog title={type ? 'Editar tipo de processo' : 'Novo tipo de processo'} onClose={onClose} wide><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><div className="space-y-5 lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0"><section className="rounded-lg border p-4 lg:col-span-12"><h3 className="label mb-3">Identidade</h3><div className="grid gap-4 sm:grid-cols-2"><Field label="Descrição *"><Input className="field" placeholder="Ex.: Tipos de serviço público" value={name} onChange={(event) => setName(event.target.value)}/></Field><Field label="Categoria"><Select aria-label="Categoria" className="field" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Sem categoria</option>{categories.filter((category) => category.active || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.code} — {category.name}</option>)}</Select></Field></div></section><section className="rounded-lg border p-4 lg:col-span-5"><h3 className="label mb-3">Fluxo</h3><Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field><p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Depois de salvar, use o botão <strong>Fluxo</strong> na lista para criar e ordenar as etapas deste tipo.</p></section><section className="rounded-lg border p-4 lg:col-span-7 lg:row-span-2"><h3 className="label mb-2">Requisitos</h3>{requirement(flowMode === 'REQUIRED' ? 'Tem tramitação? (obrigatório para este fluxo)' : 'Tem tramitação?', flowMode !== 'NONE', (enabled) => setFlowMode(enabled ? 'SUGGESTED' : 'NONE'))}{requirement('Tem credor?', creditor.enabled, (enabled) => setCreditor({ enabled, required: enabled ? creditor.required : false }))}{requirement('Tem interessado?', interested.enabled, (enabled) => setInterested({ enabled, required: enabled ? interested.required : false }))}{requirement('Tem responsável?', responsavel, setResponsavel)}{requirement('Tem assunto?', assunto, setAssunto)}{requirement('Tem arquivos?', arquivos, setArquivos)}{requirement('Tem valor?', amount.enabled, (enabled) => setAmount({ enabled, required: enabled ? amount.required : false }))}{requirement('Tem portal do cidadão?', portal, setPortal)}</section><section className="rounded-lg border p-4 lg:col-span-5"><h3 className="label mb-3">Outros</h3><Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field><Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field></section><section className="rounded-lg border p-4 lg:col-span-12"><h3 className="label mb-3">Aparência</h3><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)}/></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div></section></div>{type && <label className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}{mutation.error && <ErrorBox error={mutation.error}/>}<div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div></form></Dialog>
+
+  return <>
+    <Dialog title={type ? 'Editar tipo de processo' : 'Novo tipo de processo'} onClose={onClose} wide>
+      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+        <div className="space-y-5 lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
+          <section className="rounded-lg border p-4 lg:col-span-12">
+            <h3 className="label mb-3">Identidade</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Descrição *"><Input className="field" placeholder="Ex.: Tipos de serviço público" value={name} onChange={(event) => setName(event.target.value)}/></Field>
+              <QuickCreateField label="Categoria" actionLabel="Nova categoria" onCreate={() => setCreatingCategory(true)}>
+                <Select aria-label="Categoria" className="field" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+                  <option value="">Sem categoria</option>
+                  {categories.filter((category) => category.active || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.code} — {category.name}</option>)}
+                </Select>
+              </QuickCreateField>
+            </div>
+          </section>
+          <section className="rounded-lg border p-4 lg:col-span-5">
+            <h3 className="label mb-3">Fluxo</h3>
+            <Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Depois de salvar, use o botão <strong>Fluxo</strong> na lista para criar e ordenar as etapas deste tipo.</p>
+          </section>
+          <section className="rounded-lg border p-4 lg:col-span-7 lg:row-span-2">
+            <h3 className="label mb-2">Requisitos</h3>
+            {requirement(flowMode === 'REQUIRED' ? 'Tem tramitação? (obrigatório para este fluxo)' : 'Tem tramitação?', flowMode !== 'NONE', (enabled) => setFlowMode(enabled ? 'SUGGESTED' : 'NONE'))}
+            {requirement('Tem credor?', creditor.enabled, (enabled) => setCreditor({ enabled, required: enabled ? creditor.required : false }))}
+            {requirement('Tem interessado?', interested.enabled, (enabled) => setInterested({ enabled, required: enabled ? interested.required : false }))}
+            {requirement('Tem responsável?', responsavel, setResponsavel)}
+            {requirement('Tem assunto?', assunto, setAssunto)}
+            {requirement('Tem arquivos?', arquivos, setArquivos)}
+            {requirement('Tem valor?', amount.enabled, (enabled) => setAmount({ enabled, required: enabled ? amount.required : false }))}
+            {requirement('Tem portal do cidadão?', portal, setPortal)}
+          </section>
+          <section className="rounded-lg border p-4 lg:col-span-5">
+            <h3 className="label mb-3">Outros</h3>
+            <Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
+            <Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field>
+          </section>
+          <section className="rounded-lg border p-4 lg:col-span-12">
+            <h3 className="label mb-3">Aparência</h3>
+            <div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)}/></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div>
+          </section>
+        </div>
+        {type && <label className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}
+        {mutation.error && <ErrorBox error={mutation.error}/>}
+        <div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div>
+      </form>
+    </Dialog>
+    {creatingCategory && <CategoryEditor stacked onClose={() => setCreatingCategory(false)} onSaved={(category) => { setCategoryId(category.id); setCreatingCategory(false) }}/>}
+  </>
 }
 
-function PhaseEditor({ phase, onClose, onSaved }: { phase?: ProtocolPhase; onClose: () => void; onSaved: () => void }) {
+function PhaseEditor({ phase, onClose, onSaved, stacked = false }: { phase?: ProtocolPhase; onClose: () => void; onSaved: (phase: ProtocolPhase) => void; stacked?: boolean }) {
   const ctx = useSession()
   const client = useQueryClient()
   const [name, setName] = useState(phase?.name ?? '')
@@ -342,12 +425,12 @@ function PhaseEditor({ phase, onClose, onSaved }: { phase?: ProtocolPhase; onClo
   const [observation, setObservation] = useState(phase?.description ?? '')
   const mutation = useMutation({
     mutationFn: () => {
-      const input = { name, code: phase?.code ?? `FASE-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, description: observation || undefined, color, icon, defaultDeadlineDays: undefined, eligibleUnitIds: [], checklistItems: [], checklistQuestions: [], requiredAttachmentTypes: [], active: phase?.active ?? true }
+      const input = { name, code: phase?.code ?? ('FASE-' + crypto.randomUUID().slice(0, 8).toUpperCase()), description: observation || undefined, color, icon, defaultDeadlineDays: undefined, eligibleUnitIds: [], checklistItems: [], checklistQuestions: [], requiredAttachmentTypes: [], active: phase?.active ?? true }
       return phase ? api.updatePhase(ctx, phase.id, input) : api.createPhase(ctx, input)
     },
-    onSuccess: () => { invalidateAll(client); onSaved() },
+    onSuccess: async (savedPhase) => { await invalidateAll(client); onSaved(savedPhase) },
   })
-  return <Dialog title={phase ? 'Editar tipo de fase' : 'Novo tipo de fase'} onClose={onClose}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div><Field label="Observação"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} /></Field>{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar</button></div></form></Dialog>
+  return <Dialog title={phase ? 'Editar tipo de fase' : 'Novo tipo de fase'} onClose={onClose} stacked={stacked}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div><Field label="Observação"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} /></Field>{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar</button></div></form></Dialog>
 }
 function ChecklistEditor({ title, questions, onChange, onClose }: { title: string; questions: ChecklistQuestion[]; onChange: (questions: ChecklistQuestion[]) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<ChecklistQuestion | 'new' | null>(null); const ordered = questions.slice().sort((a, b) => a.order - b.order)
@@ -355,7 +438,7 @@ function ChecklistEditor({ title, questions, onChange, onClose }: { title: strin
   return <><Dialog title={title} onClose={onClose}><div className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}<div className="pt-3 text-right"><button className="btn-secondary" onClick={onClose}>Fechar</button></div></div></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save}/>}</>
 }
 function QuestionEditor({ question, onClose, onSave }: { question: ChecklistQuestion; onClose: () => void; onSave: (question: ChecklistQuestion) => void }) {
-  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
+  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
 }
 
 function StageEditor({ draft, phases, situations, units, order, saving, onClose, onSave }: {
@@ -391,24 +474,33 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
   }) => void
 }) {
   const [stage, setStage] = useState(draft)
+  const [creatingPhase, setCreatingPhase] = useState(false)
+  const [creatingSituation, setCreatingSituation] = useState(false)
   const selectedSituation = situations.find((situation) => situation.id === stage.situationTypeId)
 
-  return <Dialog title="Nova etapa do fluxo" onClose={onClose}>
-    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave(stage) }}>
-      <section className="rounded border p-4">
-        <h3 className="label mb-3">Fase e situação</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Fase *"><Select className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select></Field>
-          <Field label="Situação"><Select className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select></Field>
-        </div>
-        {selectedSituation && <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" style={{ backgroundColor: selectedSituation.color + '18', borderColor: selectedSituation.color + '55', color: selectedSituation.color }}><IconGlyph name={selectedSituation.icon} size={14}/>{selectedSituation.name}</div>}
-      </section>
-      <section className="rounded border p-4"><h3 className="label mb-3">Destino organizacional</h3><Field label="Unidade organizacional de destino"><Select className="field" value={stage.destinationUnitId ?? ''} onChange={(event) => setStage({ ...stage, destinationUnitId: event.target.value || undefined })}><option value="">Selecione a unidade na estrutura...</option>{sortUnitsByPath(units.filter((unit) => unit.active)).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(units, unit.id)}</option>)}</Select></Field></section>
-      <section className="rounded border p-4"><h3 className="label mb-3">Comportamento</h3><div className="flex flex-wrap items-center gap-4"><Field label="Ordem"><Input className="field w-20" value={order} disabled/></Field><label className="text-sm"><Switch checked={stage.requiresChecklist ?? false} onChange={(event) => setStage({ ...stage, requiresChecklist: event.target.checked })}/> Exige checklist</label><label className="text-sm"><Switch checked={stage.requiresAttachment ?? false} onChange={(event) => setStage({ ...stage, requiresAttachment: event.target.checked })}/> Exige anexo</label></div></section>
-      <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section>
-      <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
-    </form>
-  </Dialog>
+  return <>
+    <Dialog title="Nova etapa do fluxo" onClose={onClose}>
+      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave(stage) }}>
+        <section className="rounded border p-4">
+          <h3 className="label mb-3">Fase e situação</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <QuickCreateField label="Fase *" actionLabel="Nova fase" onCreate={() => setCreatingPhase(true)}>
+              <Select aria-label="Fase *" className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active || phase.id === stage.phaseId).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select>
+            </QuickCreateField>
+            <QuickCreateField label="Situação" actionLabel="Nova situação" onCreate={() => setCreatingSituation(true)}>
+              <Select aria-label="Situação" className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select>
+            </QuickCreateField>
+          </div>
+          {selectedSituation && <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" style={{ backgroundColor: selectedSituation.color + '18', borderColor: selectedSituation.color + '55', color: selectedSituation.color }}><IconGlyph name={selectedSituation.icon} size={14}/>{selectedSituation.name}</div>}
+        </section>
+        <section className="rounded border p-4"><h3 className="label mb-3">Destino organizacional</h3><Field label="Unidade organizacional de destino"><Select className="field" value={stage.destinationUnitId ?? ''} onChange={(event) => setStage({ ...stage, destinationUnitId: event.target.value || undefined })}><option value="">Selecione a unidade na estrutura...</option>{sortUnitsByPath(units.filter((unit) => unit.active)).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(units, unit.id)}</option>)}</Select></Field></section>
+        <section className="rounded border p-4"><h3 className="label mb-3">Comportamento</h3><div className="flex flex-wrap items-center gap-4"><Field label="Ordem"><Input className="field w-20" value={order} disabled/></Field><label className="flex items-center gap-2 text-sm"><Switch checked={stage.requiresChecklist ?? false} onChange={(event) => setStage({ ...stage, requiresChecklist: event.target.checked })}/> Exige checklist</label><label className="flex items-center gap-2 text-sm"><Switch checked={stage.requiresAttachment ?? false} onChange={(event) => setStage({ ...stage, requiresAttachment: event.target.checked })}/> Exige anexo</label></div></section>
+        <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section>
+        <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
+      </form>
+    </Dialog>
+    {creatingPhase && <PhaseEditor stacked onClose={() => setCreatingPhase(false)} onSaved={(phase) => { setStage((current) => ({ ...current, phaseId: phase.id })); setCreatingPhase(false) }}/>}
+    {creatingSituation && <SituationEditor stacked onClose={() => setCreatingSituation(false)} onSaved={(situation) => { setStage((current) => ({ ...current, situationTypeId: situation.id })); setCreatingSituation(false) }}/>}
+  </>
 }
-

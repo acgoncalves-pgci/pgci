@@ -38,6 +38,15 @@ export function seedDatabase(): Database {
             active: true,
         }));
     });
+    memberships.push({
+        id: 'membership-usr-joana-u-adm',
+        userId: 'usr-joana',
+        unitId: 'u-adm',
+        role: 'GESTOR',
+        title: 'Apoio à gestão administrativa',
+        startsAt: now(),
+        active: true,
+    });
     const auditEvents: Database['auditEvents'] = [];
     const people = [
         ['p-1', 'PF', 'Ana Beatriz Costa', ['INTERESSADO', 'RESPONSAVEL']], ['p-2', 'PF', 'Caio Mendes', ['INTERESSADO']], ['p-3', 'PF', 'Fernanda Alves', ['INTERESSADO']], ['p-4', 'PF', 'Igor Rocha', ['INTERESSADO', 'RESPONSAVEL']], ['p-5', 'PF', 'Sofia Martins', ['INTERESSADO']], ['p-6', 'PF', 'Vitor Ramos', ['INTERESSADO']],
@@ -72,17 +81,158 @@ export function seedDatabase(): Database {
     const add = (n: number, subject: string, typeId: string, unitId: string, assigneeId: string | undefined, status: ProtocolStatus, dueDays?: number, creator = 'usr-clara') => {
         const id = uid('pr', n);
         const assignmentId = uid('as', n);
+        const originUnitId = 'u-prot';
         const createdAt = isoDaysFromNow(-n - 1);
-        const type = protocolTypes.find((t) => t.id === typeId)!;
-        protocols.push({ id, number: `2026.${String(n).padStart(6, '0')}`, typeId, typeConfigSnapshot: type.fieldsConfig, flowSnapshot: structuredClone(flowSnapshot), currentPhaseId: phases[0].id, subject, description: `Registro fictício sobre ${subject.toLowerCase()}.`, interestedPersonId: type.fieldsConfig.interested.enabled ? `p-${(n % 6) + 1}` : undefined, creditorPersonId: typeId === 'pt-pay' ? `p-${7 + (n % 5)}` : undefined, amountCents: typeId === 'pt-pay' ? (n + 1) * 14500 : undefined, status, originUnitId: 'u-prot', currentUnitId: unitId, currentAssigneeId: assigneeId, currentAssignmentId: assignmentId, dueAt: dueDays === undefined ? undefined : isoDaysFromNow(dueDays), createdById: creator, createdAt, updatedAt: now(), completedAt: status === 'CONCLUIDO' || status === 'ARQUIVADO' ? isoDaysFromNow(-2) : undefined, archivedAt: status === 'ARQUIVADO' ? isoDaysFromNow(-1) : undefined, version: 1 });
-        assignments.push({ id: assignmentId, protocolId: id, unitId, assigneeId, startedAt: createdAt, receivedAt: assigneeId ? createdAt : undefined, receivedById: assigneeId ? assigneeId : undefined });
-        events.push({ id: `ev-open-${n}`, protocolId: id, kind: 'ABERTURA', actorUserId: creator, actorUnitId: 'u-prot', toUnitId: 'u-prot', toUserId: creator, assignmentId, nextStatus: 'CADASTRADO', createdAt });
-        if (assigneeId)
-            events.push({ id: `ev-ack-${n}`, protocolId: id, kind: 'RECEBIMENTO', actorUserId: assigneeId, actorUnitId: unitId, assignmentId, createdAt });
-        if (status === 'CONCLUIDO' || status === 'ARQUIVADO')
-            events.push({ id: `ev-done-${n}`, protocolId: id, kind: 'CONCLUSAO', actorUserId: assigneeId ?? creator, actorUnitId: unitId, assignmentId, message: 'Demanda analisada e concluída.', previousStatus: 'EM_ANDAMENTO', nextStatus: 'CONCLUIDO', createdAt: isoDaysFromNow(-2) });
-        if (status === 'ARQUIVADO')
-            events.push({ id: `ev-arc-${n}`, protocolId: id, kind: 'ARQUIVAMENTO', actorUserId: assigneeId ?? creator, actorUnitId: unitId, assignmentId, previousStatus: 'CONCLUIDO', nextStatus: 'ARQUIVADO', createdAt: isoDaysFromNow(-1) });
+        const type = protocolTypes.find((item) => item.id === typeId)!;
+        const transferred = unitId !== originUnitId;
+        const currentPhaseIndex = status === 'CADASTRADO' ? 0 : status === 'EM_ANDAMENTO' ? 1 : 2;
+        const currentAssignmentStartedAt = transferred ? isoDaysFromNow(-Math.max(n - 1, 1)) : createdAt;
+        const openingAssignmentId = transferred ? `${assignmentId}-origin` : assignmentId;
+        protocols.push({
+            id,
+            number: `2026.${String(n).padStart(6, '0')}`,
+            typeId,
+            typeConfigSnapshot: type.fieldsConfig,
+            flowModeSnapshot: 'REQUIRED',
+            flowSnapshot: structuredClone(flowSnapshot),
+            currentPhaseId: phases[currentPhaseIndex].id,
+            subject,
+            description: `Registro fictício sobre ${subject.toLowerCase()}.`,
+            interestedPersonId: type.fieldsConfig.interested.enabled ? `p-${(n % 6) + 1}` : undefined,
+            creditorPersonId: typeId === 'pt-pay' ? `p-${7 + (n % 5)}` : undefined,
+            amountCents: typeId === 'pt-pay' ? (n + 1) * 14500 : undefined,
+            status,
+            originUnitId,
+            currentUnitId: unitId,
+            currentAssigneeId: assigneeId,
+            currentAssignmentId: assignmentId,
+            dueAt: dueDays === undefined ? undefined : isoDaysFromNow(dueDays),
+            createdById: creator,
+            createdAt,
+            updatedAt: now(),
+            completedAt: status === 'CONCLUIDO' || status === 'ARQUIVADO' ? isoDaysFromNow(-2) : undefined,
+            archivedAt: status === 'ARQUIVADO' ? isoDaysFromNow(-1) : undefined,
+            version: 1,
+        });
+        if (transferred) {
+            assignments.push({
+                id: openingAssignmentId,
+                protocolId: id,
+                unitId: originUnitId,
+                assigneeId: creator,
+                startedAt: createdAt,
+                receivedAt: createdAt,
+                receivedById: creator,
+                endedAt: currentAssignmentStartedAt,
+            });
+        }
+        assignments.push({
+            id: assignmentId,
+            protocolId: id,
+            unitId,
+            assigneeId,
+            startedAt: currentAssignmentStartedAt,
+            receivedAt: assigneeId ? currentAssignmentStartedAt : undefined,
+            receivedById: assigneeId ? assigneeId : undefined,
+        });
+        events.push({
+            id: `ev-open-${n}`,
+            protocolId: id,
+            kind: 'ABERTURA',
+            actorUserId: creator,
+            actorUnitId: originUnitId,
+            toUnitId: originUnitId,
+            toUserId: transferred ? creator : assigneeId,
+            assignmentId: openingAssignmentId,
+            phaseId: phases[0].id,
+            nextStatus: 'CADASTRADO',
+            createdAt,
+        });
+        if (currentPhaseIndex >= 1) {
+            events.push({
+                id: `ev-phase-analysis-${n}`,
+                protocolId: id,
+                kind: 'FASE_AVANCADA',
+                actorUserId: creator,
+                actorUnitId: originUnitId,
+                assignmentId: openingAssignmentId,
+                phaseId: phases[1].id,
+                message: 'Triagem concluída e processo encaminhado para análise.',
+                previousStatus: 'CADASTRADO',
+                nextStatus: 'EM_ANDAMENTO',
+                createdAt: isoDaysFromNow(-Math.max(n, 2)),
+            });
+        }
+        if (transferred) {
+            events.push({
+                id: `ev-move-${n}`,
+                protocolId: id,
+                kind: 'TRAMITACAO',
+                actorUserId: creator,
+                actorUnitId: originUnitId,
+                fromUnitId: originUnitId,
+                toUnitId: unitId,
+                fromUserId: creator,
+                toUserId: assigneeId,
+                assignmentId,
+                message: `Encaminhado para ${units.find((unit) => unit.id === unitId)?.name ?? 'a unidade responsável'}.`,
+                previousStatus: 'CADASTRADO',
+                nextStatus: 'EM_ANDAMENTO',
+                createdAt: currentAssignmentStartedAt,
+            });
+        }
+        if (assigneeId) {
+            events.push({
+                id: `ev-ack-${n}`,
+                protocolId: id,
+                kind: 'RECEBIMENTO',
+                actorUserId: assigneeId,
+                actorUnitId: unitId,
+                assignmentId,
+                createdAt: currentAssignmentStartedAt,
+            });
+        }
+        if (currentPhaseIndex >= 2) {
+            events.push({
+                id: `ev-phase-completion-${n}`,
+                protocolId: id,
+                kind: 'FASE_AVANCADA',
+                actorUserId: assigneeId ?? creator,
+                actorUnitId: unitId,
+                assignmentId,
+                phaseId: phases[2].id,
+                message: 'Análise concluída e processo encaminhado para conclusão.',
+                previousStatus: 'EM_ANDAMENTO',
+                nextStatus: 'EM_ANDAMENTO',
+                createdAt: isoDaysFromNow(-3),
+            });
+            events.push({
+                id: `ev-done-${n}`,
+                protocolId: id,
+                kind: 'CONCLUSAO',
+                actorUserId: assigneeId ?? creator,
+                actorUnitId: unitId,
+                assignmentId,
+                phaseId: phases[2].id,
+                message: 'Demanda analisada e concluída.',
+                previousStatus: 'EM_ANDAMENTO',
+                nextStatus: 'CONCLUIDO',
+                createdAt: isoDaysFromNow(-2),
+            });
+        }
+        if (status === 'ARQUIVADO') {
+            events.push({
+                id: `ev-arc-${n}`,
+                protocolId: id,
+                kind: 'ARQUIVAMENTO',
+                actorUserId: assigneeId ?? creator,
+                actorUnitId: unitId,
+                assignmentId,
+                previousStatus: 'CONCLUIDO',
+                nextStatus: 'ARQUIVADO',
+                createdAt: isoDaysFromNow(-1),
+            });
+        }
     };
     add(1, 'Reposição de materiais de expediente', 'pt-buy', 'u-prot', 'usr-clara', 'CADASTRADO', 2);
     add(2, 'Pagamento de fornecimento de água', 'pt-pay', 'u-fin', undefined, 'EM_ANDAMENTO', -2);
@@ -92,7 +242,7 @@ export function seedDatabase(): Database {
     add(6, 'Requerimento de férias', 'pt-serv', 'u-adm', 'usr-bruno', 'EM_ANDAMENTO');
     add(7, 'Solicitação de manutenção predial', 'pt-admin', 'u-edu', 'usr-joana', 'EM_ANDAMENTO', -1);
     add(8, 'Pagamento de material didático', 'pt-pay', 'u-fin', 'usr-rafael', 'EM_ANDAMENTO', 3);
-    add(9, 'Aquisição de equipamentos de rede', 'pt-buy', 'u-adm', undefined, 'CADASTRADO', 7);
+    add(9, 'Aquisição de equipamentos de rede', 'pt-buy', 'u-adm', undefined, 'EM_ANDAMENTO', 7);
     add(10, 'Informação sobre licitação', 'pt-info', 'u-prot', 'usr-clara', 'CONCLUIDO');
     add(11, 'Análise de contrato de locação', 'pt-contract', 'u-jur', 'usr-luisa', 'ARQUIVADO');
     add(12, 'Solicitação de mobiliário escolar', 'pt-buy', 'u-edu', 'usr-joana', 'EM_ANDAMENTO', 2);
@@ -100,22 +250,97 @@ export function seedDatabase(): Database {
     add(14, 'Pagamento de serviços de tecnologia', 'pt-pay', 'u-fin', 'usr-rafael', 'EM_ANDAMENTO', 9);
     add(15, 'Pedido de cópia documental', 'pt-info', 'u-prot', 'usr-clara', 'EM_ANDAMENTO', 5);
     add(16, 'Solicitação de treinamento', 'pt-admin', 'u-adm', 'usr-bruno', 'EM_ANDAMENTO');
-    add(17, 'Análise de convênio educacional', 'pt-contract', 'u-jur', undefined, 'CADASTRADO', 14);
-    add(18, 'Compra de toners', 'pt-buy', 'u-prot', 'usr-clara', 'EM_ANDAMENTO', 1);
+    add(17, 'Análise de convênio educacional', 'pt-contract', 'u-jur', undefined, 'EM_ANDAMENTO', 14);
+    add(18, 'Compra de toners', 'pt-buy', 'u-fin', undefined, 'EM_ANDAMENTO', 1, 'usr-admin');
     add(19, 'Atualização cadastral pendente de ciência', 'pt-admin', 'u-adm', 'usr-bruno', 'EM_ANDAMENTO', 6);
-    add(20, 'Organização de arquivo físico', 'pt-admin', 'u-edu', 'usr-joana', 'CADASTRADO');
+    add(20, 'Organização de arquivo físico', 'pt-admin', 'u-edu', 'usr-joana', 'EM_ANDAMENTO');
     const pendingAcknowledgement = assignments.find((assignment) => assignment.id === 'as-19')!;
     pendingAcknowledgement.receivedAt = undefined;
     pendingAcknowledgement.receivedById = undefined;
     const acknowledgementEvent = events.findIndex((event) => event.id === 'ev-ack-19');
     if (acknowledgementEvent >= 0)
         events.splice(acknowledgementEvent, 1);
-    // Um histórico com passagens por três unidades para demonstrar a linha do tempo.
-    const trail = protocols.find((p) => p.id === 'pr-5')!;
-    const current = assignments.find((a) => a.id === trail.currentAssignmentId)!;
-    current.startedAt = isoDaysFromNow(-1);
-    assignments.push({ id: 'as-5a', protocolId: 'pr-5', unitId: 'u-prot', assigneeId: 'usr-clara', startedAt: isoDaysFromNow(-12), receivedAt: isoDaysFromNow(-12), receivedById: 'usr-clara', endedAt: isoDaysFromNow(-9) }, { id: 'as-5b', protocolId: 'pr-5', unitId: 'u-adm', assigneeId: 'usr-bruno', startedAt: isoDaysFromNow(-9), receivedAt: isoDaysFromNow(-8), receivedById: 'usr-bruno', endedAt: isoDaysFromNow(-1) });
-    events.push({ id: 'ev-5a', protocolId: 'pr-5', kind: 'TRAMITACAO', actorUserId: 'usr-clara', actorUnitId: 'u-prot', fromUnitId: 'u-prot', toUnitId: 'u-adm', fromUserId: 'usr-clara', toUserId: 'usr-bruno', message: 'Encaminho para providências administrativas.', createdAt: isoDaysFromNow(-9) }, { id: 'ev-5b', protocolId: 'pr-5', kind: 'TRAMITACAO', actorUserId: 'usr-bruno', actorUnitId: 'u-adm', fromUnitId: 'u-adm', toUnitId: 'u-jur', fromUserId: 'usr-bruno', toUserId: 'usr-luisa', message: 'Solicito análise jurídica.', createdAt: isoDaysFromNow(-1) });
+    // Fila sem responsável: demonstra troca de unidade, fases completas e destino estrutural.
+    const queueDemo = protocols.find((protocol) => protocol.id === 'pr-18')!;
+    const queueAssignment = assignments.find((assignment) => assignment.id === queueDemo.currentAssignmentId)!;
+    const queueOriginAssignment = assignments.find((assignment) => assignment.id === 'as-18-origin')!;
+    const queueMovement = events.find((event) => event.id === 'ev-move-18')!;
+    queueDemo.currentPhaseId = phases[2].id;
+    queueAssignment.startedAt = isoDaysFromNow(-0.02);
+    queueOriginAssignment.endedAt = queueAssignment.startedAt;
+    queueMovement.createdAt = queueAssignment.startedAt;
+    queueMovement.message = 'Encaminhado para análise da unidade financeira.';
+    events.push({
+        id: 'ev-phase-completion-18',
+        protocolId: queueDemo.id,
+        kind: 'FASE_AVANCADA',
+        actorUserId: 'usr-admin',
+        actorUnitId: 'u-prot',
+        assignmentId: queueOriginAssignment.id,
+        phaseId: phases[2].id,
+        message: 'Análise concluída e processo encaminhado para conclusão.',
+        previousStatus: 'EM_ANDAMENTO',
+        nextStatus: 'EM_ANDAMENTO',
+        createdAt: isoDaysFromNow(-0.04),
+    });
+
+    // Histórico com passagens por três unidades para demonstrar consulta após tramitação.
+    const trail = protocols.find((protocol) => protocol.id === 'pr-5')!;
+    const trailCurrent = assignments.find((assignment) => assignment.id === trail.currentAssignmentId)!;
+    const trailOrigin = assignments.find((assignment) => assignment.id === 'as-5-origin')!;
+    trail.createdAt = isoDaysFromNow(-12);
+    trailCurrent.startedAt = isoDaysFromNow(-1);
+    trailCurrent.receivedAt = isoDaysFromNow(-1);
+    trailCurrent.receivedById = 'usr-luisa';
+    trailOrigin.startedAt = trail.createdAt;
+    trailOrigin.receivedAt = trail.createdAt;
+    trailOrigin.receivedById = 'usr-clara';
+    trailOrigin.endedAt = isoDaysFromNow(-9);
+    const trailOpening = events.find((event) => event.id === 'ev-open-5')!;
+    trailOpening.createdAt = trail.createdAt;
+    const trailAnalysis = events.find((event) => event.id === 'ev-phase-analysis-5')!;
+    trailAnalysis.createdAt = isoDaysFromNow(-10);
+    for (const eventId of ['ev-move-5', 'ev-ack-5']) {
+        const index = events.findIndex((event) => event.id === eventId);
+        if (index >= 0) events.splice(index, 1);
+    }
+    assignments.push({
+        id: 'as-5b',
+        protocolId: trail.id,
+        unitId: 'u-adm',
+        assigneeId: 'usr-bruno',
+        startedAt: isoDaysFromNow(-9),
+        receivedAt: isoDaysFromNow(-8),
+        receivedById: 'usr-bruno',
+        endedAt: isoDaysFromNow(-1),
+    });
+    events.push({
+        id: 'ev-5a',
+        protocolId: trail.id,
+        kind: 'TRAMITACAO',
+        actorUserId: 'usr-clara',
+        actorUnitId: 'u-prot',
+        fromUnitId: 'u-prot',
+        toUnitId: 'u-adm',
+        fromUserId: 'usr-clara',
+        toUserId: 'usr-bruno',
+        assignmentId: 'as-5b',
+        message: 'Encaminho para providências administrativas.',
+        createdAt: isoDaysFromNow(-9),
+    }, {
+        id: 'ev-5b',
+        protocolId: trail.id,
+        kind: 'TRAMITACAO',
+        actorUserId: 'usr-bruno',
+        actorUnitId: 'u-adm',
+        fromUnitId: 'u-adm',
+        toUnitId: 'u-jur',
+        fromUserId: 'usr-bruno',
+        toUserId: 'usr-luisa',
+        assignmentId: trailCurrent.id,
+        message: 'Solicito análise jurídica.',
+        createdAt: isoDaysFromNow(-1),
+    });
     const documents: AppDocument[] = Array.from({ length: 6 }, (_, index) => ({ id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: documentTypes[index % 4].id, protocolId: index < 4 ? `pr-${index + 1}` : undefined, movementEventId: index < 4 ? `ev-open-${index + 1}` : undefined, subject: ['Resposta preliminar', 'Solicitação de empenho', 'Manifestação técnica', 'Despacho de encaminhamento', 'Memorando interno', 'Parecer administrativo'][index], body: 'Documento de demonstração do Fluxo Público.\n\nO conteúdo preserva parágrafos e quebras de linha para impressão.', unitId: protocols[index].currentUnitId, authorUserId: protocols[index].currentAssigneeId ?? 'usr-clara', createdAt: isoDaysFromNow(-index - 1) }));
     documents.filter((d) => d.protocolId).forEach((d) => events.push({ id: `ev-doc-${d.id}`, protocolId: d.protocolId!, kind: 'DOCUMENTO_CRIADO', actorUserId: d.authorUserId, actorUnitId: d.unitId, relatedDocumentId: d.id, createdAt: d.createdAt }));
     return { schemaVersion: 5, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 6 }, units, users, memberships, auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };

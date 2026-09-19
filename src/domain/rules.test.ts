@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { canView, isDueSoon, isOverdue } from './rules'
+import { canAct, canView, isDueSoon, isOverdue } from './rules'
 import { seedDatabase } from '../mocks/seed'
 import { api } from '../services/api'
 import { DATABASE_KEY, loadDb, saveDb, StorageError, storageErrorMessage } from '../storage/database'
@@ -13,9 +13,54 @@ describe('regras do MVP', () => {
   it('calcula a janela de 24 horas sem incluir prazo atrasado', () => {
     const db = seedDatabase(); expect(isDueSoon(db.protocols.find((p) => p.id === 'pr-4')!)).toBe(true); expect(isDueSoon(db.protocols.find((p) => p.id === 'pr-2')!)).toBe(false)
   })
-  it('mantém visibilidade de quem participou do histórico', () => {
+  it('mantém visibilidade de quem participou do histórico fora da unidade selecionada', async () => {
     const db = seedDatabase(); const protocol = db.protocols.find((p) => p.id === 'pr-5')!
-    expect(canView(db, protocol, { userId: 'usr-bruno', activeUnitId: 'u-adm' })).toBe(true)
+    const ctx = { userId: 'usr-bruno', activeUnitId: 'u-adm', scopeUnitId: 'u-adm' }
+    expect(canView(db, protocol, ctx)).toBe(true)
+    expect(canAct(db, protocol, ctx)).toBe(false)
+    await expect(api.getProtocol(ctx, protocol.id)).resolves.toMatchObject({ protocol: { id: protocol.id } })
+  })
+  it('opera pela unidade secundária sem alterar a unidade principal dos usuários', async () => {
+    const db = seedDatabase()
+    db.memberships.push({
+      id: 'membership-clara-adm',
+      userId: 'usr-clara',
+      unitId: 'u-adm',
+      role: 'OPERADOR',
+      title: 'Apoio administrativo',
+      startsAt: new Date(Date.now() - 1000).toISOString(),
+      active: true,
+    })
+    saveDb(db)
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-adm', scopeUnitId: 'u-adm' }
+
+    const created = await api.createProtocol(ctx, {
+      typeId: 'pt-info',
+      subject: 'Processo criado em unidade secundária',
+      description: 'Validação do vínculo operacional sem troca da unidade principal.',
+      interestedPersonId: 'p-1',
+      assigneeId: 'usr-clara',
+    })
+    expect(created).toMatchObject({
+      originUnitId: 'u-adm',
+      currentUnitId: 'u-adm',
+      currentAssigneeId: 'usr-clara',
+    })
+
+    const forwarded = await api.forward(ctx, created.id, created.version, {
+      unitId: 'u-adm',
+      assigneeId: 'usr-admin',
+      message: 'Designação para administrador com vínculo secundário.',
+    })
+    expect(forwarded.currentAssigneeId).toBe('usr-admin')
+
+    const queue = loadDb().protocols.find((protocol) => protocol.id === 'pr-9')!
+    const assumed = await api.assume(ctx, queue.id, queue.version)
+    const persisted = loadDb()
+    expect(assumed.currentAssigneeId).toBe('usr-clara')
+    expect(canAct(persisted, assumed, ctx)).toBe(true)
+    expect(persisted.users.find((user) => user.id === 'usr-clara')?.unitId).toBe('u-prot')
+    expect(persisted.users.find((user) => user.id === 'usr-admin')?.unitId).toBe('u-prot')
   })
   it('usa o responsável configurado na abertura e preserva as observações', async () => {
     const db = seedDatabase()
@@ -173,7 +218,7 @@ describe('filtros avançados de processos', () => {
   it('filtra processos pela unidade atual selecionada', async () => {
     const result = await api.listProtocols(admin, { tab: 'all', unitId: 'u-fin' })
     expect(result.items.every((process) => process.currentUnitId === 'u-fin')).toBe(true)
-    expect(result.total).toBe(3)
+    expect(result.total).toBe(4)
   })
 
   it('combina situação, tipo, credor, número, descrição e ausência de anexos', async () => {
@@ -196,7 +241,7 @@ describe('filtros avançados de processos', () => {
   })
 
   it('lista os processos em que o usuário já participou', async () => {
-    const result = await api.listProtocols({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, { tab: 'participated', pageSize: 30 })
+    const result = await api.listProtocols({ userId: 'usr-bruno', activeUnitId: 'u-adm', scopeUnitId: 'u-adm' }, { tab: 'participated', pageSize: 30 })
     expect(result.items.some((process) => process.id === 'pr-5')).toBe(true)
     expect(result.items.every((process) => loadDb().events.some((event) => event.protocolId === process.id && [event.actorUserId, event.toUserId, event.fromUserId].includes('usr-bruno')))).toBe(true)
   })
@@ -315,6 +360,16 @@ describe('contexto de unidade em processos', () => {
     await expect(api.assign({ userId: 'usr-admin', activeUnitId: 'u-fin' }, protocol.id, protocol.version, 'usr-clara')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 
+  it('recusa edição de processo concluído sem alterar seus dados', async () => {
+    const protocol = loadDb().protocols.find((item) => item.id === 'pr-10')!
+    const original = { subject: protocol.subject, description: protocol.description, version: protocol.version }
+
+    await expect(api.updateProtocol({ userId: 'usr-admin', activeUnitId: protocol.currentUnitId }, protocol.id, protocol.version, {
+      subject: 'Assunto alterado indevidamente', description: 'Descrição alterada indevidamente.', dueAt: protocol.dueAt,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE' })
+
+    expect(loadDb().protocols.find((item) => item.id === protocol.id)).toMatchObject(original)
+  })
   it('recusa tramitação por operador com contexto diferente de seu vínculo', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
     await expect(api.forward({ userId: 'usr-clara', activeUnitId: 'u-fin' }, protocol.id, protocol.version, {
@@ -460,6 +515,7 @@ describe('fluxos e fases de processo', () => {
     expect(protocol.currentPhaseId).toBe(phase.id)
     expect(protocol.flowSnapshot).toMatchObject({ flowId: flow.id, version: 1 })
     expect(protocol.flowSnapshot?.phases).toEqual([expect.objectContaining({ phaseId: phase.id, code: 'VALIDACAO_TECNICA' })])
+    expect(loadDb().events.find((event) => event.protocolId === protocol.id && event.kind === 'ABERTURA')?.phaseId).toBe(phase.id)
   })
 
   it('reaproveita fluxo órfão ao criar a primeira etapa e o remove ao limpar o fluxo', async () => {
@@ -514,7 +570,10 @@ describe('execução das fases do processo', () => {
 
     expect(advanced.currentPhaseId).toBe('phase-analysis')
     expect(persisted.events.some((event) => event.protocolId === protocol.id && event.kind === 'FASE_AVANCADA')).toBe(true)
-    expect(persisted.events.find((event) => event.protocolId === protocol.id && event.kind === 'FASE_AVANCADA')?.checklist).toEqual([expect.objectContaining({ text: 'Conferir dados de abertura', checked: true })])
+    expect(persisted.events.find((event) => event.protocolId === protocol.id && event.kind === 'FASE_AVANCADA')).toMatchObject({
+      phaseId: 'phase-analysis',
+      checklist: [expect.objectContaining({ text: 'Conferir dados de abertura', checked: true })],
+    })
     await expect(api.returnPhase(ctx, protocol.id, advanced.version, '')).rejects.toMatchObject({ code: 'VALIDATION' })
     await expect(api.returnPhase(ctx, protocol.id, advanced.version, 'Revisar abertura.')).resolves.toMatchObject({ currentPhaseId: 'phase-triage' })
   })
@@ -625,6 +684,7 @@ describe('modos do fluxo no tipo de processo', () => {
     expect(phaseEvent).toMatchObject({
       fromUnitId: 'u-prot',
       toUnitId: 'u-adm',
+      phaseId: 'phase-analysis',
       nextStatus: 'EM_ANDAMENTO',
     })
     expect(persisted.assignments.filter((assignment) => assignment.protocolId === protocol.id)).toHaveLength(2)
@@ -819,7 +879,14 @@ describe('escopo de estruturas', () => {
     expect(canView(database, finance, { userId: 'usr-admin', activeUnitId: 'u-prot', scopeUnitId: 'u-prot' })).toBe(false)
 
     const result = await api.listProtocols({ userId: 'usr-admin', activeUnitId: 'u-prot', scopeUnitId: 'u-prot' }, { tab: 'all', pageSize: 50 })
-    expect(result.items.every((protocol) => protocol.currentUnitId === 'u-prot')).toBe(true)
+    expect(result.items.some((protocol) => protocol.id === 'pr-18' && protocol.currentUnitId === 'u-fin')).toBe(true)
+    expect(result.items.every((protocol) =>
+      protocol.currentUnitId === 'u-prot' ||
+      database.events.some((event) =>
+        event.protocolId === protocol.id &&
+        (event.actorUserId === 'usr-admin' || event.toUserId === 'usr-admin' || event.fromUserId === 'usr-admin'),
+      ),
+    )).toBe(true)
   })
 })
 

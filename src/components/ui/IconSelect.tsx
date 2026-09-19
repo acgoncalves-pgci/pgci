@@ -1,6 +1,7 @@
 import type { ChangeEventHandler } from 'react'
 import {
   Archive,
+  ArrowLeftRightIcon,
   ArrowRight,
   BadgeInfo,
   Ban,
@@ -13,6 +14,7 @@ import {
   CheckCircle2,
   CircleCheck,
   CircleDollarSign,
+  CircleDollarSignIcon,
   CircleDot,
   CircleHelp,
   CircleX,
@@ -49,8 +51,11 @@ import {
   Scale,
   ScanSearch,
   ScrollText,
+  Search,
   Send,
+  Share2Icon,
   ShieldCheck,
+  Signature,
   Stamp,
   Store,
   Tags,
@@ -64,6 +69,12 @@ import { Select } from './Select'
 
 export const iconOptions: Array<{ value: string; label: string; Icon: LucideIcon }> = [
   { value: 'FileText', label: 'Documento', Icon: FileText },
+  { value: 'Search', label: 'Buscar', Icon: Search },
+  { value: 'ArrowLeftRightIcon', label: 'Movimentação', Icon: ArrowLeftRightIcon },
+  { value: 'Signature', label: 'Assinatura', Icon: Signature },
+  { value: 'Handshake', label: 'Negociação', Icon: Handshake },
+  { value: 'CircleDollarSignIcon', label: 'Valores', Icon: CircleDollarSignIcon },
+  { value: 'Share2Icon', label: 'Compartilhar', Icon: Share2Icon },
   { value: 'ClipboardList', label: 'Lista', Icon: ClipboardList },
   { value: 'ClipboardPen', label: 'Formulário', Icon: ClipboardPen },
   { value: 'Clipboard', label: 'Prancheta', Icon: Clipboard },
