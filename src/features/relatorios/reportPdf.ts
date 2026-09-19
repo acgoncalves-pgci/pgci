@@ -2,12 +2,13 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
-import type { Database, Protocol } from '../../domain/model';
+import type { Database, Protocol, ProtocolEvent } from '../../domain/model';
 import { eventLabel, statusLabel } from '../../domain/model';
 import { dateTime, money } from '../../lib/format';
 import { readInstitutionSettings } from '../../lib/institution';
 import type { InstitutionSettings } from '../../lib/institution';
 import { consultationUrl } from './reportData';
+import { api } from '../../services/api';
 
 const unitName = (db: Database, id?: string) => db.units.find((u) => u.id === id)?.name ?? 'Não informado';
 const userName = (db: Database, id?: string) => db.users.find((u) => u.id === id)?.name ?? 'Não designado';
@@ -22,8 +23,8 @@ function loadFonts() {
     return btoa(binary);
   })).catch((error) => { fonts = undefined; throw error; });
 }
-async function newPdf() {
-  const doc = new jsPDF({ format: 'a4', compress: true });
+async function newPdf(format: 'a4' | [number, number] = 'a4', orientation: 'portrait' | 'landscape' = 'portrait') {
+  const doc = new jsPDF({ format, orientation, unit: 'mm', compress: true });
   const [regular, bold] = await loadFonts();
   doc.addFileToVFS('Roboto-Regular.ttf', regular);
   doc.addFileToVFS('Roboto-Bold.ttf', bold);
@@ -165,4 +166,237 @@ export async function downloadProductivity(db: Database, protocols: Protocol[], 
   paragraph(doc, 'Sugestões para melhoria do desempenho e produtividade setorial', suggestions, tableEnd(doc) + 3);
   await footer(doc, settings);
   doc.save('relatorio_produtividade.pdf');
+}
+
+
+const processEvents = (db: Database, protocol: Protocol) => db.events
+  .filter((event) => event.protocolId === protocol.id)
+  .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+const latestMovement = (db: Database, protocol: Protocol) => processEvents(db, protocol)
+  .filter((event) => ['TRAMITACAO', 'REABERTURA', 'ABERTURA'].includes(event.kind))
+  .at(-1);
+
+const movementNumber = (db: Database, protocol: Protocol, event: ProtocolEvent) =>
+  processEvents(db, protocol).filter((item) => ['ABERTURA', 'TRAMITACAO', 'REABERTURA'].includes(item.kind) && item.createdAt <= event.createdAt).length;
+
+export function savePdfBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function simplePageFooter(doc: jsPDF, protocol: Protocol, generatedAt: string) {
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    doc.setFont('Roboto', 'normal').setFontSize(6.5).setTextColor(80);
+    doc.text(`${protocol.number} · Gerado em ${generatedAt}`, 12, 290);
+    doc.text(`Pág. ${page} de ${pages}`, 198, 290, { align: 'right' });
+  }
+}
+
+export async function createMovementReceiptPdf(db: Database, protocol: Protocol, requestedEvent?: ProtocolEvent) {
+  const settings = readInstitutionSettings();
+  const event = requestedEvent ?? latestMovement(db, protocol);
+  if (!event) throw new Error('Não existe movimentação disponível para gerar o comprovante.');
+  const doc = await newPdf();
+  doc.setProperties({ title: `Comprovante de tramitação ${protocol.number}` });
+  const startY = await timbre(doc, db, settings);
+  autoTable(doc, {
+    startY,
+    theme: 'grid',
+    head: [['COMPROVANTE DE TRAMITAÇÃO']],
+    body: [[`PROCESSO Nº ${protocol.number}`]],
+    styles: { ...tableStyles, halign: 'center' },
+    headStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold', fontSize: 11 },
+    margin: { left: 12, right: 12, top: 18, bottom: 26 },
+  });
+  const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
+  const interested = db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado';
+  autoTable(doc, {
+    startY: tableEnd(doc),
+    theme: 'grid',
+    body: [
+      ['Data/Hora da tramitação:', dateTime(event.createdAt), 'Movimentação nº:', String(movementNumber(db, protocol, event)).padStart(2, '0')],
+      ['Tipo de processo:', db.protocolTypes.find((type) => type.id === protocol.typeId)?.name ?? 'Não informado', 'Interessado:', interested],
+      ['Fase:', phase?.name ?? eventLabel[event.kind], 'Situação:', statusLabel[event.nextStatus ?? protocol.status]],
+      ['Origem (unidade / responsável):', `${unitName(db, event.fromUnitId ?? event.actorUnitId)}\n${userName(db, event.fromUserId ?? event.actorUserId)}`, '', ''],
+      ['Destino (unidade / responsável):', `${unitName(db, event.toUnitId ?? protocol.currentUnitId)}\n${userName(db, event.toUserId ?? protocol.currentAssigneeId)}`, '', ''],
+      ['Prazo para atendimento:', protocol.dueAt ? dateTime(protocol.dueAt) : 'Sem prazo definido', '', ''],
+      ['Despacho / observação:', event.message || eventLabel[event.kind], '', ''],
+    ],
+    styles: { ...tableStyles, valign: 'top' },
+    columnStyles: { 0: { cellWidth: 42, fontStyle: 'bold' }, 1: { cellWidth: 52 }, 2: { cellWidth: 34, fontStyle: 'bold' }, 3: { cellWidth: 58 } },
+    didParseCell: (data) => {
+      if ([3, 4, 5, 6].includes(data.row.index) && data.column.index === 1) data.cell.colSpan = 3;
+      if (data.row.index === 6) data.cell.styles.minCellHeight = 20;
+    },
+    margin: { left: 12, right: 12, top: 18, bottom: 26 },
+  });
+  const signatureY = Math.min(250, tableEnd(doc) + 14);
+  doc.setFontSize(7).setTextColor(40);
+  doc.text('Responsável pela tramitação', 12, signatureY);
+  doc.text('Recebido em ____/____/________', 112, signatureY);
+  doc.setTextColor(110).setFontSize(6.5);
+  doc.text('Documento gerado eletronicamente pelo sistema de processos.', 105, signatureY + 8, { align: 'center' });
+  simplePageFooter(doc, protocol, dateTime(new Date().toISOString()));
+  return doc;
+}
+
+export async function downloadMovementReceipt(db: Database, protocol: Protocol, event?: ProtocolEvent) {
+  const doc = await createMovementReceiptPdf(db, protocol, event);
+  doc.save(`comprovante_tramitacao_${protocol.number}.pdf`);
+}
+
+export async function createProcessLabelPdf(db: Database, protocol: Protocol) {
+  const settings = readInstitutionSettings();
+  const width = Math.min(300, Math.max(70, (Number(settings.labelWidth) || 425) * 25.4 / 72));
+  const height = Math.min(200, Math.max(45, (Number(settings.labelHeight) || 283) * 25.4 / 72));
+  const doc = await newPdf([width, height], width >= height ? 'landscape' : 'portrait');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const scaleX = pageWidth / 150;
+  const scaleY = pageHeight / 100;
+  const x = (value: number) => value * scaleX;
+  const y = (value: number) => value * scaleY;
+  const type = db.protocolTypes.find((item) => item.id === protocol.typeId);
+  const status = statusLabel[protocol.status];
+  const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
+  const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
+
+  doc.setProperties({ title: `Etiqueta do processo ${protocol.number}` });
+  doc.setTextColor(12);
+  if (settings.logoDataUrl) {
+    const image = doc.getImageProperties(settings.logoDataUrl);
+    const ratio = image.width / image.height;
+    const maxWidth = x(27);
+    const maxHeight = y(12);
+    const imageWidth = Math.min(maxWidth, maxHeight * ratio);
+    const imageHeight = imageWidth / ratio;
+    doc.addImage(settings.logoDataUrl, 'PNG', x(5), y(5), imageWidth, imageHeight);
+  } else {
+    doc.setFont('Roboto', 'bold').setFontSize(9).text(settings.shortName || db.organization.abbreviation, x(5), y(10));
+  }
+
+  doc.setFont('Roboto', 'bold').setFontSize(15).text('PROCESSO', x(145), y(9), { align: 'right' });
+  doc.setFont('Roboto', 'normal').setFontSize(9);
+  const typeLabel = type?.name?.toLocaleUpperCase('pt-BR') ?? 'TIPO NÃO INFORMADO';
+  doc.text(doc.splitTextToSize(typeLabel, x(64)).slice(0, 2), x(145), y(14), { align: 'right' });
+
+  doc.setFont('Roboto', 'bold').setFontSize(27).text(protocol.number, x(5), y(31));
+  doc.setFont('Roboto', 'normal').setFontSize(9.5);
+  doc.text(dateTime(protocol.createdAt), x(5), y(40));
+  doc.text(unitName(db, protocol.currentUnitId), x(5), y(46));
+  doc.text(userName(db, protocol.currentAssigneeId), x(5), y(52));
+  doc.setFont('Roboto', 'bold').setFontSize(9.5);
+  doc.text(doc.splitTextToSize(protocol.subject, x(83)).slice(0, 2), x(5), y(61));
+
+  const qrSize = Math.min(x(36), y(36));
+  doc.addImage(qr, 'PNG', pageWidth - x(41), y(21), qrSize, qrSize);
+  doc.setDrawColor(18).setLineWidth(.35).line(x(4.5), y(66), pageWidth - x(4.5), y(66));
+  doc.setFont('Roboto', 'normal').setTextColor(85).setFontSize(9.5).text(status, x(5), y(72));
+  return doc;
+}
+export async function downloadProcessLabel(db: Database, protocol: Protocol) {
+  const doc = await createProcessLabelPdf(db, protocol);
+  doc.save(`etiqueta_${protocol.number}.pdf`);
+}
+
+async function createDossierSummaryPdf(db: Database, protocol: Protocol) {
+  const settings = readInstitutionSettings();
+  const doc = await newPdf();
+  const generatedAt = dateTime(new Date().toISOString());
+  const attachments = db.attachments.filter((attachment) => attachment.protocolId === protocol.id);
+  doc.setProperties({ title: `Dossiê do processo ${protocol.number}` });
+  doc.setDrawColor(175).setLineWidth(.25).rect(12, 10, 186, 277).rect(14, 12, 182, 273);
+  await timbre(doc, db, settings);
+  doc.setFont('Roboto', 'normal').setTextColor(55).setFontSize(13).text('DOSSIÊ DO PROCESSO', 105, 160, { align: 'center' });
+  doc.setFont('Roboto', 'bold').setTextColor(10).setFontSize(23).text(`Processo ${protocol.number}`, 105, 178, { align: 'center' });
+  doc.setFont('Roboto', 'normal').setTextColor(70).setFontSize(10);
+  doc.text(`${attachments.length} anexo(s) integrado(s) a este dossiê`, 105, 190, { align: 'center' });
+  doc.text(`Gerado em ${generatedAt}`, 105, 199, { align: 'center' });
+  doc.setFontSize(7).text('Documento gerado eletronicamente pelo sistema de processos.', 105, 267, { align: 'center' });
+
+  doc.addPage();
+  const startY = await timbre(doc, db, settings);
+  autoTable(doc, {
+    startY, theme: 'grid', head: [['MOVIMENTAÇÃO DO PROCESSO']],
+    body: [[`NÚMERO DO PROCESSO: ${protocol.number}`]],
+    styles: { ...tableStyles, halign: 'center' },
+    headStyles: { fillColor: [58, 58, 58], textColor: 255, fontStyle: 'bold', fontSize: 11 },
+    margin: { left: 12, right: 12, top: 18, bottom: 18 },
+  });
+  autoTable(doc, {
+    startY: tableEnd(doc), theme: 'grid',
+    body: [
+      ['Data/Hora:', dateTime(protocol.createdAt), 'Assunto/Tipo:', db.protocolTypes.find((type) => type.id === protocol.typeId)?.name ?? 'Não informado'],
+      ['Interessado:', db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado', '', ''],
+      ['Descrição:', protocol.description, '', ''],
+    ],
+    styles: { ...tableStyles, valign: 'top' },
+    columnStyles: { 0: { cellWidth: 30, fontStyle: 'bold' }, 1: { cellWidth: 65 }, 2: { cellWidth: 28, fontStyle: 'bold' }, 3: { cellWidth: 63 } },
+    didParseCell: (data) => {
+      if ([1, 2].includes(data.row.index) && data.column.index === 1) data.cell.colSpan = 3;
+    },
+    margin: { left: 12, right: 12, top: 18, bottom: 18 },
+  });
+  const events = processEvents(db, protocol);
+  const movementKinds = new Set(['ABERTURA', 'TRAMITACAO', 'REABERTURA', 'FASE_AVANCADA', 'FASE_DEVOLVIDA', 'CONCLUSAO', 'ARQUIVAMENTO']);
+  paragraph(doc, 'Tramitações', '', tableEnd(doc) + 4);
+  table(doc, ['Data/hora', 'Setor', 'Fase', 'Enviado por', 'Recebido por', 'Descrição', 'Situação'],
+    events.filter((event) => movementKinds.has(event.kind)).map((event) => [
+      dateTime(event.createdAt), unitName(db, event.toUnitId ?? event.actorUnitId),
+      protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)?.name ?? eventLabel[event.kind],
+      userName(db, event.fromUserId ?? event.actorUserId), userName(db, event.toUserId),
+      event.message || eventLabel[event.kind], statusLabel[event.nextStatus ?? protocol.status],
+    ]), tableEnd(doc) + 1);
+  paragraph(doc, 'Ações', '', tableEnd(doc) + 4);
+  table(doc, ['Data/hora', 'Usuário', 'Descrição'], events.map((event) => [dateTime(event.createdAt), userName(db, event.actorUserId), event.message || eventLabel[event.kind]]), tableEnd(doc) + 1);
+  paragraph(doc, 'Anexos', '', tableEnd(doc) + 4);
+  table(doc, ['Descrição', 'Tipo', 'Tamanho', 'Data'], attachments.length
+    ? attachments.map((attachment) => [attachment.filename, attachment.mimeType, `${Math.max(1, Math.ceil(attachment.sizeBytes / 1024))} KB`, dateTime(attachment.createdAt)])
+    : [['Nenhum anexo vinculado', '', '', '']], tableEnd(doc) + 1);
+  simplePageFooter(doc, protocol, generatedAt);
+  return doc;
+}
+
+export async function buildDossier(db: Database, protocol: Protocol) {
+  const summary = await createDossierSummaryPdf(db, protocol);
+  const { PDFDocument } = await import('pdf-lib');
+  const dossier = await PDFDocument.load(summary.output('arraybuffer'));
+  const pdfAttachments = db.attachments.filter((attachment) => attachment.protocolId === protocol.id && attachment.mimeType === 'application/pdf');
+  let integrated = 0;
+  for (const attachment of pdfAttachments) {
+    const blob = await api.getBlob(attachment.blobKey);
+    if (!blob) continue;
+    try {
+      const source = await PDFDocument.load(await blob.arrayBuffer());
+      const pages = await dossier.copyPages(source, source.getPageIndices());
+      pages.forEach((page) => dossier.addPage(page));
+      integrated += 1;
+    } catch {
+      // O anexo continua listado mesmo quando o arquivo não é um PDF válido.
+    }
+  }
+  const bytes = await dossier.save();
+  const timestamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  return {
+    blob: new Blob([bytes], { type: 'application/pdf' }),
+    filename: `dossie_${protocol.number}_${timestamp}.pdf`,
+    integrated,
+  };
+}
+
+export async function downloadDossier(db: Database, protocol: Protocol) {
+  const dossier = await buildDossier(db, protocol);
+  savePdfBlob(dossier.blob, dossier.filename);
+  return dossier;
+}
+
+export async function downloadProcessDetails(db: Database, protocol: Protocol) {
+  return downloadDossier(db, protocol);
 }

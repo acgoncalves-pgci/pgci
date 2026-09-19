@@ -28,7 +28,7 @@ describe('filtros e consulta dos relatórios', () => {
     const result = new URL(consultationUrl(p, 'portal.entidade.gov.br/consulta?entidade=1', true, 'https://sistema.gov.br'));
     expect(() => consultationUrl(p, 'ftp://portal.gov.br', true, 'https://sistema.gov.br')).toThrow();
     expect(result.protocol).toBe('https:'); expect(result.searchParams.get('numero')).toBe(p.number); expect(result.searchParams.get('entidade')).toBe('1');
-    expect(consultationUrl(p, '', true, 'https://sistema.gov.br')).toBe(`https://sistema.gov.br/protocolos/${p.id}`);
-    expect(consultationUrl(p, 'https://portal.gov.br', false, 'https://sistema.gov.br')).toBe(`https://sistema.gov.br/protocolos/${p.id}`);
+    expect(consultationUrl(p, '', true, 'https://sistema.gov.br')).toBe(`https://sistema.gov.br/processos/${p.id}`);
+    expect(consultationUrl(p, 'https://portal.gov.br', false, 'https://sistema.gov.br')).toBe(`https://sistema.gov.br/processos/${p.id}`);
   });
 });

@@ -6,7 +6,7 @@ import { DATABASE_KEY, loadDb, saveDb, StorageError, storageErrorMessage } from 
 
 describe('regras do MVP', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
-  it('considera vencido somente protocolo ativo com prazo no passado', () => {
+  it('considera vencido somente processo ativo com prazo no passado', () => {
     const db = seedDatabase(); const active = db.protocols.find((p) => p.id === 'pr-2')!; const archived = db.protocols.find((p) => p.id === 'pr-11')!
     expect(isOverdue(active)).toBe(true); expect(isOverdue(archived)).toBe(false)
   })
@@ -16,6 +16,37 @@ describe('regras do MVP', () => {
   it('mantém visibilidade de quem participou do histórico', () => {
     const db = seedDatabase(); const protocol = db.protocols.find((p) => p.id === 'pr-5')!
     expect(canView(db, protocol, { userId: 'usr-bruno', activeUnitId: 'u-adm' })).toBe(true)
+  })
+  it('usa o responsável configurado na abertura e preserva as observações', async () => {
+    const db = seedDatabase()
+    const type = db.protocolTypes.find((item) => item.id === 'pt-admin')!
+    type.fieldsConfig = { ...type.fieldsConfig, responsavel: { enabled: true, required: true } }
+    saveDb(db)
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+
+    await expect(api.createProtocol(ctx, {
+      typeId: type.id,
+      subject: 'Processo com responsável',
+      description: 'Descrição do processo.',
+      interestedPersonId: 'p-1',
+    })).rejects.toMatchObject({ code: 'VALIDATION' })
+
+    const protocol = await api.createProtocol(ctx, {
+      typeId: type.id,
+      subject: 'Processo com responsável',
+      description: 'Descrição do processo.',
+      observations: 'Observação registrada na abertura.',
+      interestedPersonId: 'p-1',
+      assigneeId: 'usr-admin',
+    })
+    const persisted = loadDb()
+    const assignment = persisted.assignments.find((item) => item.id === protocol.currentAssignmentId)
+
+    expect(protocol).toMatchObject({
+      currentAssigneeId: 'usr-admin',
+      observations: 'Observação registrada na abertura.',
+    })
+    expect(assignment?.receivedAt).toBeUndefined()
   })
   it('gera números sequenciais mesmo após uma nova leitura do armazenamento', async () => {
     const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
@@ -61,7 +92,7 @@ describe('validação de hierarquia', () => {
   })
 })
 
-describe('tipos de protocolo', () => {
+describe('tipos de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
   it('permite que admin crie tipo com configuração de campos válida', async () => {
     const type = await api.createProtocolType({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
@@ -88,6 +119,40 @@ describe('usuários de demonstração', () => {
     expect(user.unitId).toBe('u-edu')
     expect(user.role).toBe('OPERADOR')
   })
+
+  it('permite administrar acessos por unidade e preserva ao menos um vínculo ativo', async () => {
+    const context = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const created = await api.saveUserMembership(context, 'usr-clara', undefined, {
+      unitId: 'u-adm',
+      role: 'GESTOR',
+      title: 'Coordenadora administrativa',
+    })
+    expect(created).toMatchObject({ userId: 'usr-clara', unitId: 'u-adm', role: 'GESTOR', active: true })
+
+    const updated = await api.saveUserMembership(context, 'usr-clara', created.id, {
+      unitId: 'u-adm',
+      role: 'LEITOR',
+      title: 'Consulta administrativa',
+    })
+    expect(updated).toMatchObject({ role: 'LEITOR', title: 'Consulta administrativa' })
+
+    await api.removeUserMembership(context, 'usr-clara', created.id)
+    const database = loadDb()
+    expect(database.memberships.find((membership) => membership.id === created.id)).toMatchObject({
+      active: false,
+      endsAt: expect.any(String),
+    })
+    expect(database.auditEvents.map((event) => event.action)).toEqual(expect.arrayContaining([
+      'USER_MEMBERSHIP_CREATED',
+      'USER_MEMBERSHIP_UPDATED',
+      'USER_MEMBERSHIP_REMOVED',
+    ]))
+
+    const onlyMembership = database.memberships.find((membership) => membership.userId === 'usr-clara' && membership.active)!
+    await expect(api.removeUserMembership(context, 'usr-clara', onlyMembership.id)).rejects.toMatchObject({
+      code: 'VALIDATION',
+    })
+  })
 })
 
 describe('designação de responsável', () => {
@@ -101,12 +166,39 @@ describe('designação de responsável', () => {
   })
 })
 
-describe('filtros avançados de protocolos', () => {
+describe('filtros avançados de processos', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
-  it('filtra protocolos pela unidade atual selecionada', async () => {
-    const result = await api.listProtocols({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { tab: 'all', unitId: 'u-fin' })
-    expect(result.items.every((protocol) => protocol.currentUnitId === 'u-fin')).toBe(true)
+  const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+
+  it('filtra processos pela unidade atual selecionada', async () => {
+    const result = await api.listProtocols(admin, { tab: 'all', unitId: 'u-fin' })
+    expect(result.items.every((process) => process.currentUnitId === 'u-fin')).toBe(true)
     expect(result.total).toBe(3)
+  })
+
+  it('combina situação, tipo, credor, número, descrição e ausência de anexos', async () => {
+    const result = await api.listProtocols(admin, {
+      tab: 'all',
+      statuses: ['EM_ANDAMENTO'],
+      typeId: 'pt-pay',
+      creditorId: 'p-9',
+      number: '000002',
+      description: 'fornecimento de água',
+      attachments: 'without',
+    })
+    expect(result.items.map((process) => process.id)).toEqual(['pr-2'])
+  })
+
+  it('filtra processos com anexos e calcula a fila sem responsável da unidade', async () => {
+    const result = await api.listProtocols(admin, { tab: 'all', attachments: 'with' })
+    expect(result.items.map((process) => process.id)).toEqual(['pr-1'])
+    expect(result.unassignedInUnit).toBe(1)
+  })
+
+  it('lista os processos em que o usuário já participou', async () => {
+    const result = await api.listProtocols({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, { tab: 'participated', pageSize: 30 })
+    expect(result.items.some((process) => process.id === 'pr-5')).toBe(true)
+    expect(result.items.every((process) => loadDb().events.some((event) => event.protocolId === process.id && [event.actorUserId, event.toUserId, event.fromUserId].includes('usr-bruno')))).toBe(true)
   })
 })
 
@@ -115,6 +207,41 @@ describe('destinatário de documento', () => {
   it('recusa documento com destinatário inexistente', async () => {
     await expect(api.createDocument({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
       typeId: 'dt-oficio', subject: 'Comunicado', body: 'Texto do comunicado.', recipientPersonId: 'p-inexistente'
+    })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+})
+
+describe('itens vinculados à movimentação', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('anexa o documento à movimentação existente e registra somente auditoria', async () => {
+    const before = loadDb()
+    const processEventsBefore = before.events.filter((event) => event.protocolId === 'pr-1')
+    const document = await api.createDocument({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
+      typeId: 'dt-oficio',
+      protocolId: 'pr-1',
+      movementEventId: 'ev-open-1',
+      subject: 'Documento da movimentação',
+      body: 'Conteúdo do documento vinculado.',
+    })
+
+    const after = loadDb()
+    expect(document.movementEventId).toBe('ev-open-1')
+    expect(after.events.filter((event) => event.protocolId === 'pr-1')).toHaveLength(processEventsBefore.length)
+    expect(after.auditEvents).toContainEqual(expect.objectContaining({
+      action: 'DOCUMENT_CREATED',
+      targetType: 'DOCUMENT',
+      targetId: document.id,
+    }))
+  })
+
+  it('recusa vínculo com uma movimentação de outro processo', async () => {
+    await expect(api.createDocument({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
+      typeId: 'dt-oficio',
+      protocolId: 'pr-1',
+      movementEventId: 'ev-open-2',
+      subject: 'Documento inválido',
+      body: 'Conteúdo do documento.',
     })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
 })
@@ -180,10 +307,10 @@ describe('autorização na camada mockada', () => {
     })).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })
-describe('contexto de unidade em protocolos', () => {
+describe('contexto de unidade em processos', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
-  it('recusa designação por admin fora da unidade atual do protocolo', async () => {
+  it('recusa designação por admin fora da unidade atual do processo', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
     await expect(api.assign({ userId: 'usr-admin', activeUnitId: 'u-fin' }, protocol.id, protocol.version, 'usr-clara')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
@@ -204,7 +331,7 @@ describe('contexto de unidade em protocolos', () => {
   })
 })
 describe('cenários de aceite dos dados de demonstração', () => {
-  it('oferece cerca de vinte protocolos e todos os estados de trabalho esperados', () => {
+  it('oferece cerca de vinte processos e todos os estados de trabalho esperados', () => {
     const db = seedDatabase()
     const pendingAcknowledgement = db.protocols.find((protocol) => protocol.id === 'pr-19')!
     const pendingAssignment = db.assignments.find((assignment) => assignment.id === pendingAcknowledgement.currentAssignmentId)!
@@ -231,7 +358,7 @@ describe('cenários de aceite dos dados de demonstração', () => {
     await expect(api.getProtocol({ userId: 'usr-clara', activeUnitId: 'u-prot' }, 'pr-1')).resolves.toMatchObject({ documents: [expect.objectContaining({ protocolId: 'pr-1' })], attachments: [expect.objectContaining({ protocolId: 'pr-1' })] })
   })
 })
-describe('regras avançadas de protocolo', () => {
+describe('regras avançadas de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
   it('recusa encaminhamento que não altera unidade nem responsável', async () => {
@@ -241,17 +368,20 @@ describe('regras avançadas de protocolo', () => {
     })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
 
-  it('registra ciência uma única vez por ciclo de atribuição', async () => {
+  it('marca ciência na atribuição sem criar outra movimentação', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-19')!
+    const before = await api.getProtocol({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, protocol.id)
     const first = await api.acknowledge({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, protocol.id, protocol.version)
     const second = await api.acknowledge({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, protocol.id, first.version)
     const detail = await api.getProtocol({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, protocol.id)
 
     expect(second.version).toBe(first.version)
-    expect(detail.events.filter((event) => event.kind === 'RECEBIMENTO' && event.assignmentId === detail.protocol.currentAssignmentId)).toHaveLength(1)
+    expect(detail.assignment.receivedAt).toBeTruthy()
+    expect(detail.assignment.receivedById).toBe('usr-bruno')
+    expect(detail.events).toHaveLength(before.events.length)
   })
 
-  it('reabre protocolo arquivado removendo datas de encerramento e criando novo ciclo', async () => {
+  it('reabre processo arquivado removendo datas de encerramento e criando novo ciclo', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-11')!
     const reopened = await api.reopen({ userId: 'usr-admin', activeUnitId: 'u-jur' }, protocol.id, protocol.version, {
       unitId: 'u-jur', assigneeId: 'usr-luisa', message: 'Necessária nova análise.'
@@ -265,7 +395,7 @@ describe('regras avançadas de protocolo', () => {
 describe('acesso e inativação', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
-  it('permite ao admin consultar qualquer protocolo e bloqueia operador sem participação', async () => {
+  it('permite ao admin consultar qualquer processo e bloqueia operador sem participação', async () => {
     await expect(api.getProtocol({ userId: 'usr-admin', activeUnitId: 'u-prot' }, 'pr-3')).resolves.toMatchObject({ protocol: { id: 'pr-3' } })
     await expect(api.getProtocol({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, 'pr-3')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
@@ -275,7 +405,7 @@ describe('acesso e inativação', () => {
     await expect(api.updateUnit({ userId: 'usr-admin', activeUnitId: 'u-prot' }, unit.id, { ...unit, active: false })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
 
-  it('bloqueia a inativação de usuário responsável por protocolo ativo', async () => {
+  it('bloqueia a inativação de usuário responsável por processo ativo', async () => {
     const user = loadDb().users.find((item) => item.id === 'usr-bruno')!
     await expect(api.updateUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, user.id, { ...user, active: false })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
@@ -297,10 +427,10 @@ describe('vínculos ativos por unidade', () => {
   })
 })
 
-describe('fluxos e fases de protocolo', () => {
+describe('fluxos e fases de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
-  it('cria fases e um fluxo ordenado, e preserva seu snapshot ao abrir protocolo', async () => {
+  it('cria fases e um fluxo ordenado, e preserva seu snapshot ao abrir processo', async () => {
     const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
     const phase = await api.createPhase(ctx, {
       name: 'Validação técnica',
@@ -325,15 +455,53 @@ describe('fluxos e fases de protocolo', () => {
       active: true,
       fieldsConfig: { interested: { enabled: false, required: false }, creditor: { enabled: false, required: false }, amount: { enabled: false, required: false } },
     })
-    const protocol = await api.createProtocol(ctx, { typeId: type.id, subject: 'Novo protocolo técnico', description: 'Conteúdo da abertura.' })
+    const protocol = await api.createProtocol(ctx, { typeId: type.id, subject: 'Novo processo técnico', description: 'Conteúdo da abertura.' })
 
     expect(protocol.currentPhaseId).toBe(phase.id)
     expect(protocol.flowSnapshot).toMatchObject({ flowId: flow.id, version: 1 })
     expect(protocol.flowSnapshot?.phases).toEqual([expect.objectContaining({ phaseId: phase.id, code: 'VALIDACAO_TECNICA' })])
   })
+
+  it('reaproveita fluxo órfão ao criar a primeira etapa e o remove ao limpar o fluxo', async () => {
+    const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const type = await api.createProtocolType(ctx, {
+      name: 'Demanda sem etapas',
+      description: 'Tipo criado para validar a recuperação de fluxo.',
+      color: '#17628b',
+      flowMode: 'SUGGESTED',
+      active: true,
+      fieldsConfig: {
+        interested: { enabled: false, required: false },
+        creditor: { enabled: false, required: false },
+        amount: { enabled: false, required: false },
+        tramitacao: { enabled: true },
+      },
+    })
+    const orphan = await api.createFlow(ctx, {
+      name: `Fluxo — ${type.name}`,
+      version: 1,
+      active: true,
+      startsAt: new Date().toISOString(),
+      stages: [{ phaseId: 'phase-triage', required: true }],
+    })
+
+    const saved = await api.saveProtocolTypeFlow(ctx, type.id, [{ phaseId: 'phase-triage', required: true }])
+    let persisted = loadDb()
+
+    expect(saved.flow.id).toBe(orphan.id)
+    expect(persisted.flows.filter((flow) => flow.name === orphan.name && flow.version === 1)).toHaveLength(1)
+    expect(persisted.protocolTypes.find((item) => item.id === type.id)?.flowId).toBe(orphan.id)
+    expect(persisted.flowPhases.filter((stage) => stage.flowId === orphan.id)).toHaveLength(1)
+
+    await api.clearProtocolTypeFlow(ctx, type.id)
+    persisted = loadDb()
+    expect(persisted.protocolTypes.find((item) => item.id === type.id)?.flowId).toBeUndefined()
+    expect(persisted.flows.some((flow) => flow.id === orphan.id)).toBe(false)
+    expect(persisted.flowPhases.some((stage) => stage.flowId === orphan.id)).toBe(false)
+  })
 })
 
-describe('execução das fases do protocolo', () => {
+describe('execução das fases do processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
   it('bloqueia checklist pendente, avança e registra o evento de fase', async () => {
@@ -355,5 +523,318 @@ describe('execução das fases do protocolo', () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
 
     await expect(api.complete(ctx, protocol.id, protocol.version, 'Encerrar antes do fluxo.')).rejects.toMatchObject({ code: 'INVALID_STATE' })
+  })
+})
+describe('modos do fluxo no tipo de processo', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  const context = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+  const input = {
+    typeId: 'pt-admin',
+    subject: 'Validação do modo de fluxo',
+    description: 'Processo criado para validar a configuração das fases.',
+    interestedPersonId: 'p-1',
+  }
+
+  it('sempre aplica o fluxo obrigatório, mesmo quando a abertura tenta dispensá-lo', async () => {
+    const db = loadDb()
+    const type = db.protocolTypes.find((item) => item.id === input.typeId)!
+    type.flowMode = 'REQUIRED'
+    saveDb(db)
+
+    const protocol = await api.createProtocol(context, { ...input, useSuggestedFlow: false })
+
+    expect(protocol.flowModeSnapshot).toBe('REQUIRED')
+    expect(protocol.currentPhaseId).toBe('phase-triage')
+    expect(protocol.flowSnapshot?.phases.map((phase) => phase.phaseId)).toEqual([
+      'phase-triage',
+      'phase-analysis',
+      'phase-completion',
+    ])
+  })
+
+  it('permite aplicar ou dispensar o fluxo sugerido e preserva a escolha no processo', async () => {
+    const db = loadDb()
+    const type = db.protocolTypes.find((item) => item.id === input.typeId)!
+    type.flowMode = 'SUGGESTED'
+    saveDb(db)
+
+    const withFlow = await api.createProtocol(context, { ...input, useSuggestedFlow: true })
+    const withoutFlow = await api.createProtocol(context, {
+      ...input,
+      subject: 'Processo sem o fluxo sugerido',
+      useSuggestedFlow: false,
+    })
+
+    expect(withFlow.flowModeSnapshot).toBe('SUGGESTED')
+    expect(withFlow.flowSnapshot?.phases).toHaveLength(3)
+    expect(withoutFlow).toMatchObject({
+      flowModeSnapshot: 'SUGGESTED',
+      flowSnapshot: undefined,
+      currentPhaseId: undefined,
+    })
+    await expect(api.complete(context, withoutFlow.id, withoutFlow.version, 'Concluído sem fluxo sugerido.')).resolves.toMatchObject({
+      status: 'CONCLUIDO',
+    })
+  })
+
+  it('bloqueia tipo obrigatório sem fases e aceita tipo sugerido ainda não configurado', async () => {
+    const db = loadDb()
+    const type = db.protocolTypes.find((item) => item.id === input.typeId)!
+    type.flowMode = 'REQUIRED'
+    type.flowId = undefined
+    saveDb(db)
+
+    await expect(api.createProtocol(context, input)).rejects.toMatchObject({
+      code: 'VALIDATION',
+      message: 'O fluxo obrigatório deste tipo ainda não foi configurado.',
+    })
+
+    const suggestedDb = loadDb()
+    const suggestedType = suggestedDb.protocolTypes.find((item) => item.id === input.typeId)!
+    suggestedType.flowMode = 'SUGGESTED'
+    saveDb(suggestedDb)
+
+    await expect(api.createProtocol(context, input)).resolves.toMatchObject({
+      flowModeSnapshot: 'SUGGESTED',
+      flowSnapshot: undefined,
+      currentPhaseId: undefined,
+    })
+  })
+
+  it('move o processo para a unidade configurada ao entrar na próxima fase', async () => {
+    const db = loadDb()
+    const type = db.protocolTypes.find((item) => item.id === input.typeId)!
+    type.flowMode = 'REQUIRED'
+    const stages = db.flowPhases.filter((stage) => stage.flowId === type.flowId).sort((left, right) => left.position - right.position)
+    stages[0].destinationUnitId = 'u-prot'
+    stages[1].destinationUnitId = 'u-adm'
+    saveDb(db)
+
+    const protocol = await api.createProtocol(context, input)
+    const advanced = await api.advancePhase(context, protocol.id, protocol.version, ['Conferir dados de abertura'])
+    const persisted = loadDb()
+    const phaseEvent = persisted.events.find((event) => event.protocolId === protocol.id && event.kind === 'FASE_AVANCADA')
+
+    expect(advanced).toMatchObject({
+      currentPhaseId: 'phase-analysis',
+      currentUnitId: 'u-adm',
+      currentAssigneeId: undefined,
+      status: 'EM_ANDAMENTO',
+    })
+    expect(phaseEvent).toMatchObject({
+      fromUnitId: 'u-prot',
+      toUnitId: 'u-adm',
+      nextStatus: 'EM_ANDAMENTO',
+    })
+    expect(persisted.assignments.filter((assignment) => assignment.protocolId === protocol.id)).toHaveLength(2)
+  })
+
+  it('mantém o snapshot original quando a configuração do tipo muda depois da abertura', async () => {
+    const db = loadDb()
+    const type = db.protocolTypes.find((item) => item.id === input.typeId)!
+    type.flowMode = 'SUGGESTED'
+    saveDb(db)
+
+    const protocol = await api.createProtocol(context, input)
+    const changed = loadDb()
+    changed.flowPhases = changed.flowPhases.filter((stage) => stage.flowId !== type.flowId || stage.phaseId === 'phase-triage')
+    saveDb(changed)
+
+    const persisted = loadDb().protocols.find((item) => item.id === protocol.id)!
+    expect(persisted.flowSnapshot?.phases.map((phase) => phase.phaseId)).toEqual([
+      'phase-triage',
+      'phase-analysis',
+      'phase-completion',
+    ])
+  })
+})
+
+describe('tipos de situação', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('cria, edita e preserva a situação configurada na cópia do fluxo', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const created = await api.createSituationType(admin, {
+      name: 'Aguardando parecer',
+      category: 'EM_TRAMITACAO',
+      color: '#2563EB',
+      icon: 'Clock3',
+      observation: 'Aguardando manifestação técnica.',
+      active: true,
+    })
+    const updated = await api.updateSituationType(admin, created.id, {
+      name: 'Aguardando análise',
+      category: 'EM_TRAMITACAO',
+      color: '#1D4ED8',
+      icon: 'Clock3',
+      observation: 'Aguardando análise técnica.',
+      active: true,
+    })
+
+    await api.saveProtocolTypeFlow(admin, 'pt-admin', [{
+      phaseId: 'phase-triage',
+      required: true,
+      situationTypeId: updated.id,
+    }])
+    const protocol = await api.createProtocol({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
+      typeId: 'pt-admin',
+      subject: 'Solicitação com situação personalizada',
+      description: 'Processo usado para validar a cópia da situação.',
+      interestedPersonId: 'p-1',
+    })
+
+    expect(protocol.flowSnapshot?.phases[0].situationType).toEqual({
+      id: updated.id,
+      name: 'Aguardando análise',
+      category: 'EM_TRAMITACAO',
+      color: '#1D4ED8',
+      icon: 'Clock3',
+    })
+    await expect(api.updateSituationType(admin, updated.id, { ...updated, active: false })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.deleteSituationType(admin, updated.id)).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.deleteSituationType(admin, 'situation-registered')).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('permite excluir uma situação personalizada que não está em uso', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const created = await api.createSituationType(admin, {
+      name: 'Situação temporária',
+      color: '#334155',
+      icon: 'CircleDot',
+      observation: '',
+      active: true,
+    })
+
+    await api.deleteSituationType(admin, created.id)
+
+    expect(loadDb().situations.some((item) => item.id === created.id)).toBe(false)
+  })
+})
+
+describe('cadastro de fases', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('cria, edita e exclui uma fase que não está em uso', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const created = await api.createPhase(admin, {
+      name: 'Parecer técnico',
+      code: 'PARECER_TECNICO',
+      description: 'Elaboração de manifestação técnica.',
+      eligibleUnitIds: [],
+      checklistItems: [],
+      checklistQuestions: [],
+      requiredAttachmentTypes: [],
+      color: '#2563EB',
+      icon: 'FilePenLine',
+      active: true,
+    })
+    const updated = await api.updatePhase(admin, created.id, {
+      ...created,
+      name: 'Parecer jurídico',
+      description: 'Elaboração de manifestação jurídica.',
+      color: '#16A66A',
+    })
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      name: 'Parecer jurídico',
+      code: 'PARECER_TECNICO',
+      color: '#16A66A',
+    })
+
+    await api.deletePhase(admin, created.id)
+
+    expect(loadDb().phases.some((phase) => phase.id === created.id)).toBe(false)
+  })
+
+  it('impede excluir ou inativar uma fase usada em fluxo ativo', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const phase = loadDb().phases.find((item) => item.id === 'phase-triage')!
+
+    await expect(api.deletePhase(admin, phase.id)).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.updatePhase(admin, phase.id, { ...phase, active: false })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+})
+
+describe('responsabilidade de pessoas', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('persiste períodos somente enquanto a pessoa possui o papel de responsável', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const person = await api.createPerson(admin, {
+      kind: 'PF',
+      name: 'Responsável de teste',
+      email: 'responsavel@example.com',
+      roles: ['INTERESSADO', 'RESPONSAVEL'],
+      responsibilityPeriods: [{
+        id: 'period-test',
+        description: 'Secretaria de Administração',
+        startsAt: '2026-01-01',
+      }],
+      active: true,
+    })
+
+    expect(person.responsibilityPeriods).toEqual([{
+      id: 'period-test',
+      description: 'Secretaria de Administração',
+      startsAt: '2026-01-01',
+      endsAt: undefined,
+    }])
+
+    const updated = await api.updatePerson(admin, person.id, {
+      ...person,
+      roles: ['INTERESSADO'],
+    })
+
+    expect(updated.responsibilityPeriods).toEqual([])
+  })
+
+  it('recusa período incompleto ou com data final anterior à inicial', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+
+    await expect(api.createPerson(admin, {
+      kind: 'PF',
+      name: 'Período inválido',
+      roles: ['RESPONSAVEL'],
+      responsibilityPeriods: [{
+        id: 'invalid-period',
+        description: '',
+        startsAt: '2026-05-10',
+        endsAt: '2026-05-01',
+      }],
+      active: true,
+    })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+})
+
+describe('escopo de estruturas', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('reúne unidades vinculadas em Todos e restringe quando uma estrutura é selecionada', async () => {
+    const database = loadDb()
+    const finance = database.protocols.find((protocol) => protocol.currentUnitId === 'u-fin')!
+
+    expect(canView(database, finance, { userId: 'usr-admin', activeUnitId: 'u-prot', scopeUnitId: 'ALL' })).toBe(true)
+    expect(canView(database, finance, { userId: 'usr-admin', activeUnitId: 'u-prot', scopeUnitId: 'u-prot' })).toBe(false)
+
+    const result = await api.listProtocols({ userId: 'usr-admin', activeUnitId: 'u-prot', scopeUnitId: 'u-prot' }, { tab: 'all', pageSize: 50 })
+    expect(result.items.every((protocol) => protocol.currentUnitId === 'u-prot')).toBe(true)
+  })
+})
+
+describe('categorias de processo', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('cria e vincula uma categoria a um tipo de processo', async () => {
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const category = await api.createProcessCategory(admin, {
+      code: '03', name: 'Atendimento ao cidadão', color: '#2563EB', icon: 'HeartHandshake', observation: 'Demandas externas.', active: true,
+    })
+    const base = loadDb().protocolTypes.find((type) => type.id === 'pt-admin')!
+    const updated = await api.updateProtocolType(admin, base.id, { ...base, categoryId: category.id })
+
+    expect(updated.categoryId).toBe(category.id)
+    await expect(api.deleteProcessCategory(admin, category.id)).rejects.toMatchObject({ code: 'VALIDATION' })
   })
 })

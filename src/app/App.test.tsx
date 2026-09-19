@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App } from './App'
 import { SessionProvider } from './session'
@@ -18,15 +18,22 @@ const renderApp = () => {
 }
 const choose = async (label: string | RegExp, option: string, scope = screen) => {
   const trigger = await scope.findByRole('combobox', { name: label })
-  fireEvent.click(trigger)
-  fireEvent.click(screen.getByRole('option', { name: option }))
+  await act(async () => {
+    fireEvent.click(trigger)
+    await Promise.resolve()
+  })
+  const optionElement = screen.getByRole('option', { name: option })
+  await act(async () => {
+    fireEvent.click(optionElement)
+    await Promise.resolve()
+  })
 }
 
 describe('jornada principal da interface', () => {
   beforeEach(() => {
     localStorage.clear()
     saveDb(seedDatabase())
-    window.history.replaceState({}, '', '/protocolos/novo')
+    window.history.replaceState({}, '', '/processos/novo')
   })
   afterEach(() => cleanup())
 
@@ -36,7 +43,7 @@ describe('jornada principal da interface', () => {
 
     expect(screen.getByText('PGCI')).not.toBeNull()
     await screen.findByRole('heading', { name: 'Meus Processos' })
-    expect(screen.getByRole('textbox', { name: 'Buscar protocolo' })).not.toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Buscar processo' })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Na minha caixa/ })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Prazo vencido/ })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Vence em 24h/ })).not.toBeNull()
@@ -50,15 +57,63 @@ describe('jornada principal da interface', () => {
     const loading = await screen.findByRole('status', { name: 'Carregando tela' })
     expect(loading.querySelector('img')?.getAttribute('src')).toBe('/assets/file-sync.svg')
   })
+  it('mostra os dados do perfil e a estrutura ao trocar o usuário', async () => {
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Abrir processo' })
+    const trigger = screen.getByRole('button', { name: 'Abrir menu do perfil' })
+    expect(trigger.textContent).toContain('Clara Nunes')
+    expect(trigger.textContent).toContain('Gestão de Processos')
+
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('dialog', { name: 'Menu do perfil' })
+    expect(within(menu).getByText('clara.nunes@example.com')).not.toBeNull()
+
+    fireEvent.click(within(menu).getByRole('button', { name: 'Meu perfil' }))
+    expect(within(menu).getByText('Operador')).not.toBeNull()
+
+    fireEvent.click(within(menu).getByRole('button', { name: 'Voltar' }))
+    fireEvent.click(within(menu).getByRole('button', { name: 'Trocar usuário' }))
+    expect(within(menu).getByRole('button', { name: /Trocar para Bruno Lima — Administração/ })).not.toBeNull()
+    expect(within(menu).getByRole('button', { name: /Trocar para Rafael Reis — Administração \/ Financeiro/ })).not.toBeNull()
+
+    fireEvent.click(within(menu).getByRole('button', { name: /Trocar para Bruno Lima/ }))
+    await waitFor(() => expect(trigger.textContent).toContain('Bruno Lima'))
+    expect(trigger.textContent).toContain('Administração')
+  })
+
+  it('revela somente os campos pedidos pelo tipo de processo selecionado', async () => {
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Abrir processo' })
+    expect(screen.getByLabelText('Data/hora')).not.toBeNull()
+    expect(screen.getByText('Selecione o tipo de processo para ver os campos disponíveis.')).not.toBeNull()
+    expect(screen.queryByLabelText('Assunto *')).toBeNull()
+    expect(screen.queryByLabelText('Descrição *')).toBeNull()
+
+    await choose('Tipo de processo *', 'Pagamento de fornecedor')
+    expect(screen.getByRole('combobox', { name: 'Interessado *' })).not.toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Credor *' })).not.toBeNull()
+    expect(screen.getByLabelText('Valor (R$) *')).not.toBeNull()
+    expect(screen.getByLabelText('Assunto *')).not.toBeNull()
+    expect(screen.getByLabelText('Descrição *')).not.toBeNull()
+    expect(screen.getByLabelText('Observações')).not.toBeNull()
+
+    await choose('Tipo de processo *', 'Pedido de informação')
+    expect(screen.getByRole('combobox', { name: 'Interessado *' })).not.toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Responsável *' })).not.toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Credor *' })).toBeNull()
+    expect(screen.queryByLabelText('Valor (R$) *')).toBeNull()
+  })
   it('abre, tramita, dá ciência, cria documento e anexo, conclui e mantém o resultado após recarga', async () => {
     renderApp()
 
-    await choose('Tipo de protocolo *', 'Solicitação administrativa')
-    expect(screen.getByRole('combobox', { name: 'Tipo de protocolo *' }).textContent).toContain('Solicitação administrativa')
+    await choose('Tipo de processo *', 'Solicitação administrativa')
+    expect(screen.getByRole('combobox', { name: 'Tipo de processo *' }).textContent).toContain('Solicitação administrativa')
     await choose(/Interessado/, 'Ana Beatriz Costa')
     fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Fluxo integrado de teste' } })
     fireEvent.change(screen.getByLabelText('Descrição *'), { target: { value: 'Descrição para validar a jornada completa.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir protocolo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir processo' }))
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
@@ -72,11 +127,14 @@ describe('jornada principal da interface', () => {
     fireEvent.click(forwardScope.getByRole('button', { name: 'Tramitar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await choose('Usuário de demonstração', 'Bruno Lima')
-    fireEvent.click(await screen.findByRole('button', { name: 'Dar ciência' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir menu do perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Trocar usuário' }))
+    fireEvent.click(screen.getByRole('button', { name: /Trocar para Bruno Lima/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Dar ciência da tramitação' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar ciência' }))
     await screen.findByRole('button', { name: 'Tramitar' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documentos' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Documentos\b/ }))
     fireEvent.click(await screen.findByRole('link', { name: 'Redigir documento' }))
     await choose('Tipo de documento *', 'Memorando')
     fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Memorando da jornada' } })
@@ -84,8 +142,8 @@ describe('jornada principal da interface', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar documento' }))
     await screen.findByText('Corpo do documento de teste.')
 
-    fireEvent.click(screen.getByRole('link', { name: 'Abrir protocolo vinculado' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Anexos' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Abrir processo vinculado' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Anexos\b/ }))
     const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
     fireEvent.change(fileInput, { target: { files: [new File(['anexo de teste'], 'jornada.txt', { type: 'text/plain' })] } })
     await screen.findByText('jornada.txt')
@@ -114,9 +172,9 @@ describe('jornada principal da interface', () => {
     renderApp()
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
     expect(screen.getAllByText('Concluído').length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: 'Documentos' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Documentos\b/ }))
     expect(await screen.findByText('Memorando da jornada')).not.toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Anexos' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Anexos\b/ }))
     expect(await screen.findByText('jornada.txt')).not.toBeNull()
     expect(JSON.parse(localStorage.getItem(DATABASE_KEY)!).protocols.some((protocol: { subject: string; status: string }) => protocol.subject === 'Fluxo integrado de teste' && protocol.status === 'CONCLUIDO')).toBe(true)
   })

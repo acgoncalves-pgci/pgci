@@ -12,7 +12,9 @@ import {
   BarChart3,
   Bell,
   ClipboardList,
+  CircleDot,
   FileText,
+  Flag,
   Home,
   Landmark,
   Menu,
@@ -24,13 +26,15 @@ import {
   Settings,
   Settings2,
   Sun,
+  Tags,
   Users,
 } from "lucide-react";
-import { Select } from "../../components/ui/Select";
 import { resetDb } from "../../storage/database";
 import { invalidateAll, useDb } from "../queries";
 import { useSession } from "../session";
 import { ROUTE_LOADING_EVENT, navigateWithLoading } from "../routeLoading";
+import { ProfileMenu } from "./ProfileMenu";
+import { StructureScopeMenu } from "./StructureScopeMenu";
 type OrganizationHeaderDetails = {
   organizationName?: string;
   city?: string;
@@ -44,56 +48,53 @@ const readOrganizationHeaderDetails = (): OrganizationHeaderDetails => {
     return {};
   }
 };
-function RouteLoadingIndicator() {
-  const location = useLocation();
-  const previousLocationKey = useRef(location.key);
-  const dismissTimer = useRef<number>();
-  const [visible, setVisible] = useState(false);
-  const show = useCallback(() => {
-    if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    setVisible(true);
-  }, []);
-  useEffect(() => {
-    window.addEventListener(ROUTE_LOADING_EVENT, show);
-    return () => window.removeEventListener(ROUTE_LOADING_EVENT, show);
-  }, [show]);
-  useLayoutEffect(() => {
-    if (previousLocationKey.current === location.key) return;
-    previousLocationKey.current = location.key;
-    show();
-    dismissTimer.current = window.setTimeout(() => setVisible(false), 900);
-    return () => {
-      if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    };
-  }, [location.key, show]);
+function RouteLoadingIndicator({ visible }: { visible: boolean }) {
   if (!visible) return null;
   return (
-    <div
-      className="route-loading-overlay"
-      role="status"
-      aria-label="Carregando tela"
-      aria-live="polite"
-    >
+    <div className="route-loading-overlay" role="status" aria-label="Carregando tela" aria-live="polite">
       <div className="route-loading-indicator">
-        <img
-          className="route-loading-icon"
-          src="/assets/file-sync.svg"
-          alt=""
-        />
+        <img className="route-loading-icon" src="/assets/file-sync.svg" alt="" />
         <span className="sr-only">Carregando tela</span>
       </div>
     </div>
   );
 }
+
+type RouteTransitionPhase = "idle" | "leaving" | "entering";
+function useRouteTransition(pathname: string) {
+  const previousPathname = useRef(pathname);
+  const dismissTimer = useRef<number>();
+  const [phase, setPhase] = useState<RouteTransitionPhase>("idle");
+  const [loading, setLoading] = useState(false);
+  const start = useCallback(() => {
+    if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
+    setLoading(true);
+    setPhase("leaving");
+  }, []);
+  useEffect(() => {
+    window.addEventListener(ROUTE_LOADING_EVENT, start);
+    return () => window.removeEventListener(ROUTE_LOADING_EVENT, start);
+  }, [start]);
+  useLayoutEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    setPhase("entering");
+    dismissTimer.current = window.setTimeout(() => {
+      setPhase("idle");
+      setLoading(false);
+    }, 320);
+    return () => {
+      if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
+    };
+  }, [pathname]);
+  return { phase, loading };
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { phase: routeTransition, loading: routeLoading } = useRouteTransition(location.pathname);
   const {
-    user,
-    users,
-    setUserId,
-    activeUnitId,
-    setActiveUnitId,
     theme,
     toggleTheme,
     appearance,
@@ -121,7 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       items: [
         ["/dashboard", "Dashboard", Home],
         ["/relatorios", "Relatórios", BarChart3],
-        ["/protocolos", "Protocolos", ClipboardList],
+        ["/processos", "Processos", ClipboardList],
         ["/documentos", "Documentos", FileText],
       ],
     },
@@ -130,20 +131,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       items: [
         ["/pessoas", "Pessoas", Users],
         ["/estrutura", "Estrutura", Landmark],
-        ["/tipos-protocolo", "Tipos de protocolo", Settings2],
+        ["/tipos-processo", "Tipos de processo", Settings2],
+        ["/categorias-processo", "Categorias de processo", Tags],
+        ["/fases", "Fases", Flag],
+        ["/situacoes", "Situações", CircleDot],
         ["/tipos-documento", "Tipos de documento", FileText],
         ["/usuarios", "Usuários", Users],
         ["/configuracoes", "Configurações", Settings],
       ],
     },
   ];
-  const initials =
-    user?.name
-      .split(" ")
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() ?? "US";
   const handleInternalNavigation = (event: MouseEvent<HTMLElement>) => {
     if (
       event.button !== 0 ||
@@ -174,8 +171,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const current = new URL(window.location.href);
     if (
       destination.origin !== current.origin ||
-      `${destination.pathname}${destination.search}${destination.hash}` ===
-        `${current.pathname}${current.search}${current.hash}`
+      destination.pathname === current.pathname
     )
       return;
     event.preventDefault();
@@ -199,10 +195,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         className="sidebar-brand flex h-[72px] items-center gap-3 border-b border-slate-300 px-6 dark:border-slate-700"
       >
         <span className="grid h-[43px] w-[35px]">
-          <img
-            src="/assets/pgci-logo.svg"
-            alt=""
-            className="pgci-logo h-full w-full"
+          <span
+            className="pgci-logo block h-full w-full"
+            aria-hidden="true"
           />
         </span>
         <strong className="sidebar-brand-label text-[2.5rem] font-black tracking-[-.1em] text-black dark:text-white">
@@ -322,6 +317,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             </div>
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <StructureScopeMenu />
               <span
                 className="header-icon-button hidden sm:!grid"
                 aria-hidden="true"
@@ -353,58 +349,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className="hidden h-6 w-px bg-slate-300 sm:block dark:bg-slate-700"
                 aria-hidden="true"
               />
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-100">
-                {initials}
-              </span>
-              <div className="hidden min-w-0 sm:block">
-                <label className="sr-only" htmlFor="demo-user">
-                  Usuário de demonstração
-                </label>
-                <Select
-                  id="demo-user"
-                  className="pgci-user-select !mt-0 !min-h-9 !w-[145px] !border-0 !bg-transparent !px-1 !py-0 text-xs font-bold"
-                  value={user?.id ?? ""}
-                  onChange={(event) => {
-                    setUserId(event.target.value);
-                    invalidateAll(queryClient);
-                  }}
-                >
-                  {users.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-                <small className="-mt-1 block truncate px-1 text-[9px] font-bold uppercase text-slate-500">
-                  {user?.role === "ADMIN" ? "Administrador geral" : "Operador"}
-                </small>
-              </div>
-              {user?.role === "ADMIN" && sessionDb && (
-                <div className="sr-only">
-                  <label htmlFor="active-unit">Unidade ativa</label>
-                  <Select
-                    id="active-unit"
-                    value={activeUnitId}
-                    onChange={(event) => {
-                      setActiveUnitId(event.target.value);
-                      invalidateAll(queryClient);
-                    }}
-                  >
-                    {sessionDb.units
-                      .filter((unit) => unit.active)
-                      .map((unit) => (
-                        <option key={unit.id} value={unit.id}>
-                          {unit.abbreviation} · {unit.name}
-                        </option>
-                      ))}
-                  </Select>
-                </div>
-              )}
+              <ProfileMenu />
             </div>
           </header>
           <div className="relative min-h-[calc(100dvh-8rem)]">
-            <RouteLoadingIndicator />
-            <div className={isDashboard ? "" : "mx-auto max-w-7xl p-4 sm:p-7"}>
+            <RouteLoadingIndicator visible={routeLoading} />
+            <div data-route-transition={routeTransition} className={`route-transition-content ${isDashboard ? "" : "mx-auto max-w-7xl p-4 sm:p-7"}`}>
               {children}
             </div>
           </div>
@@ -420,3 +370,4 @@ export function AppShell({ children }: { children: ReactNode }) {
     </>
   );
 }
+

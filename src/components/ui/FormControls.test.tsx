@@ -34,6 +34,7 @@ describe('controles de formulário', () => {
 
     expect(dialog.contains(listbox)).toBe(false)
     expect(listbox.parentElement).toBe(document.body)
+    expect(listbox.style.zIndex).toBe('120')
     expect(option.querySelector('span')?.className).toContain('whitespace-normal')
     expect(option.querySelector('span')?.className).toContain('break-words')
   })
@@ -57,6 +58,8 @@ describe('Dialog', () => {
     render(<Dialog title="Confirmar ação" onClose={onClose}><button type="button">Confirmar</button></Dialog>)
 
     const dialog = screen.getByRole('dialog')
+    expect(dialog.parentElement).toBe(document.body)
+    expect(dialog.className).toContain('inset-0')
     expect(dialog.getAttribute('data-state')).toBe('open')
     fireEvent.click(screen.getByRole('button', { name: 'Fechar diálogo' }))
     expect(dialog.getAttribute('data-state')).toBe('closed')

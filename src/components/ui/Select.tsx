@@ -6,6 +6,7 @@ type Option = {
     disabled: boolean;
     label: ReactNode;
     value: string;
+    ariaLabel?: string;
 };
 type NativeProps = SelectHTMLAttributes<HTMLSelectElement>;
 export type SelectProps = Omit<NativeProps, 'children' | 'value' | 'defaultValue' | 'onChange' | 'onBlur'> & {
@@ -22,8 +23,9 @@ const optionsFromChildren = (children: ReactNode): Option[] => Children.toArray(
         children?: ReactNode;
         disabled?: boolean;
         value?: string | number;
+        'aria-label'?: string;
     };
-    return [{ disabled: Boolean(props.disabled), label: props.children, value: String(props.value ?? props.children ?? '') }];
+    return [{ disabled: Boolean(props.disabled), label: props.children, value: String(props.value ?? props.children ?? ''), ariaLabel: props['aria-label'] }];
 });
 export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, className = '', value, defaultValue, name, id, disabled = false, required, onChange, onBlur, 'aria-label': ariaLabel, 'aria-invalid': ariaInvalid, ...props }, ref) => {
     const options = optionsFromChildren(children);
@@ -58,8 +60,8 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         const width = Math.min(Math.max(rect.width, Math.min(240, maxWidth)), maxWidth);
         const left = Math.min(Math.max(padding, rect.left), Math.max(padding, viewportWidth - width - padding));
         setContentStyle(opensUpward
-            ? { position: 'fixed', zIndex: 80, bottom: viewportHeight - rect.top + gap, left, width, maxHeight }
-            : { position: 'fixed', zIndex: 80, top: rect.bottom + gap, left, width, maxHeight });
+            ? { position: 'fixed', zIndex: 120, bottom: viewportHeight - rect.top + gap, left, width, maxHeight }
+            : { position: 'fixed', zIndex: 120, top: rect.bottom + gap, left, width, maxHeight });
     }, [options.length]);
     useEffect(() => {
         if (!open) {
@@ -126,7 +128,7 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(({ children, cla
         }
     };
     const triggerProps = props as unknown as ButtonHTMLAttributes<HTMLButtonElement>;
-    const content = open && contentStyle && <div ref={contentRef} id={listboxId} role="listbox" aria-label={ariaLabel} style={contentStyle} className="ui-select-content overflow-y-auto rounded-md border bg-white p-1 shadow-lg dark:bg-slate-900">{options.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === currentValue} disabled={option.disabled} className="ui-select-option" onClick={() => choose(option.value)}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{option.label}</span>{option.value === currentValue && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-public-700"/>}</button>)}</div>;
-    return <div ref={rootRef} className="relative"><input ref={setInputRef} type="hidden" aria-hidden="true" name={name} value={currentValue} disabled={disabled} required={required}/><button {...triggerProps} ref={triggerRef} id={id} type="button" role="combobox" aria-label={ariaLabel} aria-invalid={ariaInvalid} aria-expanded={open} aria-controls={listboxId} disabled={disabled} onClick={() => setOpen((current) => !current)} onKeyDown={onTriggerKeyDown} className={`field ui-select ${className}`}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{selectedLabel}</span><ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}/></button>{content && createPortal(content, document.body)}</div>;
+    const content = open && contentStyle && <div ref={contentRef} id={listboxId} role="listbox" aria-label={ariaLabel} style={contentStyle} className="ui-select-content overflow-y-auto rounded-md border bg-white p-1 shadow-lg dark:bg-slate-900">{options.map((option) => <button key={option.value} type="button" role="option" aria-label={option.ariaLabel} aria-selected={option.value === currentValue} disabled={option.disabled} className="ui-select-option" onClick={() => choose(option.value)}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{option.label}</span>{option.value === currentValue && <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-public-700"/>}</button>)}</div>;
+    return <div ref={rootRef} className="relative min-w-0 w-full"><input ref={setInputRef} type="hidden" aria-hidden="true" name={name} value={currentValue} disabled={disabled} required={required}/><button {...triggerProps} ref={triggerRef} id={id} type="button" role="combobox" aria-label={ariaLabel} aria-invalid={ariaInvalid} aria-expanded={open} aria-controls={listboxId} disabled={disabled} onClick={() => setOpen((current) => !current)} onKeyDown={onTriggerKeyDown} className={`field ui-select ${className}`}><span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-5 text-pretty">{selectedLabel}</span><ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}/></button>{content && createPortal(content, document.body)}</div>;
 });
 Select.displayName = 'Select';

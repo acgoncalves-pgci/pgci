@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Archive, BadgeInfo, Bell, BookOpen, BriefcaseBusiness, Building2, CalendarClock, ChevronRight, CircleDollarSign, CircleHelp, ClipboardList, ClipboardPen, Contact, FileArchive, FileBadge, FileCheck2, FileSearch, FileText, FolderKanban, FolderOpen, Gavel, GitBranch, Handshake, HeartHandshake, KeyRound, Landmark, ListChecks, Mail, MapPin, Megaphone, MessageSquare, MoreHorizontal, Network, Paperclip, Pencil, Plus, Scale, ScanSearch, ScrollText, Search, Send, ShieldCheck, SlidersHorizontal, Stamp, Store, Tags, Trash2, Trophy, UserRound, Users, WalletCards } from 'lucide-react'
-import type { Attachment, ChecklistQuestion, FlowMode, ProtocolFlow, ProtocolPhase, ProtocolStatus, ProtocolType } from '../../domain/model'
-import { statusLabel } from '../../domain/model'
+import { ChevronRight, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import type { Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
+import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
@@ -11,15 +11,9 @@ import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
+import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 
 type Tab = 'types' | 'phases'
-const typeIconOptions = [
-  { value: 'FileText', Icon: FileText }, { value: 'ClipboardList', Icon: ClipboardList }, { value: 'ClipboardPen', Icon: ClipboardPen }, { value: 'FileCheck2', Icon: FileCheck2 }, { value: 'FileBadge', Icon: FileBadge }, { value: 'FileSearch', Icon: FileSearch }, { value: 'FileArchive', Icon: FileArchive }, { value: 'FolderOpen', Icon: FolderOpen }, { value: 'FolderKanban', Icon: FolderKanban }, { value: 'Archive', Icon: Archive },
-  { value: 'ShieldCheck', Icon: ShieldCheck }, { value: 'BadgeInfo', Icon: BadgeInfo }, { value: 'Landmark', Icon: Landmark }, { value: 'Gavel', Icon: Gavel }, { value: 'Scale', Icon: Scale }, { value: 'ScrollText', Icon: ScrollText }, { value: 'CircleHelp', Icon: CircleHelp }, { value: 'BookOpen', Icon: BookOpen },
-  { value: 'UserRound', Icon: UserRound }, { value: 'Users', Icon: Users }, { value: 'Contact', Icon: Contact }, { value: 'Handshake', Icon: Handshake }, { value: 'HeartHandshake', Icon: HeartHandshake }, { value: 'BriefcaseBusiness', Icon: BriefcaseBusiness }, { value: 'Building2', Icon: Building2 }, { value: 'Store', Icon: Store }, { value: 'MapPin', Icon: MapPin },
-  { value: 'CircleDollarSign', Icon: CircleDollarSign }, { value: 'WalletCards', Icon: WalletCards }, { value: 'CalendarClock', Icon: CalendarClock }, { value: 'KeyRound', Icon: KeyRound }, { value: 'Network', Icon: Network }, { value: 'ScanSearch', Icon: ScanSearch }, { value: 'Mail', Icon: Mail }, { value: 'MessageSquare', Icon: MessageSquare }, { value: 'Megaphone', Icon: Megaphone }, { value: 'Bell', Icon: Bell }, { value: 'Send', Icon: Send }, { value: 'Stamp', Icon: Stamp }, { value: 'Tags', Icon: Tags }, { value: 'Trophy', Icon: Trophy },
-] as const
-
 export function ProtocolTypesPage() {
   const ctx = useSession()
   const { data: db, isLoading } = useDb()
@@ -32,25 +26,25 @@ export function ProtocolTypesPage() {
   if (isLoading || !db) return <Loading />
   const admin = ctx.user?.role === 'ADMIN'
 
-  if (flowManaging) { const currentType = db.protocolTypes.find((type) => type.id === flowManaging.id) ?? flowManaging; return <TypeFlowPage type={currentType} protocolTypes={db.protocolTypes} flows={db.flows} flowPhases={db.flowPhases} phases={db.phases} units={db.units} editable={admin} onBack={() => setFlowManaging(null)} /> }
+  if (flowManaging) { const currentType = db.protocolTypes.find((type) => type.id === flowManaging.id) ?? flowManaging; return <TypeFlowPage type={currentType} flows={db.flows} flowPhases={db.flowPhases} phases={db.phases} situations={db.situations} units={db.units} editable={admin} onBack={() => setFlowManaging(null)} /> }
 
   return <>
-    <PageTitle title="Tipos de protocolo" />
+    <PageTitle title="Tipos de processo" />
     <p className="-mt-3 mb-5 text-sm text-slate-600 dark:text-slate-300">Configure os tipos, suas etapas de fluxo e as fases reutilizáveis.</p>
-    <div className="mb-5 flex gap-1 overflow-x-auto border-b" role="tablist" aria-label="Configuração de protocolos">
+    <div className="mb-5 flex gap-1 overflow-x-auto border-b" role="tablist" aria-label="Configuração de processos">
       {([
         ['types', ClipboardList, 'Tipos'],
         ['phases', ListChecks, 'Fases'],
       ] as const).map(([key, Icon, label]) => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${tab === key ? 'border-public-700 text-public-700' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Icon size={16} />{label}</button>)}
     </div>
-    {tab === 'types' && <TypesList types={db.protocolTypes} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onNew={() => setTypeEditing('new')} />}
+    {tab === 'types' && <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onNew={() => setTypeEditing('new')} />}
     {tab === 'phases' && <PhasesList phases={db.phases} editable={admin} onEdit={setPhaseEditing} onNew={() => setPhaseEditing('new')} />}
-    {typeEditing && <ProtocolTypeEditor type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
+    {typeEditing && <ProtocolTypeEditor categories={db.processCategories} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
     {phaseEditing && <PhaseEditor phase={phaseEditing === 'new' ? undefined : phaseEditing} onClose={() => setPhaseEditing(null)} onSaved={() => setPhaseEditing(null)} />}
     {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={admin} onClose={() => setTypeFilesEditing(null)} />}
   </>
 }
-function TypesList({ types, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onNew }: { types: ProtocolType[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onNew: () => void }) {
+function TypesList({ types, categories, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onNew: () => void }) {
   const [search, setSearch] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -103,12 +97,10 @@ function TypesList({ types, flowPhases, attachments, editable, onEdit, onOpenFlo
     return matchesSearch && matchesFlow && matchesSituation && hasRequirement(type, requirementFilter)
   })
 
-  const getIcon = (name?: string) => typeIconOptions.find((item) => item.value === name)?.Icon ?? FileText
-
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de protocolo" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
+        <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de processo" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
         <button className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />Mais filtros</button>
       </div>
       {editable && <div ref={menuRef} className="relative flex items-center gap-2">
@@ -118,7 +110,7 @@ function TypesList({ types, flowPhases, attachments, editable, onEdit, onOpenFlo
           <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-muted" onClick={() => markAll.mutate()} disabled={markAll.isPending}><span className="flex items-center gap-2"><GitBranch size={15} />Marcar todos com tramitação</span><span className="text-xs text-muted-foreground">{types.length}</span></button>
           <div className="my-1 border-t border-border" />
           <p className="px-2 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground">EXCLUIR REGISTROS</p>
-          <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleteOpen(true) }}><span className="flex items-center gap-2"><Trash2 size={15} />Excluir todos os Tipos de Protocolo</span><span className="text-xs">{types.length}</span></button>
+          <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleteOpen(true) }}><span className="flex items-center gap-2"><Trash2 size={15} />Excluir todos os Tipos de Processo</span><span className="text-xs">{types.length}</span></button>
         </div>}
         <button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button>
       </div>}
@@ -126,15 +118,15 @@ function TypesList({ types, flowPhases, attachments, editable, onEdit, onOpenFlo
 
     <div className="space-y-1.5">
       {shown.map((type) => {
-        const Icon = getIcon(type.icon)
+        const category = categories.find((item) => item.id === type.categoryId)
         const flowMode = type.flowMode ?? (type.flowId ? 'REQUIRED' : 'NONE')
         const flowLabel = flowMode === 'REQUIRED' ? 'FLUXO OBRIGATÓRIO' : flowMode === 'SUGGESTED' ? 'FLUXO SUGERIDO' : 'SEM FLUXO'
         const stageCount = type.flowId ? flowPhases.filter((stage) => stage.flowId === type.flowId).length : 0
         const fileCount = attachments.filter((attachment) => attachment.typeId === type.id).length
         return <article key={type.id} className="flex items-center gap-3 rounded-xl border px-3 py-2.5 shadow-sm" style={{ backgroundColor: `${type.color}0d`, borderColor: `${type.color}42` }}>
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${type.color}22`, color: type.color }}><Icon size={19} /></span>
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${type.color}22`, color: type.color }}><IconGlyph name={type.icon} size={19}/></span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold tracking-wide text-muted-foreground">{flowLabel}</p>
+            <p className="text-[10px] font-semibold tracking-wide text-muted-foreground">{category ? category.code + ' · ' + category.name + ' · ' : ''}{flowLabel}</p>
             <h3 className="truncate text-sm font-semibold">{type.name}</h3>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
               {(['tramitacao', 'credor', 'interessado', 'responsavel', 'assunto', 'arquivos', 'amount', 'portal'] as const).map((item) => {
@@ -165,13 +157,47 @@ function TypesList({ types, flowPhases, attachments, editable, onEdit, onOpenFlo
         <div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setFiltersOpen(false)}>Cancelar</button><button className="button-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
       </div>
     </Dialog>}
-    {deleteOpen && <Dialog title="Excluir todos os tipos de protocolo" onClose={() => setDeleteOpen(false)}>
-      <div className="space-y-4"><p className="text-sm text-muted-foreground">Esta ação remove todos os tipos de protocolo. Ela só será permitida se não houver protocolos vinculados.</p>{deleteAll.error && <ErrorBox error={deleteAll.error} />}<div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setDeleteOpen(false)}>Cancelar</button><button className="button-primary bg-destructive hover:bg-destructive/90" onClick={() => deleteAll.mutate()} disabled={deleteAll.isPending}>Excluir todos</button></div></div>
+    {deleteOpen && <Dialog title="Excluir todos os tipos de processo" onClose={() => setDeleteOpen(false)}>
+      <div className="space-y-4"><p className="text-sm text-muted-foreground">Esta ação remove todos os tipos de processo. Ela só será permitida se não houver processos vinculados.</p>{deleteAll.error && <ErrorBox error={deleteAll.error} />}<div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setDeleteOpen(false)}>Cancelar</button><button className="button-primary bg-destructive hover:bg-destructive/90" onClick={() => deleteAll.mutate()} disabled={deleteAll.isPending}>Excluir todos</button></div></div>
     </Dialog>}
   </div>
 }
-function TypeFlowPage({ type, protocolTypes, flows, flowPhases, phases, units, editable, onBack }: { type: ProtocolType; protocolTypes: ProtocolType[]; flows: ProtocolFlow[]; flowPhases: Array<{ flowId: string; phaseId: string; position: number; required: boolean; situation?: ProtocolStatus; destinationUnitId?: string; requiresChecklist?: boolean; requiresAttachment?: boolean; checklistQuestions?: ChecklistQuestion[]; observation?: string; color?: string; icon?: string }>; phases: ProtocolPhase[]; units: { id: string; name: string; active: boolean }[]; editable: boolean; onBack: () => void }) {
-  type Stage = { phaseId: string; required: boolean; situation?: ProtocolStatus; destinationUnitId?: string; requiresChecklist?: boolean; requiresAttachment?: boolean; checklistQuestions?: ChecklistQuestion[]; observation?: string; color?: string; icon?: string }
+function TypeFlowPage({ type, flows, flowPhases, phases, situations, units, editable, onBack }: {
+  type: ProtocolType
+  flows: ProtocolFlow[]
+  flowPhases: Array<{
+    flowId: string
+    phaseId: string
+    position: number
+    required: boolean
+    situationTypeId?: string
+    destinationUnitId?: string
+    requiresChecklist?: boolean
+    requiresAttachment?: boolean
+    checklistQuestions?: ChecklistQuestion[]
+    observation?: string
+    color?: string
+    icon?: string
+  }>
+  phases: ProtocolPhase[]
+  situations: SituationType[]
+  units: Unit[]
+  editable: boolean
+  onBack: () => void
+}) {
+  type Stage = {
+    phaseId: string
+    required: boolean
+    situationTypeId?: string
+    destinationUnitId?: string
+    requiresChecklist?: boolean
+    requiresAttachment?: boolean
+    checklistQuestions?: ChecklistQuestion[]
+    observation?: string
+    color?: string
+    icon?: string
+  }
+
   const ctx = useSession()
   const client = useQueryClient()
   const [search, setSearch] = useState('')
@@ -179,48 +205,101 @@ function TypeFlowPage({ type, protocolTypes, flows, flowPhases, phases, units, e
   const [checklistStage, setChecklistStage] = useState<number | null>(null)
   const flow = type.flowId ? flows.find((item) => item.id === type.flowId) : undefined
   const stages = flow ? flowPhases.filter((stage) => stage.flowId === flow.id).sort((a, b) => a.position - b.position) : []
-  const flowIsShared = Boolean(flow && protocolTypes.filter((item) => item.flowId === flow.id).length > 1)
-  const stageInput = ({ phaseId, required, situation, destinationUnitId, requiresChecklist, requiresAttachment, checklistQuestions, observation, color, icon }: Stage): Stage => ({ phaseId, required, situation, destinationUnitId, requiresChecklist, requiresAttachment, checklistQuestions, observation, color, icon })
+  const stageInput = ({ phaseId, required, situationTypeId, destinationUnitId, requiresChecklist, requiresAttachment, checklistQuestions, observation, color, icon }: Stage): Stage => ({
+    phaseId,
+    required,
+    situationTypeId,
+    destinationUnitId,
+    requiresChecklist,
+    requiresAttachment,
+    checklistQuestions,
+    observation,
+    color,
+    icon,
+  })
   const saveStages = useMutation({
-    mutationFn: async (nextStages: Stage[]) => {
-      if (flow && !flowIsShared) return api.updateFlow(ctx, flow.id, { name: flow.name, version: flow.version, active: flow.active, startsAt: flow.startsAt, endsAt: flow.endsAt, stages: nextStages })
-      const created = await api.createFlow(ctx, { name: `Fluxo — ${type.name}`, version: 1, active: true, startsAt: new Date().toISOString(), stages: nextStages })
-      const { id, ...input } = type
-      return api.updateProtocolType(ctx, id, { ...input, flowId: created.id, flowMode: type.flowMode === 'NONE' ? 'SUGGESTED' : type.flowMode ?? 'SUGGESTED', fieldsConfig: { ...type.fieldsConfig, tramitacao: { enabled: true } } })
-    },
+    mutationFn: (nextStages: Stage[]) => api.saveProtocolTypeFlow(ctx, type.id, nextStages),
     onSuccess: () => { invalidateAll(client); setEditing(null) },
   })
   const removeStage = useMutation({
     mutationFn: async (position: number) => {
       const nextStages = stages.filter((stage) => stage.position !== position).map(stageInput)
       if (nextStages.length) return saveStages.mutateAsync(nextStages)
-      const { id, ...input } = type
-      return api.updateProtocolType(ctx, id, { ...input, flowId: undefined, flowMode: 'NONE', fieldsConfig: { ...type.fieldsConfig, tramitacao: { enabled: false } } })
+      return api.clearProtocolTypeFlow(ctx, type.id)
     },
     onSuccess: () => { invalidateAll(client); setChecklistStage(null) },
   })
   const saveStage = (stage: Stage, position?: number) => {
+    if (saveStages.isPending) return
     const nextStages = position === undefined ? [...stages, stage] : stages.map((current) => current.position === position ? { ...current, ...stage } : current)
     saveStages.mutate(nextStages.map(stageInput))
   }
   const visible = stages.filter((stage) => {
     const phase = phases.find((item) => item.id === stage.phaseId)
+    const situation = situations.find((item) => item.id === stage.situationTypeId)
     const unit = units.find((item) => item.id === stage.destinationUnitId)
-    return `${phase?.name ?? ''} ${stage.situation ?? ''} ${unit?.name ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())
+    return ((phase?.name ?? '') + ' ' + (situation?.name ?? '') + ' ' + (unit?.name ?? '')).toLocaleLowerCase().includes(search.toLocaleLowerCase())
   })
   const editingStage = editing === null || editing === 'new' ? undefined : stages.find((stage) => stage.position === editing)
   const checklist = checklistStage === null ? undefined : stages.find((stage) => stage.position === checklistStage)
   const checklistPhase = checklist ? phases.find((phase) => phase.id === checklist.phaseId) : undefined
+  const checklistSituation = checklist ? situations.find((situation) => situation.id === checklist.situationTypeId) : undefined
+  const defaultSituationId = situations.find((situation) => situation.id === 'situation-processing' && situation.active)?.id ?? situations.find((situation) => situation.active)?.id
 
   return <>
-    <div className="mb-6 flex items-start justify-between gap-4"><div><p className="label mb-1">Tipos de protocolo · {type.name}</p><h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight"><span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><GitBranch size={19} /></span>Fluxo — {type.name}</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Configure a sequência de etapas para este tipo de protocolo.</p></div><button type="button" className="btn-secondary" onClick={onBack} aria-label="Voltar para tipos de protocolo"><ChevronRight className="rotate-180" size={17} /></button></div>
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar etapa" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por fase, situação, unidade..." className="w-72 pl-9" /></div><button type="button" className="button-secondary"><SlidersHorizontal size={16} />Mais filtros</button></div>{editable && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Nova etapa</button>}</div>
-    <div className="space-y-2">{visible.map((stage) => { const phase = phases.find((item) => item.id === stage.phaseId); return <article key={`${stage.phaseId}-${stage.position}`} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{stage.position + 1}</span><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><GitBranch size={18} /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold">{phase?.name ?? 'Fase removida'}</h2>{stage.situation && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">{statusLabel[stage.situation]}</span>}</div><p className="mt-1 text-xs text-muted-foreground">{stage.destinationUnitId ? units.find((unit) => unit.id === stage.destinationUnitId)?.name ?? 'Unidade removida' : 'Sem destino fixo'} · {stage.requiresChecklist ? `${stage.checklistQuestions?.length ?? 0} pergunta(s) no checklist` : 'Sem checklist'}{stage.requiresAttachment ? ' · Exige anexo' : ''}</p></div>{editable && <div className="flex shrink-0 gap-2">{stage.requiresChecklist && <button type="button" className="button-secondary icon-button size-8" aria-label={`Gerenciar checklist da etapa ${stage.position + 1}`} onClick={() => setChecklistStage(stage.position)}><ListChecks size={15} /></button>}<button type="button" className="button-secondary icon-button size-8" aria-label={`Editar etapa ${stage.position + 1}`} onClick={() => setEditing(stage.position)}><Pencil size={15} /></button><button type="button" className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir etapa ${stage.position + 1}`} disabled={removeStage.isPending} onClick={() => removeStage.mutate(stage.position)}><Trash2 size={15} /></button></div>}</article> })}{visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">{stages.length ? 'Nenhuma etapa corresponde à busca.' : 'Nenhuma etapa configurada. Crie a primeira etapa deste fluxo.'}</p>}</div>
-    {saveStages.error && <div className="mt-4"><ErrorBox error={saveStages.error} /></div>}{removeStage.error && <div className="mt-4"><ErrorBox error={removeStage.error} /></div>}
-    {editing !== null && <StageEditor draft={editing === 'new' ? { phaseId: '', required: true, situation: 'EM_ANDAMENTO', requiresChecklist: false, requiresAttachment: false, color: '#3498db', icon: 'ArrowRight' } : editingStage!} phases={phases} units={units} order={editing === 'new' ? stages.length + 1 : editing + 1} onClose={() => setEditing(null)} onSave={(stage) => saveStage(stage, editing === 'new' ? undefined : editing)} />}
-    {checklist && <ChecklistEditor title={`Checklist — ${checklistPhase?.name ?? 'Etapa'}${checklist.situation ? ` · ${statusLabel[checklist.situation]}` : ''}`} questions={checklist.checklistQuestions ?? []} onChange={(questions) => saveStage({ ...checklist, checklistQuestions: questions }, checklist.position)} onClose={() => setChecklistStage(null)} />}
+    <div className="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <p className="label mb-1">Tipos de processo · {type.name}</p>
+        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight"><span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><GitBranch size={19} /></span>Fluxo — {type.name}</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Configure a sequência de etapas e a situação exibida em cada uma.</p>
+      </div>
+      <button type="button" className="btn-secondary" onClick={onBack} aria-label="Voltar para tipos de processo"><ChevronRight className="rotate-180" size={17} /></button>
+    </div>
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar etapa" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por fase, situação, unidade..." className="w-72 pl-9" /></div>
+      </div>
+      {editable && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Nova etapa</button>}
+    </div>
+    <div className="space-y-2">
+      {visible.map((stage) => {
+        const phase = phases.find((item) => item.id === stage.phaseId)
+        const situation = situations.find((item) => item.id === stage.situationTypeId)
+        return <article key={stage.phaseId + '-' + stage.position} className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{stage.position + 1}</span>
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><GitBranch size={18} /></span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">{phase?.name ?? 'Fase removida'}</h2>
+              {situation && <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: situation.color + '18', borderColor: situation.color + '55', color: situation.color }}><IconGlyph name={situation.icon} size={12}/>{situation.name}</span>}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{stage.destinationUnitId ? units.find((unit) => unit.id === stage.destinationUnitId)?.name ?? 'Unidade removida' : 'Sem destino fixo'} · {stage.requiresChecklist ? (stage.checklistQuestions?.length ?? 0) + ' pergunta(s) no checklist' : 'Sem checklist'}{stage.requiresAttachment ? ' · Exige anexo' : ''}</p>
+          </div>
+          {editable && <div className="flex shrink-0 gap-2">
+            {stage.requiresChecklist && <button type="button" className="button-secondary icon-button size-8" aria-label={'Gerenciar checklist da etapa ' + (stage.position + 1)} onClick={() => setChecklistStage(stage.position)}><ListChecks size={15} /></button>}
+            <button type="button" className="button-secondary icon-button size-8" aria-label={'Editar etapa ' + (stage.position + 1)} onClick={() => setEditing(stage.position)}><Pencil size={15} /></button>
+            <button type="button" className="button-secondary icon-button size-8 text-destructive" aria-label={'Excluir etapa ' + (stage.position + 1)} disabled={removeStage.isPending} onClick={() => removeStage.mutate(stage.position)}><Trash2 size={15} /></button>
+          </div>}
+        </article>
+      })}
+      {visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">{stages.length ? 'Nenhuma etapa corresponde à busca.' : 'Nenhuma etapa configurada. Crie a primeira etapa deste fluxo.'}</p>}
+    </div>
+    {saveStages.error && <div className="mt-4"><ErrorBox error={saveStages.error} /></div>}
+    {removeStage.error && <div className="mt-4"><ErrorBox error={removeStage.error} /></div>}
+    {editing !== null && <StageEditor
+      saving={saveStages.isPending}
+      draft={editing === 'new' ? { phaseId: '', required: true, situationTypeId: defaultSituationId, requiresChecklist: false, requiresAttachment: false, color: '#3498db', icon: 'ArrowRight' } : editingStage!}
+      phases={phases}
+      situations={situations}
+      units={units}
+      order={editing === 'new' ? stages.length + 1 : editing + 1}
+      onClose={() => setEditing(null)}
+      onSave={(stage) => saveStage(stage, editing === 'new' ? undefined : editing)}
+    />}
+    {checklist && <ChecklistEditor title={'Checklist — ' + (checklistPhase?.name ?? 'Etapa') + (checklistSituation ? ' · ' + checklistSituation.name : '')} questions={checklist.checklistQuestions ?? []} onChange={(questions) => saveStage({ ...checklist, checklistQuestions: questions }, checklist.position)} onClose={() => setChecklistStage(null)} />}
   </>
 }
+
 function TypeAttachmentsDialog({ type, attachments, editable, onClose }: { type: ProtocolType; attachments: Attachment[]; editable: boolean; onClose: () => void }) {
   const ctx = useSession()
   const client = useQueryClient()
@@ -243,15 +322,15 @@ function PhasesList({ phases, editable, onEdit, onNew }: { phases: ProtocolPhase
 
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar fase" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-60 pl-9" /></div><button className="button-secondary"><SlidersHorizontal size={16} />Mais filtros</button></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button" aria-label="Ações em massa"><MoreHorizontal size={18} /></button><button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button></div>}</div>
-    <div className="space-y-1.5">{visible.map((phase) => { const color = phase.color ?? '#3498db'; const Icon = typeIconOptions.find((item) => item.value === phase.icon)?.Icon ?? FileText; return <article key={phase.id} className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"><span className="grid size-9 place-items-center rounded-lg" style={{ backgroundColor: `${color}20`, color }}><Icon size={18} /></span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{phase.name}</h2><p className="text-xs text-muted-foreground">{phase.description || phase.code}</p></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button size-8" aria-label={`Editar ${phase.name}`} onClick={() => onEdit(phase)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${phase.name}`} disabled><Trash2 size={15} /></button></div>}</article> })}{visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma fase encontrada.</p>}</div>
+    <div className="space-y-1.5">{visible.map((phase) => { const color = phase.color ?? '#3498db'; return <article key={phase.id} className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"><span className="grid size-9 place-items-center rounded-lg" style={{ backgroundColor: `${color}20`, color }}><IconGlyph name={phase.icon} size={18}/></span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{phase.name}</h2><p className="text-xs text-muted-foreground">{phase.description || phase.code}</p></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button size-8" aria-label={`Editar ${phase.name}`} onClick={() => onEdit(phase)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${phase.name}`} disabled><Trash2 size={15} /></button></div>}</article> })}{visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma fase encontrada.</p>}</div>
   </div>
 }
-function ProtocolTypeEditor({ type, onClose, onSaved }: { type?: ProtocolType; onClose: () => void; onSaved: () => void }) {
-  const ctx = useSession(); const client = useQueryClient(); const [name, setName] = useState(type?.name ?? ''); const [observation, setObservation] = useState(type?.description ?? ''); const [color, setColor] = useState(type?.color ?? '#3498db'); const [icon, setIcon] = useState(type?.icon ?? 'FileText'); const [flowMode, setFlowMode] = useState<FlowMode>(type?.flowMode ?? (type?.flowId ? 'REQUIRED' : 'NONE')); const [deadline, setDeadline] = useState(type?.defaultDeadlineDays?.toString() ?? ''); const [active, setActive] = useState(type?.active ?? true)
+function ProtocolTypeEditor({ type, categories, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; onClose: () => void; onSaved: () => void }) {
+  const ctx = useSession(); const client = useQueryClient(); const [name, setName] = useState(type?.name ?? ''); const [observation, setObservation] = useState(type?.description ?? ''); const [color, setColor] = useState(type?.color ?? '#3498db'); const [icon, setIcon] = useState(type?.icon ?? 'FileText'); const [flowMode, setFlowMode] = useState<FlowMode>(type?.flowMode ?? (type?.flowId ? 'REQUIRED' : 'NONE')); const [deadline, setDeadline] = useState(type?.defaultDeadlineDays?.toString() ?? ''); const [active, setActive] = useState(type?.active ?? true); const [categoryId, setCategoryId] = useState(type?.categoryId ?? categories.find((category) => category.active)?.id ?? '')
   const [interested, setInterested] = useState(type?.fieldsConfig.interested ?? { enabled: false, required: false }); const [creditor, setCreditor] = useState(type?.fieldsConfig.creditor ?? { enabled: false, required: false }); const [amount, setAmount] = useState(type?.fieldsConfig.amount ?? { enabled: false, required: false }); const [responsavel, setResponsavel] = useState(type?.fieldsConfig.responsavel?.enabled ?? false); const [assunto, setAssunto] = useState(type?.fieldsConfig.assunto?.enabled ?? true); const [arquivos, setArquivos] = useState(type?.fieldsConfig.arquivos?.enabled ?? false); const [portal, setPortal] = useState(type?.fieldsConfig.portal?.enabled ?? false)
-  const mutation = useMutation({ mutationFn: () => { const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, portal: { enabled: portal } }; const input = { name, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, active, fieldsConfig }; return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input) }, onSuccess: () => { invalidateAll(client); onSaved() } })
+  const mutation = useMutation({ mutationFn: () => { const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, portal: { enabled: portal } }; const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, active, fieldsConfig }; return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input) }, onSuccess: () => { invalidateAll(client); onSaved() } })
   const requirement = (label: string, checked: boolean, set: (checked: boolean) => void) => <label className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-b-0"><span>{label}</span><Switch checked={checked} onChange={(event) => set(event.target.checked)}/></label>
-  return <Dialog title={type ? 'Editar tipo de protocolo' : 'Novo tipo de protocolo'} onClose={onClose}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><section className="rounded-lg border p-4"><h3 className="label mb-3">Identidade</h3><Field label="Descrição *"><Input className="field" placeholder="Ex.: Tipos de serviço público" value={name} onChange={(event) => setName(event.target.value)}/></Field></section><section className="rounded-lg border p-4"><h3 className="label mb-3">Fluxo</h3><Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field><p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Depois de salvar, use o botão <strong>Fluxo</strong> na lista para criar e ordenar as etapas deste tipo.</p></section><section className="rounded-lg border p-4"><h3 className="label mb-2">Requisitos</h3>{requirement(flowMode === 'REQUIRED' ? 'Tem tramitação? (obrigatório para este fluxo)' : 'Tem tramitação?', flowMode !== 'NONE', (enabled) => setFlowMode(enabled ? 'SUGGESTED' : 'NONE'))}{requirement('Tem credor?', creditor.enabled, (enabled) => setCreditor({ enabled, required: enabled ? creditor.required : false }))}{requirement('Tem interessado?', interested.enabled, (enabled) => setInterested({ enabled, required: enabled ? interested.required : false }))}{requirement('Tem responsável?', responsavel, setResponsavel)}{requirement('Tem assunto?', assunto, setAssunto)}{requirement('Tem arquivos?', arquivos, setArquivos)}{requirement('Tem valor?', amount.enabled, (enabled) => setAmount({ enabled, required: enabled ? amount.required : false }))}{requirement('Tem portal do cidadão?', portal, setPortal)}</section><section className="rounded-lg border p-4"><h3 className="label mb-3">Outros</h3><Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field><Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field></section><section className="rounded-lg border p-4"><h3 className="label mb-3">Aparência</h3><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)}/></Field><Field label="Ícone"><Select className="field" value={icon} onChange={(event) => setIcon(event.target.value)}>{typeIconOptions.map(({ value, Icon }) => <option key={value} value={value}><span className="inline-flex items-center gap-2"><Icon size={15}/>{value}</span></option>)}</Select></Field></div></section>{type && <label className="text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}{mutation.error && <ErrorBox error={mutation.error}/>}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div></form></Dialog>
+  return <Dialog title={type ? 'Editar tipo de processo' : 'Novo tipo de processo'} onClose={onClose} wide><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><div className="space-y-5 lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0"><section className="rounded-lg border p-4 lg:col-span-12"><h3 className="label mb-3">Identidade</h3><div className="grid gap-4 sm:grid-cols-2"><Field label="Descrição *"><Input className="field" placeholder="Ex.: Tipos de serviço público" value={name} onChange={(event) => setName(event.target.value)}/></Field><Field label="Categoria"><Select aria-label="Categoria" className="field" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Sem categoria</option>{categories.filter((category) => category.active || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.code} — {category.name}</option>)}</Select></Field></div></section><section className="rounded-lg border p-4 lg:col-span-5"><h3 className="label mb-3">Fluxo</h3><Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field><p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Depois de salvar, use o botão <strong>Fluxo</strong> na lista para criar e ordenar as etapas deste tipo.</p></section><section className="rounded-lg border p-4 lg:col-span-7 lg:row-span-2"><h3 className="label mb-2">Requisitos</h3>{requirement(flowMode === 'REQUIRED' ? 'Tem tramitação? (obrigatório para este fluxo)' : 'Tem tramitação?', flowMode !== 'NONE', (enabled) => setFlowMode(enabled ? 'SUGGESTED' : 'NONE'))}{requirement('Tem credor?', creditor.enabled, (enabled) => setCreditor({ enabled, required: enabled ? creditor.required : false }))}{requirement('Tem interessado?', interested.enabled, (enabled) => setInterested({ enabled, required: enabled ? interested.required : false }))}{requirement('Tem responsável?', responsavel, setResponsavel)}{requirement('Tem assunto?', assunto, setAssunto)}{requirement('Tem arquivos?', arquivos, setArquivos)}{requirement('Tem valor?', amount.enabled, (enabled) => setAmount({ enabled, required: enabled ? amount.required : false }))}{requirement('Tem portal do cidadão?', portal, setPortal)}</section><section className="rounded-lg border p-4 lg:col-span-5"><h3 className="label mb-3">Outros</h3><Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field><Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field></section><section className="rounded-lg border p-4 lg:col-span-12"><h3 className="label mb-3">Aparência</h3><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)}/></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div></section></div>{type && <label className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}{mutation.error && <ErrorBox error={mutation.error}/>}<div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div></form></Dialog>
 }
 
 function PhaseEditor({ phase, onClose, onSaved }: { phase?: ProtocolPhase; onClose: () => void; onSaved: () => void }) {
@@ -268,7 +347,7 @@ function PhaseEditor({ phase, onClose, onSaved }: { phase?: ProtocolPhase; onClo
     },
     onSuccess: () => { invalidateAll(client); onSaved() },
   })
-  return <Dialog title={phase ? 'Editar tipo de fase' : 'Novo tipo de fase'} onClose={onClose}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></Field><Field label="Ícone"><Select className="field" value={icon} onChange={(event) => setIcon(event.target.value)}>{typeIconOptions.map(({ value }) => <option key={value} value={value}>{value}</option>)}</Select></Field></div><Field label="Observação"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} /></Field>{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar</button></div></form></Dialog>
+  return <Dialog title={phase ? 'Editar tipo de fase' : 'Novo tipo de fase'} onClose={onClose}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div><Field label="Observação"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} /></Field>{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar</button></div></form></Dialog>
 }
 function ChecklistEditor({ title, questions, onChange, onClose }: { title: string; questions: ChecklistQuestion[]; onChange: (questions: ChecklistQuestion[]) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<ChecklistQuestion | 'new' | null>(null); const ordered = questions.slice().sort((a, b) => a.order - b.order)
@@ -279,6 +358,57 @@ function QuestionEditor({ question, onClose, onSave }: { question: ChecklistQues
   const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
 }
 
-function StageEditor({ draft, phases, units, order, onClose, onSave }: { draft: { phaseId: string; required: boolean; situation?: ProtocolStatus; destinationUnitId?: string; requiresChecklist?: boolean; requiresAttachment?: boolean; checklistQuestions?: ChecklistQuestion[]; observation?: string; color?: string; icon?: string }; phases: ProtocolPhase[]; units: { id: string; name: string; active: boolean }[]; order: number; onClose: () => void; onSave: (stage: typeof draft) => void }) {
-  const [stage, setStage] = useState(draft); return <Dialog title="Nova etapa do fluxo" onClose={onClose}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave(stage) }}><section className="rounded border p-4"><h3 className="label mb-3">Fase e situação</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Fase *"><Select className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select></Field><Field label="Situação"><Select className="field" value={stage.situation ?? ''} onChange={(event) => setStage({ ...stage, situation: event.target.value as ProtocolStatus })}><option value="">Selecione...</option>{(Object.entries(statusLabel) as [ProtocolStatus, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></Field></div></section><section className="rounded border p-4"><h3 className="label mb-3">Destino organizacional</h3><Field label="Unidade organizacional de destino"><Select className="field" value={stage.destinationUnitId ?? ''} onChange={(event) => setStage({ ...stage, destinationUnitId: event.target.value || undefined })}><option value="">Selecione a unidade na estrutura...</option>{units.filter((unit) => unit.active).map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</Select></Field></section><section className="rounded border p-4"><h3 className="label mb-3">Comportamento</h3><div className="flex flex-wrap items-center gap-4"><Field label="Ordem"><Input className="field w-20" value={order} disabled/></Field><label className="text-sm"><Switch checked={stage.requiresChecklist ?? false} onChange={(event) => setStage({ ...stage, requiresChecklist: event.target.checked })}/> Exige checklist</label><label className="text-sm"><Switch checked={stage.requiresAttachment ?? false} onChange={(event) => setStage({ ...stage, requiresAttachment: event.target.checked })}/> Exige anexo</label></div></section><section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section><section className="rounded border p-4"><h3 className="label mb-3">Aparência</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><Select className="field" value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}><option>ArrowRight</option><option>Check</option><option>Clock</option><option>FileText</option></Select></Field></div></section><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!stage.phaseId}>Salvar</button></div></form></Dialog>
+function StageEditor({ draft, phases, situations, units, order, saving, onClose, onSave }: {
+  draft: {
+    phaseId: string
+    required: boolean
+    situationTypeId?: string
+    destinationUnitId?: string
+    requiresChecklist?: boolean
+    requiresAttachment?: boolean
+    checklistQuestions?: ChecklistQuestion[]
+    observation?: string
+    color?: string
+    icon?: string
+  }
+  phases: ProtocolPhase[]
+  situations: SituationType[]
+  units: Unit[]
+  order: number
+  saving: boolean
+  onClose: () => void
+  onSave: (stage: {
+    phaseId: string
+    required: boolean
+    situationTypeId?: string
+    destinationUnitId?: string
+    requiresChecklist?: boolean
+    requiresAttachment?: boolean
+    checklistQuestions?: ChecklistQuestion[]
+    observation?: string
+    color?: string
+    icon?: string
+  }) => void
+}) {
+  const [stage, setStage] = useState(draft)
+  const selectedSituation = situations.find((situation) => situation.id === stage.situationTypeId)
+
+  return <Dialog title="Nova etapa do fluxo" onClose={onClose}>
+    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave(stage) }}>
+      <section className="rounded border p-4">
+        <h3 className="label mb-3">Fase e situação</h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Fase *"><Select className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select></Field>
+          <Field label="Situação"><Select className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select></Field>
+        </div>
+        {selectedSituation && <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" style={{ backgroundColor: selectedSituation.color + '18', borderColor: selectedSituation.color + '55', color: selectedSituation.color }}><IconGlyph name={selectedSituation.icon} size={14}/>{selectedSituation.name}</div>}
+      </section>
+      <section className="rounded border p-4"><h3 className="label mb-3">Destino organizacional</h3><Field label="Unidade organizacional de destino"><Select className="field" value={stage.destinationUnitId ?? ''} onChange={(event) => setStage({ ...stage, destinationUnitId: event.target.value || undefined })}><option value="">Selecione a unidade na estrutura...</option>{sortUnitsByPath(units.filter((unit) => unit.active)).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(units, unit.id)}</option>)}</Select></Field></section>
+      <section className="rounded border p-4"><h3 className="label mb-3">Comportamento</h3><div className="flex flex-wrap items-center gap-4"><Field label="Ordem"><Input className="field w-20" value={order} disabled/></Field><label className="text-sm"><Switch checked={stage.requiresChecklist ?? false} onChange={(event) => setStage({ ...stage, requiresChecklist: event.target.checked })}/> Exige checklist</label><label className="text-sm"><Switch checked={stage.requiresAttachment ?? false} onChange={(event) => setStage({ ...stage, requiresAttachment: event.target.checked })}/> Exige anexo</label></div></section>
+      <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section>
+      <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
+    </form>
+  </Dialog>
 }
+

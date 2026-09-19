@@ -15,7 +15,7 @@ test('relatórios exibem filtros em abas e geram os três PDFs', async ({ page }
   const number = await page.evaluate(() => JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).protocols[0].number as string);
   await page.getByRole('tab', { name: 'Relatório Individual', exact: true }).click();
   await expect(page.getByLabel('Agrupar por')).toHaveCount(0);
-  await page.getByLabel('Número do protocolo').fill(number);
+  await page.getByLabel('Número do processo').fill(number);
   const coverDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Gerar PDF', exact: true }).click();
   const cover = await coverDownload;
@@ -64,7 +64,7 @@ test('configuração persiste a logo e o endereço de consulta e gera capa pela 
   await expect(page.getByRole('img', { name: 'Logo da entidade' })).toBeVisible();
   await page.getByRole('tab', { name: 'Portal', exact: true }).click();
   await expect(page.getByLabel('Endereço público')).toHaveValue('https://portal.entidade.gov.br/consulta');
-  await page.goto('/protocolos/pr-5');
+  await page.goto('/processos/pr-5');
   await page.getByRole('button', { name: 'Ações', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Imprimir capa', exact: true }).click();

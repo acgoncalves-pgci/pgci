@@ -15,7 +15,7 @@ export const getUser = (db: Database, id: string) =>
   db.users.find((user) => user.id === id) ?? fail('NOT_FOUND', 'Usuário não encontrado.')
 
 export const getProtocol = (db: Database, id: string) =>
-  db.protocols.find((protocol) => protocol.id === id) ?? fail('NOT_FOUND', 'Protocolo não encontrado.')
+  db.protocols.find((protocol) => protocol.id === id) ?? fail('NOT_FOUND', 'Processo não encontrado.')
 
 export const getAssignment = (db: Database, protocol: Protocol) =>
   db.assignments.find((assignment) => assignment.id === protocol.currentAssignmentId) ??
@@ -43,19 +43,34 @@ export const roleForContext = (db: Database, ctx: Context): Role =>
 
 export const requireVersion = (protocol: Protocol, expected: number) => {
   if (protocol.version !== expected)
-    fail('CONFLICT', 'Este protocolo mudou. Atualize a tela antes de continuar.')
+    fail('CONFLICT', 'Este processo mudou. Atualize a tela antes de continuar.')
 }
 
 export const requireActive = (protocol: Protocol) => {
   if (!isActive(protocol))
-    fail('INVALID_STATE', 'Ação disponível apenas para protocolos ativos.')
+    fail('INVALID_STATE', 'Ação disponível apenas para processos ativos.')
+}
+
+export const unitIdsForScope = (db: Database, ctx: Context) => {
+  if (ctx.scopeUnitId !== 'ALL') return [ctx.activeUnitId]
+  const now = new Date()
+  return db.memberships
+    .filter((membership) => membership.userId === ctx.userId && isMembershipCurrent(membership, now))
+    .map((membership) => membership.unitId)
 }
 
 export const canView = (db: Database, protocol: Protocol, ctx: Context) => {
   const user = getUser(db, ctx.userId)
-  const membership = findActiveMembership(db, ctx)
-  if (!membership) return false
-  if (membership.role === 'ADMIN' || protocol.currentUnitId === ctx.activeUnitId || protocol.createdById === user.id)
+  const unitIds = unitIdsForScope(db, ctx)
+  const memberships = db.memberships.filter(
+    (membership) =>
+      membership.userId === ctx.userId &&
+      unitIds.includes(membership.unitId) &&
+      isMembershipCurrent(membership),
+  )
+  if (!memberships.length) return false
+  if (ctx.scopeUnitId && ctx.scopeUnitId !== 'ALL') return unitIds.includes(protocol.currentUnitId)
+  if (memberships.some((membership) => membership.role === 'ADMIN') || unitIds.includes(protocol.currentUnitId) || protocol.createdById === user.id)
     return true
   return db.events.some(
     (event) =>

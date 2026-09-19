@@ -80,7 +80,7 @@ describe('migração do banco local', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.schemaVersion).toBe(5)
     expect(migrated.units.map((unit) => unit.position)).toEqual([0, 1, 0, 2, 3])
     expect(migrated.memberships).toHaveLength(migrated.users.length + migrated.units.filter((unit) => unit.active).length - 1)
     expect(migrated.memberships.find((membership) => membership.userId === 'usr-admin')).toMatchObject({
@@ -89,9 +89,58 @@ describe('migração do banco local', () => {
       active: true,
     })
     expect(migrated.auditEvents).toEqual([])
+    expect(migrated.processCategories).toHaveLength(2)
+    expect(migrated.protocolTypes.every((type) => type.categoryId)).toBe(true)
+    expect(migrated.situations).toHaveLength(7)
+    expect(migrated.situations.every((situation) => situation.system)).toBe(true)
     expect(migrated.flows).toHaveLength(1)
     expect(migrated.phases.map((phase) => phase.code)).toEqual(['TRIAGEM', 'ANALISE', 'CONCLUSAO'])
     expect(migrated.protocolTypes.every((type) => type.flowId === migrated.flows[0].id)).toBe(true)
     expect(migrated.protocols.every((protocol) => protocol.flowSnapshot?.flowId === migrated.flows[0].id)).toBe(true)
+  })
+})
+describe('migração de situações da versão 3', () => {
+  it('converte a situação fixa da etapa e do snapshot para o novo cadastro', () => {
+    const legacy = structuredClone(seedDatabase()) as unknown as {
+      schemaVersion: number
+      situations?: unknown
+      flowPhases: Array<{ situation?: 'EM_ANDAMENTO'; situationTypeId?: string }>
+      protocols: Array<{ flowSnapshot?: { phases: Array<{ situation?: 'CADASTRADO'; situationType?: unknown }> } }>
+    }
+    legacy.schemaVersion = 3
+    delete legacy.situations
+    legacy.flowPhases[0].situation = 'EM_ANDAMENTO'
+    delete legacy.flowPhases[0].situationTypeId
+    const firstSnapshotPhase = legacy.protocols[0].flowSnapshot!.phases[0]
+    firstSnapshotPhase.situation = 'CADASTRADO'
+    delete firstSnapshotPhase.situationType
+
+    const migrated = migrateDatabase(legacy)
+
+    expect(migrated.flowPhases[0].situationTypeId).toBe('situation-processing')
+    expect(migrated.protocols[0].flowSnapshot?.phases[0].situationType).toMatchObject({
+      id: 'situation-registered',
+      name: 'Cadastrado',
+    })
+  })
+})
+
+
+describe('migração de categorias da versão 4', () => {
+  it('cria as categorias iniciais e vincula os tipos existentes', () => {
+    const legacy = structuredClone(seedDatabase()) as unknown as {
+      schemaVersion: number
+      processCategories?: unknown
+      protocolTypes: Array<{ id: string; categoryId?: string }>
+    }
+    legacy.schemaVersion = 4
+    delete legacy.processCategories
+    legacy.protocolTypes.forEach((type) => delete type.categoryId)
+
+    const migrated = migrateDatabase(legacy)
+
+    expect(migrated.schemaVersion).toBe(5)
+    expect(migrated.processCategories.map((category) => category.code)).toEqual(['01', '02'])
+    expect(migrated.protocolTypes.every((type) => type.categoryId)).toBe(true)
   })
 })

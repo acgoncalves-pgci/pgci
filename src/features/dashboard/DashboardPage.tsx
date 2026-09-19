@@ -79,17 +79,17 @@ export function Dashboard() {
   ];
   const shortcuts = [
     {
-      label: "Protocolos",
+      label: "Processos",
       tone: "protocols",
       detail: "Acompanhe, movimente e dê andamento aos processos do sistema.",
-      to: "/protocolos",
+      to: "/processos",
       icon: ClipboardList,
     },
     {
       label: "Documentos",
       tone: "documents",
       detail:
-        "Controle ofícios e arquivos diretamente vinculados aos protocolos.",
+        "Controle ofícios e arquivos diretamente vinculados aos processos.",
       to: "/documentos",
       icon: FileText,
     },
@@ -112,7 +112,7 @@ export function Dashboard() {
     event.preventDefault();
     navigateWithLoading(
       navigate,
-      `/protocolos?search=${encodeURIComponent(search)}`,
+      `/processos?search=${encodeURIComponent(search)}`,
     );
   };
   return (
@@ -137,19 +137,19 @@ export function Dashboard() {
           onSubmit={submitSearch}
         >
           <label className="sr-only" htmlFor="overview-search">
-            Buscar protocolo
+            Buscar processo
           </label>
           <Input
             id="overview-search"
             className="overview-search !mt-0 pr-14"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar protocolo pelo número ou assunto"
+            placeholder="Buscar processo pelo número ou assunto"
           />
           <button
             type="submit"
             className="absolute right-3 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-md text-black transition-colors hover:bg-slate-100 dark:text-white dark:hover:bg-slate-800"
-            aria-label="Buscar protocolo"
+            aria-label="Buscar processo"
           >
             <Search size={25} />
           </button>
@@ -162,7 +162,7 @@ export function Dashboard() {
             Meus Processos
           </h2>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            Protocolos sob sua responsabilidade e seus prazos.
+            Processos sob sua responsabilidade e seus prazos.
           </p>
         </header>
         <div className="grid gap-10 sm:grid-cols-2 xl:grid-cols-4">
@@ -171,7 +171,7 @@ export function Dashboard() {
               key={card.label}
               type="button"
               onClick={() =>
-                navigateWithLoading(navigate, `/protocolos?${card.query}`)
+                navigateWithLoading(navigate, `/processos?${card.query}`)
               }
               className="overview-metric text-left"
             >
@@ -198,7 +198,7 @@ export function Dashboard() {
                 key={protocol.id}
                 type="button"
                 onClick={() =>
-                  navigateWithLoading(navigate, `/protocolos/${protocol.id}`)
+                  navigateWithLoading(navigate, `/processos/${protocol.id}`)
                 }
                 className="overview-protocol-row"
               >
@@ -231,7 +231,7 @@ export function Dashboard() {
         ) : (
           <div className="overview-protocol-row cursor-default">
             <span className="text-sm text-slate-500 dark:text-slate-400">
-              Nenhum protocolo pendente no momento.
+              Nenhum processo pendente no momento.
             </span>
           </div>
         )}

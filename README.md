@@ -1,6 +1,6 @@
 # Fluxo Público
 
-MVP frontend para demonstração de gestão de protocolos, documentos e cadastros da **Prefeitura de Vila Exemplo**. Não há backend, login, API remota ou dados reais.
+MVP frontend para demonstração de gestão de processos, documentos e cadastros da **Prefeitura de Vila Exemplo**. Não há backend, login, API remota ou dados reais.
 
 ## Executar
 
@@ -25,7 +25,7 @@ O recorte de trabalho pendente, com prioridades e ordem recomendada, está em [p
 
 ## Demonstração
 
-A aplicação abre no painel operacional da usuária Clara (Protocolo Geral). Abra um protocolo, encaminhe-o ao Financeiro sem destinatário, troque o usuário do topo para Rafael, assuma e dê ciência. Crie um documento ou anexo, encaminhe ao Jurídico, dê ciência como Luísa e conclua. Depois, arquive e selecione Marina (admin) para reabrir.
+A aplicação abre no painel operacional da usuária Clara (Processo Geral). Abra um processo, encaminhe-o ao Financeiro sem destinatário, troque o usuário do topo para Rafael, assuma e dê ciência. Crie um documento ou anexo, encaminhe ao Jurídico, dê ciência como Luísa e conclua. Depois, arquive e selecione Marina (admin) para reabrir.
 
 O menu lateral inclui **Restaurar demonstração**; a ação confirma antes de limpar somente os dados `fluxo-publico:*` da aplicação.
 
