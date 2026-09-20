@@ -96,6 +96,17 @@ describe('controles de formulário', () => {
 })
 
 describe('Dialog', () => {
+  it('mantém o bloqueio de rolagem enquanto houver outro modal aberto', () => {
+    document.body.style.overflow = ''
+    const view = render(<><Dialog key="primary" title="Modal principal" onClose={() => undefined}>Principal</Dialog><Dialog key="secondary" title="Modal secundário" onClose={() => undefined} stacked>Secundário</Dialog></>)
+
+    expect(document.body.style.overflow).toBe('hidden')
+    view.rerender(<Dialog key="secondary" title="Modal secundário" onClose={() => undefined} stacked>Secundário</Dialog>)
+    expect(document.body.style.overflow).toBe('hidden')
+    view.unmount()
+    expect(document.body.style.overflow).toBe('')
+  })
+
   it('expõe o estado de fechamento antes de chamar o controlador externo', () => {
     vi.useFakeTimers()
     const onClose = vi.fn()

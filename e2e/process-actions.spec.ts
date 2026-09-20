@@ -53,6 +53,52 @@ test('lista compacta mostra anexos e menu de impressão completo', async ({ page
   expect(download.suggestedFilename()).toMatch(/^comprovante_protocolo_.*\.pdf$/)
 })
 
+test('contador de anexos permanece dentro da coluna em largura intermediária', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'A largura intermediária é validada no projeto desktop.')
+  await page.setViewportSize({ width: 820, height: 900 })
+  await page.goto('/processos?tab=all')
+
+  const card = page.locator('.process-card').filter({ hasText: 'Em tramitação' }).first()
+  const reference = card.locator('.process-card-reference')
+  const statusBadge = card.locator('.process-card-state > span').first()
+  const attachmentBadge = card.getByTitle(/anexo/)
+  await expect(card).toBeVisible()
+  await expect(statusBadge).toBeVisible()
+  await expect(attachmentBadge).toBeVisible()
+
+  const [referenceBox, attachmentBox, paddingRight] = await Promise.all([
+    reference.boundingBox(),
+    attachmentBadge.boundingBox(),
+    reference.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingRight)),
+  ])
+  expect(referenceBox).not.toBeNull()
+  expect(attachmentBox).not.toBeNull()
+  const statusSize = await statusBadge.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
+  expect(statusSize.scrollWidth, JSON.stringify(statusSize)).toBeLessThanOrEqual(statusSize.clientWidth + 1)
+  expect(attachmentBox!.x + attachmentBox!.width).toBeLessThanOrEqual(referenceBox!.x + referenceBox!.width - paddingRight + 1)
+})
+test('situação longa usa letreiro e a lista mostra tooltips completos', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'O overflow intermediário é validado no projeto desktop.')
+  await page.setViewportSize({ width: 820, height: 900 })
+  await page.goto('/processos?tab=all&pageSize=100')
+
+  const card = page.locator('.process-card').filter({ hasText: 'Aguardando resposta da unidade' }).first()
+  const badge = card.locator('.process-status-badge')
+  const marquee = badge.locator('.overflow-marquee')
+  await expect(card).toBeVisible()
+  await expect(marquee).toHaveAttribute('data-overflow', 'true')
+  expect(await marquee.locator('.overflow-marquee-track').evaluate((element) => getComputedStyle(element).animationName)).toBe('overflow-marquee')
+
+  await badge.hover()
+  const statusTooltip = page.getByRole('tooltip')
+  await expect(statusTooltip).toHaveText('Aguardando resposta da unidade')
+  expect(await statusTooltip.evaluate((element) => element.parentElement === document.body)).toBe(true)
+
+  const description = card.locator('.process-card-description')
+  const fullDescription = (await description.textContent())!.trim()
+  await description.hover()
+  await expect(page.getByRole('tooltip')).toHaveText(fullDescription)
+})
 test('lista exporta o comprovante do protocolo', async ({ page }) => {
   await page.goto('/processos?tab=all')
   const firstCard = page.locator('.process-card').first()
@@ -137,6 +183,47 @@ test('etiqueta usa uma página no formato 150 por 100 mm', async ({ page }, test
   expect(label.getPage(0).getHeight()).toBeCloseTo(283, 0)
 })
 
+test('avança a fase configurada somente pela tramitação', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Regressão funcional coberta no projeto desktop.')
+  await page.goto('/processos/pr-1')
+
+  await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Avançar fase' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Tramitar processo' })
+  const phase = dialog.getByRole('combobox', { name: 'Fase *' })
+  await expect(phase).toBeDisabled()
+  await expect(phase).toContainText('Análise')
+  await expect(dialog.getByText('Próxima etapa obrigatória do fluxo. A fase não pode ser alterada nesta tramitação.')).toBeVisible()
+})
+test('filtra destinatários pela unidade selecionada na tramitação', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+  })
+  await page.goto('/processos/pr-6')
+  await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Tramitar processo' })
+
+  await dialog.getByRole('combobox', { name: 'Unidade organizacional de destino *' }).click()
+  await page.getByRole('option', { name: 'Administração / Financeiro' }).click()
+  await dialog.getByRole('combobox', { name: 'Destinatário' }).click()
+  await expect(page.getByRole('option', { name: 'Rafael Reis' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Clara Nunes' })).toHaveCount(0)
+  await expect(page.getByRole('option', { name: 'Bruno Lima' })).toHaveCount(0)
+  await page.getByRole('option', { name: 'Rafael Reis' }).click()
+
+  await dialog.getByRole('combobox', { name: 'Unidade organizacional de destino *' }).click()
+  await page.getByRole('option', { name: 'Gestão de Processos' }).click()
+  await expect(dialog.getByRole('combobox', { name: 'Destinatário' })).toContainText('Enviar para fila sem responsável')
+  await dialog.getByRole('combobox', { name: 'Destinatário' }).click()
+  await expect(page.getByRole('option', { name: 'Clara Nunes' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Rafael Reis' })).toHaveCount(0)
+  await expect(page.getByRole('option', { name: 'Bruno Lima' })).toHaveCount(0)
+})
+
 test('ciência exige confirmação e fica cinza após o registro', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('fluxo-publico:user', 'usr-bruno')
@@ -147,6 +234,9 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
 
   const movementToggles = page.locator('button[aria-controls^="timeline-content-"]')
   const movementCount = await movementToggles.count()
+  const checklistItem = page.getByRole('checkbox', { name: 'Registrar despacho ou resultado' })
+  await expect(checklistItem).toBeDisabled()
+  await expect(page.getByText('Dê ciência desta movimentação para preencher o checklist.')).toBeVisible()
   const acknowledge = page.getByRole('button', { name: 'Dar ciência da tramitação' })
   await expect(acknowledge).toBeVisible()
   await acknowledge.click()
@@ -157,6 +247,26 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
   const registered = page.getByRole('button', { name: 'Ciência registrada', exact: true })
   await expect(registered).toBeDisabled()
   await expect(registered).toHaveClass(/timeline-icon-action--done/)
+  await expect(page.getByRole('button', { name: 'Devolver fase' })).toHaveCount(0)
+  await expect(checklistItem).toBeEnabled()
+  await checklistItem.click()
+  await expect(checklistItem).toBeChecked()
+  const checklistSection = checklistItem.locator('xpath=ancestor::section[1]')
+  const checklistHeight = (await checklistSection.boundingBox())!.height
+  const observationButton = page.getByRole('button', { name: 'Adicionar observação em Registrar despacho ou resultado' })
+  await observationButton.click()
+  const observationPopover = page.getByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+  await expect(observationPopover).toBeVisible()
+  await observationButton.click()
+  await expect(observationPopover).toHaveCount(0)
+  await observationButton.click()
+  await expect(observationPopover).toBeVisible()
+  expect(await observationPopover.evaluate((element) => element.parentElement === document.body)).toBe(true)
+  expect(await observationPopover.evaluate((element) => getComputedStyle(element).position)).toBe('fixed')
+  expect(Math.abs((await checklistSection.boundingBox())!.height - checklistHeight)).toBeLessThan(1)
+  await observationPopover.getByRole('textbox', { name: 'Observação' }).fill('Atividade conferida no andamento.')
+  await observationPopover.getByRole('button', { name: 'Salvar', exact: true }).click()
+  await expect(page.getByText('Atividade conferida no andamento.', { exact: true }).first()).toHaveText('Atividade conferida no andamento.')
   await expect(movementToggles).toHaveCount(movementCount)
 })
 
@@ -254,7 +364,7 @@ test('documentos e anexos da movimentação abrem prévia ao clicar', async ({ p
 
   const documentDialog = page.getByRole('dialog', { name: 'Visualizar documento — DOC-2026.000001' })
   await expect(documentDialog).toBeVisible()
-  await expect(documentDialog.getByText('Resposta preliminar', { exact: true })).toBeVisible()
+  await expect(documentDialog.getByText('Justificativa para reposição do estoque', { exact: true })).toBeVisible()
   await expect(documentDialog.getByText(/Documento de demonstração do Fluxo Público/)).toBeVisible()
   await documentDialog.getByRole('button', { name: 'Fechar', exact: true }).click()
   await expect(documentDialog).toBeHidden()

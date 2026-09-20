@@ -6,6 +6,7 @@ const BLOB_DB = 'fluxo-publico-blobs';
 const SEED_BLOB_KEY = 'seed-comprovante';
 const seedBlob = () => new Blob(['Comprovante fictício disponível para visualização.'], { type: 'text/plain' });
 const fallbackBlobs = new Map<string, Blob>();
+let demoResetSequence = 0;
 type StorageFailure = 'QUOTA' | 'UNAVAILABLE' | 'READ' | 'WRITE';
 export class StorageError extends Error {
     constructor(public readonly code: StorageFailure, message: string, public readonly cause?: unknown) { super(message); this.name = 'StorageError'; }
@@ -57,7 +58,7 @@ export const resetDb = async () => { try {
 }
 catch (error) {
     throw storageError('WRITE', error);
-} ; fallbackBlobs.clear(); await clearBlobs().catch(() => undefined); const db = loadDb(); ensureSeedBlob(); window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'success', message: 'Demonstração restaurada com sucesso.' } })); return db; };
+} ; fallbackBlobs.clear(); await clearBlobs().catch(() => undefined); const db = seedDatabase({ variation: Date.now() + ++demoResetSequence }); saveDb(db); ensureSeedBlob(); window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'success', message: 'Demonstração restaurada com sucesso.' } })); return db; };
 const openBlobs = () => new Promise<IDBDatabase>((resolve, reject) => {
     if (!isIndexedDbAvailable()) {
         reject(new StorageError('UNAVAILABLE', 'O armazenamento de arquivos (IndexedDB) não está disponível neste navegador.'));

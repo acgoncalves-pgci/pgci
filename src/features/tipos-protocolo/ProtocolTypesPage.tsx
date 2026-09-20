@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, CircleDot, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Tags, Trash2 } from 'lucide-react'
-import type { Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
+import { ChevronRight, CircleDot, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Sparkles, Tags, Trash2 } from 'lucide-react'
+import type { AppUser, Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
 import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
@@ -11,10 +11,12 @@ import { Dialog } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 import { CategoryEditor, ProcessCategoriesPage } from '../categorias/ProcessCategoriesPage'
 import { SituationEditor, SituationsPage } from '../situacoes/SituationsPage'
+import { AiProtocolTypeDialog } from './AiProtocolTypeDialog'
 
 type Tab = 'types' | 'phases' | 'categories' | 'situations'
 
@@ -29,6 +31,7 @@ export function ProtocolTypesPage() {
   const [phaseEditing, setPhaseEditing] = useState<ProtocolPhase | 'new' | null>(null)
   const [typeFilesEditing, setTypeFilesEditing] = useState<ProtocolType | null>(null)
   const [flowManaging, setFlowManaging] = useState<ProtocolType | null>(null)
+  const [aiCreating, setAiCreating] = useState(false)
 
   if (isLoading || !db) return <Loading />
   const admin = ctx.user?.role === 'ADMIN'
@@ -46,16 +49,17 @@ export function ProtocolTypesPage() {
         ['situations', CircleDot, 'Situações'],
       ] as const).map(([key, Icon, label]) => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${tab === key ? 'border-public-700 text-public-700' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Icon size={16} />{label}</button>)}
     </div>
-    {tab === 'types' && <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onNew={() => setTypeEditing('new')} />}
+    {tab === 'types' && <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />}
     {tab === 'phases' && <PhasesList phases={db.phases} editable={admin} onEdit={setPhaseEditing} onNew={() => setPhaseEditing('new')} />}
     {tab === 'categories' && <ProcessCategoriesPage embedded />}
     {tab === 'situations' && <SituationsPage embedded />}
-    {typeEditing && <ProtocolTypeEditor categories={db.processCategories} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
+    {aiCreating && <AiProtocolTypeDialog categories={db.processCategories} phases={db.phases} situations={db.situations} units={db.units} onClose={() => setAiCreating(false)} onCreated={() => setAiCreating(false)} />}
+    {typeEditing && <ProtocolTypeEditor categories={db.processCategories} users={db.users} units={db.units} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
     {phaseEditing && <PhaseEditor phase={phaseEditing === 'new' ? undefined : phaseEditing} onClose={() => setPhaseEditing(null)} onSaved={() => setPhaseEditing(null)} />}
     {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={admin} onClose={() => setTypeFilesEditing(null)} />}
   </>
 }
-function TypesList({ types, categories, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onNew: () => void }) {
+function TypesList({ types, categories, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onCreateWithAi, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onCreateWithAi: () => void; onNew: () => void }) {
   const [search, setSearch] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -123,6 +127,7 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
           <p className="px-2 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground">EXCLUIR REGISTROS</p>
           <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleteOpen(true) }}><span className="flex items-center gap-2"><Trash2 size={15} />Excluir todos os Tipos de Processo</span><span className="text-xs">{types.length}</span></button>
         </div>}
+        <button className="button-secondary border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30" onClick={onCreateWithAi}><Sparkles size={16} />Criar com IA</button>
         <button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button>
       </div>}
     </div>
@@ -336,7 +341,7 @@ function PhasesList({ phases, editable, onEdit, onNew }: { phases: ProtocolPhase
     <div className="space-y-1.5">{visible.map((phase) => { const color = phase.color ?? '#3498db'; return <article key={phase.id} className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"><span className="grid size-9 place-items-center rounded-lg" style={{ backgroundColor: `${color}20`, color }}><IconGlyph name={phase.icon} size={18}/></span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{phase.name}</h2><p className="text-xs text-muted-foreground">{phase.description || phase.code}</p></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button size-8" aria-label={`Editar ${phase.name}`} onClick={() => onEdit(phase)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${phase.name}`} disabled><Trash2 size={15} /></button></div>}</article> })}{visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma fase encontrada.</p>}</div>
   </div>
 }
-function ProtocolTypeEditor({ type, categories, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; onClose: () => void; onSaved: () => void }) {
+function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; users: AppUser[]; units: Unit[]; onClose: () => void; onSaved: () => void }) {
   const ctx = useSession()
   const client = useQueryClient()
   const [name, setName] = useState(type?.name ?? '')
@@ -351,14 +356,25 @@ function ProtocolTypeEditor({ type, categories, onClose, onSaved }: { type?: Pro
   const [interested, setInterested] = useState(type?.fieldsConfig.interested ?? { enabled: false, required: false })
   const [creditor, setCreditor] = useState(type?.fieldsConfig.creditor ?? { enabled: false, required: false })
   const [amount, setAmount] = useState(type?.fieldsConfig.amount ?? { enabled: false, required: false })
+  const [contractNumber, setContractNumber] = useState(type?.fieldsConfig.contractNumber?.enabled ?? false)
+  const [biddingNumber, setBiddingNumber] = useState(type?.fieldsConfig.biddingNumber?.enabled ?? false)
+  const [legalProcessNumber, setLegalProcessNumber] = useState(type?.fieldsConfig.legalProcessNumber?.enabled ?? false)
+  const [referenceNumber, setReferenceNumber] = useState(type?.fieldsConfig.referenceNumber?.enabled ?? false)
   const [responsavel, setResponsavel] = useState(type?.fieldsConfig.responsavel?.enabled ?? false)
   const [assunto, setAssunto] = useState(type?.fieldsConfig.assunto?.enabled ?? true)
   const [arquivos, setArquivos] = useState(type?.fieldsConfig.arquivos?.enabled ?? false)
   const [portal, setPortal] = useState(type?.fieldsConfig.portal?.enabled ?? false)
+  const [authorizedUserIds, setAuthorizedUserIds] = useState(type?.authorizedUserIds ?? [])
+  const [authorizedUnitIds, setAuthorizedUnitIds] = useState(type?.authorizedUnitIds ?? [])
+  const [userSearch, setUserSearch] = useState('')
+  const [unitSearch, setUnitSearch] = useState('')
+  const toggleAuthorization = (id: string, checked: boolean, setIds: (ids: string[]) => void, ids: string[]) => setIds(checked ? [...new Set([...ids, id])] : ids.filter((item) => item !== id))
+  const visibleUsers = users.filter((user) => user.active && `${user.name} ${user.email}`.toLocaleLowerCase().includes(userSearch.trim().toLocaleLowerCase()))
+  const visibleUnits = sortUnitsByPath(units.filter((unit) => unit.active && `${unit.name} ${unit.abbreviation}`.toLocaleLowerCase().includes(unitSearch.trim().toLocaleLowerCase())))
   const mutation = useMutation({
     mutationFn: () => {
-      const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, portal: { enabled: portal } }
-      const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, active, fieldsConfig }
+      const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, contractNumber: { enabled: contractNumber }, biddingNumber: { enabled: biddingNumber }, legalProcessNumber: { enabled: legalProcessNumber }, referenceNumber: { enabled: referenceNumber }, portal: { enabled: portal } }
+      const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, authorizedUserIds, authorizedUnitIds, active, fieldsConfig }
       return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input)
     },
     onSuccess: () => { invalidateAll(client); onSaved() },
@@ -395,12 +411,26 @@ function ProtocolTypeEditor({ type, categories, onClose, onSaved }: { type?: Pro
             {requirement('Tem assunto?', assunto, setAssunto)}
             {requirement('Tem arquivos?', arquivos, setArquivos)}
             {requirement('Tem valor?', amount.enabled, (enabled) => setAmount({ enabled, required: enabled ? amount.required : false }))}
+            {requirement('Tem número de contrato?', contractNumber, setContractNumber)}
+            {requirement('Tem número de licitação?', biddingNumber, setBiddingNumber)}
+            {requirement('Tem número de processo jurídico?', legalProcessNumber, setLegalProcessNumber)}
+            {requirement('Tem número?', referenceNumber, setReferenceNumber)}
             {requirement('Tem portal do cidadão?', portal, setPortal)}
           </section>
           <section className="rounded-lg border p-4 lg:col-span-5">
             <h3 className="label mb-3">Outros</h3>
             <Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
             <Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field>
+          </section>
+          <section className="rounded-lg border p-4 lg:col-span-12">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><h3 className="label">Autorizações para abertura</h3><p className="mt-1 text-xs text-muted-foreground">Selecione usuários e unidades que podem abrir processos deste tipo. Sem seleção, o tipo fica liberado para todos.</p></div>
+              <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{authorizedUserIds.length || authorizedUnitIds.length ? `${authorizedUserIds.length} usuário(s) · ${authorizedUnitIds.length} unidade(s)` : 'Liberado para todos'}</span>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="min-w-0 rounded-lg border border-border"><div className="border-b border-border p-3"><Field label="Usuários autorizados"><Input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Buscar por nome ou e-mail"/></Field></div><div className="max-h-56 overflow-y-auto divide-y divide-border">{visibleUsers.map((user) => <label key={user.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/50"><Checkbox checked={authorizedUserIds.includes(user.id)} onChange={(event) => toggleAuthorization(user.id, event.target.checked, setAuthorizedUserIds, authorizedUserIds)}/><span className="min-w-0"><strong className="block truncate font-medium">{user.name}</strong><small className="block truncate text-muted-foreground">{user.email}</small></span></label>)}{visibleUsers.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhum usuário encontrado.</p>}</div></div>
+              <div className="min-w-0 rounded-lg border border-border"><div className="border-b border-border p-3"><Field label="Unidades autorizadas"><Input value={unitSearch} onChange={(event) => setUnitSearch(event.target.value)} placeholder="Buscar unidade"/></Field></div><div className="max-h-56 overflow-y-auto divide-y divide-border">{visibleUnits.map((unit) => <label key={unit.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/50"><Checkbox checked={authorizedUnitIds.includes(unit.id)} onChange={(event) => toggleAuthorization(unit.id, event.target.checked, setAuthorizedUnitIds, authorizedUnitIds)}/><span className="min-w-0"><strong className="block truncate font-medium">{unit.name}</strong><small className="block truncate text-muted-foreground">{unitPath(units, unit.id)}</small></span></label>)}{visibleUnits.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhuma unidade encontrada.</p>}</div></div>
+            </div>
           </section>
           <section className="rounded-lg border p-4 lg:col-span-12">
             <h3 className="label mb-3">Aparência</h3>
@@ -435,10 +465,10 @@ function PhaseEditor({ phase, onClose, onSaved, stacked = false }: { phase?: Pro
 function ChecklistEditor({ title, questions, onChange, onClose }: { title: string; questions: ChecklistQuestion[]; onChange: (questions: ChecklistQuestion[]) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<ChecklistQuestion | 'new' | null>(null); const ordered = questions.slice().sort((a, b) => a.order - b.order)
   const save = (question: ChecklistQuestion) => { const exists = questions.some((item) => item.id === question.id); onChange((exists ? questions.map((item) => item.id === question.id ? question : item) : [...questions, question]).sort((a, b) => a.order - b.order)); setEditing(null) }
-  return <><Dialog title={title} onClose={onClose}><div className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}<div className="pt-3 text-right"><button className="btn-secondary" onClick={onClose}>Fechar</button></div></div></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save}/>}</>
+  return <><Dialog title={title} onClose={onClose}><div className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}<div className="pt-3 text-right"><button className="btn-secondary" onClick={onClose}>Fechar</button></div></div></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save} stacked/>}</>
 }
-function QuestionEditor({ question, onClose, onSave }: { question: ChecklistQuestion; onClose: () => void; onSave: (question: ChecklistQuestion) => void }) {
-  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
+function QuestionEditor({ question, onClose, onSave, stacked }: { question: ChecklistQuestion; onClose: () => void; onSave: (question: ChecklistQuestion) => void; stacked?: boolean }) {
+  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose} stacked={stacked}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
 }
 
 function StageEditor({ draft, phases, situations, units, order, saving, onClose, onSave }: {
@@ -476,11 +506,19 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
   const [stage, setStage] = useState(draft)
   const [creatingPhase, setCreatingPhase] = useState(false)
   const [creatingSituation, setCreatingSituation] = useState(false)
+  const [editingQuestion, setEditingQuestion] = useState<ChecklistQuestion | 'new' | null>(null)
   const selectedSituation = situations.find((situation) => situation.id === stage.situationTypeId)
+  const questions = (stage.checklistQuestions ?? []).slice().sort((left, right) => left.order - right.order)
+  const saveQuestion = (question: ChecklistQuestion) => {
+    const exists = questions.some((item) => item.id === question.id)
+    const next = (exists ? questions.map((item) => item.id === question.id ? question : item) : [...questions, question]).sort((left, right) => left.order - right.order).map((item, index) => ({ ...item, order: index + 1 }))
+    setStage((current) => ({ ...current, checklistQuestions: next }))
+    setEditingQuestion(null)
+  }
 
   return <>
     <Dialog title="Nova etapa do fluxo" onClose={onClose}>
-      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave(stage) }}>
+      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave({ ...stage, checklistQuestions: stage.requiresChecklist ? questions : [] }) }}>
         <section className="rounded border p-4">
           <h3 className="label mb-3">Fase e situação</h3>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -495,6 +533,13 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
         </section>
         <section className="rounded border p-4"><h3 className="label mb-3">Destino organizacional</h3><Field label="Unidade organizacional de destino"><Select className="field" value={stage.destinationUnitId ?? ''} onChange={(event) => setStage({ ...stage, destinationUnitId: event.target.value || undefined })}><option value="">Selecione a unidade na estrutura...</option>{sortUnitsByPath(units.filter((unit) => unit.active)).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(units, unit.id)}</option>)}</Select></Field></section>
         <section className="rounded border p-4"><h3 className="label mb-3">Comportamento</h3><div className="flex flex-wrap items-center gap-4"><Field label="Ordem"><Input className="field w-20" value={order} disabled/></Field><label className="flex items-center gap-2 text-sm"><Switch checked={stage.requiresChecklist ?? false} onChange={(event) => setStage({ ...stage, requiresChecklist: event.target.checked })}/> Exige checklist</label><label className="flex items-center gap-2 text-sm"><Switch checked={stage.requiresAttachment ?? false} onChange={(event) => setStage({ ...stage, requiresAttachment: event.target.checked })}/> Exige anexo</label></div></section>
+        {stage.requiresChecklist && <section className="rounded border p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h3 className="label !mb-0">Checklist da etapa</h3><p className="mt-1 text-xs text-muted-foreground">Monte as perguntas aqui mesmo — elas serão salvas junto com a etapa.</p></div>
+            <div className="flex items-center gap-3"><span className="text-xs text-muted-foreground">{questions.length} pergunta(s)</span><button type="button" className="btn-primary" onClick={() => setEditingQuestion('new')}><Plus size={16}/>Nova pergunta</button></div>
+          </div>
+          {questions.length ? <div className="mt-4 divide-y rounded-lg border">{questions.map((question) => <article key={question.id} className="flex items-center gap-3 px-3 py-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-muted text-xs font-semibold">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-muted-foreground">{[question.required && 'Obrigatório', question.requiresDate && 'Data', question.requiresAttachment && 'Anexo', question.requiresObservation && 'Observação'].filter(Boolean).join(' · ') || 'Sem requisitos adicionais'}</p></div><button type="button" className="btn-secondary !p-2" aria-label={`Editar pergunta ${question.text}`} onClick={() => setEditingQuestion(question)}><Pencil size={15}/></button><button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir pergunta ${question.text}`} onClick={() => setStage((current) => ({ ...current, checklistQuestions: questions.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })) }))}><Trash2 size={15}/></button></article>)}</div> : <div className="mt-4 rounded-lg border border-dashed px-4 py-8 text-center"><span className="mx-auto grid size-9 place-items-center rounded-full bg-muted text-muted-foreground"><ListChecks size={18}/></span><p className="mt-3 text-sm font-medium">Nenhuma pergunta cadastrada</p><p className="mt-1 text-xs text-muted-foreground">Adicione perguntas para orientar o preenchimento e a validação desta etapa.</p></div>}
+        </section>}
         <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section>
         <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
@@ -502,5 +547,6 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
     </Dialog>
     {creatingPhase && <PhaseEditor stacked onClose={() => setCreatingPhase(false)} onSaved={(phase) => { setStage((current) => ({ ...current, phaseId: phase.id })); setCreatingPhase(false) }}/>}
     {creatingSituation && <SituationEditor stacked onClose={() => setCreatingSituation(false)} onSaved={(situation) => { setStage((current) => ({ ...current, situationTypeId: situation.id })); setCreatingSituation(false) }}/>}
+    {editingQuestion && <QuestionEditor stacked question={editingQuestion === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editingQuestion} onClose={() => setEditingQuestion(null)} onSave={saveQuestion}/>}
   </>
 }

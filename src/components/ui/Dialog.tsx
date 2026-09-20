@@ -5,6 +5,22 @@ import { Printer, X } from 'lucide-react';
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+let bodyScrollLockCount = 0;
+let bodyOverflowBeforeLock = '';
+
+const lockBodyScroll = () => {
+    if (bodyScrollLockCount === 0)
+        bodyOverflowBeforeLock = document.body.style.overflow;
+    bodyScrollLockCount += 1;
+    document.body.style.overflow = 'hidden';
+};
+
+const unlockBodyScroll = () => {
+    bodyScrollLockCount = Math.max(0, bodyScrollLockCount - 1);
+    if (bodyScrollLockCount === 0)
+        document.body.style.overflow = bodyOverflowBeforeLock;
+};
+
 export const OverlayLayerContext = createContext(60);
 
 export function Dialog({ title, children, onClose, wide = false, stacked = false }: {
@@ -24,8 +40,7 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
 
     useEffect(() => {
         openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        const previousOverflow = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
+        lockBodyScroll();
         const frame = window.requestAnimationFrame(() => {
             const content = contentRef.current;
             const first = content?.querySelector<HTMLElement>(focusableSelector);
@@ -35,7 +50,7 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
             window.cancelAnimationFrame(frame);
             if (closeTimer.current)
                 window.clearTimeout(closeTimer.current);
-            document.body.style.overflow = previousOverflow;
+            unlockBodyScroll();
             openerRef.current?.focus();
         };
     }, []);

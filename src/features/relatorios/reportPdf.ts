@@ -115,6 +115,10 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
       ['Setor:', unitName(db, protocol.currentUnitId)],
       ...(protocol.typeConfigSnapshot.creditor.enabled ? [['Credor:', db.people.find((p) => p.id === protocol.creditorPersonId)?.name ?? 'Não informado']] : []),
       ...(protocol.typeConfigSnapshot.amount.enabled ? [['Valor:', money(protocol.amountCents)]] : []),
+      ...(protocol.typeConfigSnapshot.contractNumber?.enabled ? [['Número de contrato:', protocol.contractNumber ?? 'Não informado']] : []),
+      ...(protocol.typeConfigSnapshot.biddingNumber?.enabled ? [['Número de licitação:', protocol.biddingNumber ?? 'Não informado']] : []),
+      ...(protocol.typeConfigSnapshot.legalProcessNumber?.enabled ? [['Número de processo jurídico:', protocol.legalProcessNumber ?? 'Não informado']] : []),
+      ...(protocol.typeConfigSnapshot.referenceNumber?.enabled ? [['Número:', protocol.referenceNumber ?? 'Não informado']] : []),
     ], columnStyles: { 0: { cellWidth: 53, halign: 'right', fontStyle: 'bold' } },
     margin: { left: 21, right: 21, top: 20, bottom: 42 }, rowPageBreak: 'avoid' });
   paragraph(doc, 'Informações Complementares', protocol.description, tableEnd(doc) + 6);
@@ -161,7 +165,7 @@ export async function downloadProductivity(db: Database, protocols: Protocol[], 
   const visibleIds = new Set(protocols.map((p) => p.id));
   const events = db.events.filter((e) => visibleIds.has(e.protocolId) && e.actorUserId === serverId && inPeriod(e.createdAt, from, to)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   paragraph(doc, 'Relatório de Produtividade', `Servidor: ${userName(db, serverId)}\nSuperior imediato: ${superiorId ? userName(db, superiorId) : 'Não informado'}\nPeríodo: ${from || 'Início'} a ${to || 'Hoje'}\n${events.length} atividade(s) em ${new Set(events.map((e) => e.protocolId)).size} processo(s)`, startY);
-  table(doc, ['Data', 'Processo', 'Atividade', 'Descrição / Resultado'], events.length ? events.map((e) => [dateTime(e.createdAt), protocols.find((p) => p.id === e.protocolId)!.number, eventLabel[e.kind], e.message || eventLabel[e.kind]]) : [['', '', 'Nenhuma atividade no período', '']], tableEnd(doc) + 3);
+  table(doc, ['Data', 'Processo', 'Atividade', 'Descrição / Resultado'], events.length ? events.map((e) => [dateTime(e.createdAt), protocols.find((p) => p.id === e.protocolId)!.number, e.activity?.trim() || eventLabel[e.kind], [e.result?.trim(), e.message?.trim()].filter(Boolean).join('\n') || eventLabel[e.kind]]) : [['', '', 'Nenhuma atividade no período', '']], tableEnd(doc) + 3);
   paragraph(doc, 'Dificuldades ou impedimentos encontrados', difficulties, tableEnd(doc) + 5);
   paragraph(doc, 'Sugestões para melhoria do desempenho e produtividade setorial', suggestions, tableEnd(doc) + 3);
   await footer(doc, settings);

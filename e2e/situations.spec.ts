@@ -11,7 +11,7 @@ test('cadastra uma situação e a usa em uma etapa do fluxo', async ({ page }) =
   await page.goto('/situacoes')
 
   await expect(page.getByRole('heading', { name: 'Tipos de Situação' })).toBeVisible()
-  await expect(page.locator('article')).toHaveCount(7)
+  await expect(page.locator('article')).toHaveCount(15)
   await expect(page.getByText('Em tramitação', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Novo', exact: true }).click()

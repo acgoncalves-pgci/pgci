@@ -116,16 +116,63 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   await expect(page.getByRole('heading', { name: 'Processo 2026.000018' })).toBeVisible()
   await expect(page.getByText('Troque a unidade para continuar')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Alterar para Financeiro' })).toBeVisible()
+  const overview = page.getByRole('region', { name: 'Tipo, responsabilidade e etapas do processo' })
+  await expect(overview.getByText('Tipo:').locator('..')).toContainText('Compra de material')
+  const phaseTrack = overview.getByRole('list', { name: 'Etapas do fluxo' })
+  await expect(phaseTrack).toContainText('Triagem')
+  await expect(phaseTrack).toContainText('Análise')
+  await expect(phaseTrack).toContainText('Conclusão')
   await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ })).toBeVisible()
 
-  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Tramitado' }).locator('xpath=ancestor::section[1]')
+  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Fase Conclusão' }).locator('xpath=ancestor::section[1]')
   await expect(movementCard.getByText('Financeiro', { exact: true })).toBeVisible()
   await expect(movementCard.getByLabel('Unidade de destino').locator('svg')).toBeVisible()
 
   await page.getByRole('button', { name: 'Alterar para Financeiro' }).click()
   await expect(page.getByRole('button', { name: 'Assumir e dar ciência' })).toBeVisible()
+  const movementToggles = page.locator('button[aria-controls^="timeline-content-"]')
+  const movementCount = await movementToggles.count()
+  await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
+
+  await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
+  await expect(movementToggles).toHaveCount(movementCount)
+  const responsible = movementCard.getByLabel('Responsável pela movimentação').locator('..')
+  await expect(responsible).toContainText('Marina Duarte')
+  await expect(movementCard.getByRole('checkbox', { name: 'Registrar resultado final' })).toBeEnabled()
+})
+test('detalhe preserva rolagem vertical e alinha os indicadores de fase', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+  })
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: viewport.width, height: 600 })
+  await page.goto('/processos/pr-18')
+
+  const markers = page.locator('.process-phase-marker')
+  const connectors = page.locator('.process-phase-connector')
+  await expect(markers).toHaveCount(3)
+  await expect(connectors).toHaveCount(2)
+  const markerCenters = await markers.evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect()
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  }))
+  const connectorCenters = await connectors.evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect()
+    return box.y + box.height / 2
+  }))
+
+  expect(Math.abs((markerCenters[1].x - markerCenters[0].x) - (markerCenters[2].x - markerCenters[1].x))).toBeLessThan(4)
+  expect(Math.max(...markerCenters.map((item) => item.y)) - Math.min(...markerCenters.map((item) => item.y))).toBeLessThan(1)
+  connectorCenters.forEach((center) => expect(Math.abs(center - markerCenters[0].y)).toBeLessThan(1))
+
+  const hasVerticalOverflow = await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight)
+  expect(hasVerticalOverflow).toBe(true)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
 test('permite trocar para a unidade do processo quando o usuário possui vínculo', async ({ page }) => {
   await page.addInitScript(() => {
@@ -162,7 +209,7 @@ test('permite trocar para a unidade do processo quando o usuário possui víncul
 
   await page.goto('/processos/pr-18')
   await expect(page.getByText('Troque a unidade para continuar')).toBeVisible()
-  await expect(page.getByText('Unidade atual:').locator('..')).toContainText('Administração')
+  await expect(page.getByRole('status')).toContainText('Administração')
 
   await page.getByRole('button', { name: 'Alterar para Administração' }).click()
 
@@ -219,7 +266,7 @@ test('mostra nome e ícone de unidade na tramitação sem destinatário', async 
 
   await page.goto('/processos/pr-18')
   await expect(page.getByText('Está com:').locator('..')).toContainText('Financeiro')
-  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Tramitado' }).locator('xpath=ancestor::section[1]')
+  const movementCard = page.getByRole('button', { name: 'Recolher conteúdo de Fase Conclusão' }).locator('xpath=ancestor::section[1]')
   await expect(movementCard.getByText('Financeiro', { exact: true })).toBeVisible()
   await expect(movementCard.getByText('FIN', { exact: true })).toHaveCount(0)
   await expect(movementCard.getByLabel('Unidade de destino').locator('svg')).toBeVisible()

@@ -18,11 +18,11 @@ test('gerencia fases, categorias e situações pelas abas de tipos de processo',
 
   await tabs.getByRole('tab', { name: 'Categorias' }).click()
   await expect(page.getByRole('button', { name: 'Nova categoria' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Lista de categorias de processo' }).locator('article')).toHaveCount(2)
+  await expect(page.getByRole('region', { name: 'Lista de categorias de processo' }).locator('article')).toHaveCount(6)
 
   await tabs.getByRole('tab', { name: 'Situações' }).click()
   await expect(page.getByRole('button', { name: 'Nova situação' })).toBeVisible()
-  await expect(page.locator('article')).toHaveCount(7)
+  await expect(page.locator('article')).toHaveCount(15)
 })
 
 test('cria e seleciona uma categoria sem fechar o cadastro do tipo', async ({ page, isMobile }) => {
@@ -56,6 +56,22 @@ test('cria e seleciona uma categoria sem fechar o cadastro do tipo', async ({ pa
   await expect(typeDialog.getByRole('combobox', { name: 'Categoria' })).toHaveText('91 — Categoria rápida')
 })
 
+test('configura campos complementares e autorizações no cadastro do tipo', async ({ page }) => {
+  await page.goto('/tipos-processo')
+  await page.getByRole('button', { name: 'Novo', exact: true }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Novo tipo de processo' })
+  await expect(dialog.getByRole('switch', { name: 'Tem número de contrato?' })).toBeVisible()
+  await expect(dialog.getByRole('switch', { name: 'Tem número de licitação?' })).toBeVisible()
+  await expect(dialog.getByRole('switch', { name: 'Tem número de processo jurídico?' })).toBeVisible()
+  await expect(dialog.getByRole('switch', { name: 'Tem número?' })).toBeVisible()
+  await expect(dialog.getByText('Liberado para todos', { exact: true })).toBeVisible()
+
+  await dialog.getByRole('switch', { name: 'Tem número de contrato?' }).click()
+  await dialog.getByRole('checkbox', { name: /Clara Nunes/ }).check()
+  await dialog.getByRole('checkbox', { name: /Jurídico/ }).check()
+  await expect(dialog.getByText('1 usuário(s) · 1 unidade(s)')).toBeVisible()
+})
 test('cria e seleciona fase e situação sem fechar o cadastro da etapa', async ({ page }) => {
   await page.goto('/tipos-processo')
   await page.getByRole('button', { name: /Configurar fluxo de Solicitação administrativa/ }).click()
@@ -97,4 +113,32 @@ test('cria e seleciona fase e situação sem fechar o cadastro da etapa', async 
   await expect(situationDialog).toBeHidden()
   await expect(stageDialog).toBeVisible()
   await expect(stageDialog.getByRole('combobox', { name: 'Situação' })).toHaveText('Situação rápida')
+  await checklistLabel.getByRole('switch').click()
+  await expect(stageDialog.getByText('Checklist da etapa')).toBeVisible()
+  await expect(stageDialog.getByText('0 pergunta(s)')).toBeVisible()
+  await stageDialog.getByRole('button', { name: 'Nova pergunta' }).click()
+  const questionDialog = page.getByRole('dialog', { name: 'Nova pergunta' })
+  await questionDialog.getByLabel('Pergunta *').fill('Validar dados da solicitação')
+  await questionDialog.getByRole('button', { name: 'Salvar', exact: true }).click()
+
+  await expect(questionDialog).toBeHidden()
+  await expect(stageDialog.getByText('Validar dados da solicitação')).toBeVisible()
+  await expect(stageDialog.getByText('1 pergunta(s)')).toBeVisible()
+  await stageDialog.getByRole('button', { name: 'Salvar', exact: true }).click()
+  await expect(stageDialog).toBeHidden()
+  await expect(page.getByText('1 pergunta(s) no checklist').last()).toBeVisible()
+})
+
+test('abre o assistente de IA e exige uma descrição suficiente', async ({ page }) => {
+  await page.goto('/tipos-processo')
+  await page.getByRole('button', { name: 'Criar com IA' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Criar tipo de processo com IA' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Descreva o processo em linguagem natural')).toBeVisible()
+  const description = dialog.getByLabel('Como este processo deve funcionar? *')
+  const generate = dialog.getByRole('button', { name: 'Gerar proposta' })
+  await expect(generate).toBeDisabled()
+  await description.fill('Solicitação de compra com análise administrativa, conferência financeira e autorização final.')
+  await expect(generate).toBeEnabled()
 })

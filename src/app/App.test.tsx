@@ -16,7 +16,7 @@ const renderApp = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}><ToastProvider><SessionProvider><App/></SessionProvider></ToastProvider></QueryClientProvider>)
 }
-const choose = async (label: string | RegExp, option: string, scope = screen) => {
+const choose = async (label: string | RegExp, option: string, scope: Pick<typeof screen, 'findByRole'> = screen) => {
   const trigger = await scope.findByRole('combobox', { name: label })
   await act(async () => {
     fireEvent.click(trigger)
@@ -98,10 +98,77 @@ describe('jornada principal da interface', () => {
     expect(screen.queryByRole('button', { name: 'Dossiê' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Escolher outro responsável' })).toBeNull()
   })
-  it('anexa o arquivo obrigatório no modal e avança a fase na mesma ação', async () => {
+  it('permite preencher e observar o checklist da movimentação somente após a ciência', async () => {
+    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    window.history.replaceState({}, '', '/processos/pr-19')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000019' })
+    const lockedCheckbox = await screen.findByRole('checkbox', { name: 'Registrar despacho ou resultado' })
+    expect(lockedCheckbox.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('Dê ciência desta movimentação para preencher o checklist.')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dar ciência da tramitação' }))
+    const confirmation = await screen.findByRole('dialog', { name: 'Confirmar visualização da tramitação?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Confirmar ciência' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Confirmar visualização da tramitação?' })).toBeNull())
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Registrar despacho ou resultado' }) as HTMLInputElement
+    await waitFor(() => expect(checkbox.disabled).toBe(false))
+    fireEvent.click(checkbox)
+    await waitFor(() => expect((screen.getByRole('checkbox', { name: 'Registrar despacho ou resultado' }) as HTMLInputElement).checked).toBe(true))
+
+    const observationButton = screen.getByRole('button', { name: 'Adicionar observação em Registrar despacho ou resultado' })
+    await waitFor(() => expect(observationButton.hasAttribute('disabled')).toBe(false))
+    fireEvent.click(observationButton)
+    const firstObservationPopover = await screen.findByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+    expect(firstObservationPopover.parentElement).toBe(document.body)
+    await waitFor(() => expect(firstObservationPopover.style.position).toBe('fixed'))
+
+    fireEvent.click(observationButton)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })).toBeNull())
+    fireEvent.click(observationButton)
+    const observationPopover = await screen.findByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+    await waitFor(() => expect(observationPopover.style.position).toBe('fixed'))
+    fireEvent.change(within(observationPopover).getByRole('textbox', { name: 'Observação' }), { target: { value: 'Atividade conferida pela unidade.' } })
+    fireEvent.click(within(observationPopover).getByRole('button', { name: 'Salvar' }))
+
+    expect((await screen.findAllByText('Atividade conferida pela unidade.')).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+      const movement = stored.events.find((event: { protocolId: string; kind: string; assignmentId?: string }) => event.protocolId === 'pr-19' && event.kind === 'TRAMITACAO' && event.assignmentId === 'as-19')
+      expect(movement.checklist).toEqual([expect.objectContaining({ questionId: 'q-analysis-result', checked: true, observation: 'Atividade conferida pela unidade.' })])
+    })
+  })
+  it.each(['REQUIRED', 'SUGGESTED'] as const)('mantém o checklist apenas no movimento da etapa em fluxo %s', async (flowMode) => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-19')!
+    protocol.flowModeSnapshot = flowMode
+    const phaseMovement = db.events.find((event) => event.id === 'ev-phase-analysis-19')!
+    phaseMovement.checklist = [{ questionId: 'q-analysis-result', text: 'Registrar despacho ou resultado', checked: false }]
+    const followingMovement = db.events.find((event) => event.id === 'ev-move-19')!
+    followingMovement.phaseId = 'phase-analysis'
+    followingMovement.checklist = [{ questionId: 'q-analysis-result', text: 'Registrar despacho ou resultado', checked: false }]
+    saveDb(db)
+    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    window.history.replaceState({}, '', '/processos/pr-19')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000019' })
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir conteúdo de Fase Análise' }))
+
+    expect(screen.getAllByRole('checkbox', { name: 'Registrar despacho ou resultado' })).toHaveLength(1)
+  })
+  it('anexa o arquivo obrigatório no modal e avança a fase pela tramitação', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowSnapshot!.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)!.requiredAttachmentTypes = ['application/pdf']
+    const opening = db.events.find((event) => event.id === 'ev-open-1')!
+    opening.checklist = [{ questionId: 'q-triage-data', text: 'Conferir dados de abertura', checked: true }]
     saveDb(db)
     localStorage.setItem('fluxo-publico:user', 'usr-clara')
     localStorage.setItem('fluxo-publico:unit', 'u-prot')
@@ -110,15 +177,19 @@ describe('jornada principal da interface', () => {
     renderApp()
 
     await screen.findByRole('heading', { name: 'Processo 2026.000001' })
-    fireEvent.click(screen.getByRole('button', { name: 'Avançar fase' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Avançar fase: Triagem' })
-    expect(within(dialog).getByText('Anexo obrigatório')).not.toBeNull()
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Conferir dados de abertura' }))
+    expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(dialog).getByRole('combobox', { name: 'Fase *' }).textContent).toContain('Análise')
+    expect(within(dialog).getByText('Anexo obrigatório da fase atual')).not.toBeNull()
     fireEvent.change(within(dialog).getByLabelText('Selecionar anexos obrigatórios'), { target: { files: [new File(['parecer'], 'parecer.pdf', { type: 'application/pdf' })] } })
     expect(within(dialog).getByText('parecer.pdf')).not.toBeNull()
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Avançar fase' }))
+    fireEvent.change(within(dialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhar para a próxima fase.' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Tramitar' }))
+    const confirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Não, apenas continuar' }))
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Avançar fase: Triagem' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
       expect(stored.protocols.find((item: { id: string }) => item.id === 'pr-1').currentPhaseId).toBe('phase-analysis')
@@ -155,8 +226,10 @@ describe('jornada principal da interface', () => {
 
     await screen.findByRole('heading', { name: 'Processo 2026.000018' })
     expect(screen.getByText('Troque a unidade para continuar')).not.toBeNull()
-    const unitIndicator = screen.getByText('Unidade atual:').parentElement
-    expect(unitIndicator?.textContent).toContain('Administração')
+    expect(screen.getByRole('status').textContent).toContain('Administração')
+    const overview = screen.getByRole('region', { name: 'Tipo, responsabilidade e etapas do processo' })
+    expect(within(overview).getByText('Tipo:').parentElement?.textContent).toContain('Compra de material')
+    expect(within(overview).getByRole('list', { name: 'Etapas do fluxo' })).not.toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Alterar para Administração' }))
 
@@ -203,7 +276,7 @@ describe('jornada principal da interface', () => {
 
     await screen.findByRole('heading', { name: 'Processo 2026.000018' })
     expect(screen.getByText('Está com:').parentElement?.textContent).toContain('Financeiro')
-    const movementHeader = screen.getByRole('button', { name: 'Recolher conteúdo de Tramitado' })
+    const movementHeader = screen.getByRole('button', { name: 'Recolher conteúdo de Fase Conclusão' })
     const movementCard = movementHeader.closest('section')!
     expect(within(movementCard).getByText('Financeiro')).not.toBeNull()
     expect(within(movementCard).queryByText('FIN')).toBeNull()
@@ -272,6 +345,79 @@ describe('jornada principal da interface', () => {
     const forwardDialog = await screen.findByRole('dialog')
     fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
     expect(screen.getByRole('option', { name: 'Clara Nunes' })).not.toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: 'Clara Nunes' }))
+
+    await choose('Unidade organizacional de destino *', 'Administração / Financeiro', within(forwardDialog))
+    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para fila sem responsável')
+    fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
+    expect(screen.getByRole('option', { name: 'Rafael Reis' })).not.toBeNull()
+    expect(screen.queryByRole('option', { name: 'Clara Nunes' })).toBeNull()
+    expect(screen.queryByRole('option', { name: 'Bruno Lima' })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: 'Rafael Reis' }))
+
+    await choose('Unidade organizacional de destino *', 'Gestão de Processos', within(forwardDialog))
+    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para fila sem responsável')
+    fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
+    expect(screen.getByRole('option', { name: 'Clara Nunes' })).not.toBeNull()
+    expect(screen.queryByRole('option', { name: 'Rafael Reis' })).toBeNull()
+    expect(screen.queryByRole('option', { name: 'Bruno Lima' })).toBeNull()
+  })
+  it('permite escolher a fase no fluxo livre e registrar produtividade na tramitação', async () => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.flowModeSnapshot = 'NONE'
+    protocol.flowSnapshot = undefined
+    protocol.currentPhaseId = undefined
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(forwardDialog).getByText('Fluxo livre')).not.toBeNull()
+    const phaseSelect = within(forwardDialog).getByRole('combobox', { name: 'Fase *' })
+    expect(phaseSelect.hasAttribute('disabled')).toBe(false)
+    await choose('Fase *', 'Análise', within(forwardDialog))
+    await choose('Unidade organizacional de destino *', 'Administração', within(forwardDialog))
+    await choose('Destinatário', 'Bruno Lima', within(forwardDialog))
+    fireEvent.change(within(forwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para análise administrativa.' } })
+    fireEvent.click(within(forwardDialog).getByRole('button', { name: 'Tramitar' }))
+
+    const confirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Sim, registrar' }))
+    const activityDialog = await screen.findByRole('dialog', { name: 'Registrar Atividade e Resultado' })
+    fireEvent.change(within(activityDialog).getByLabelText('Atividade principal desenvolvida *'), { target: { value: 'Conferência documental' } })
+    fireEvent.change(within(activityDialog).getByLabelText('Resultado concreto / produto entregue *'), { target: { value: 'Documentação conferida e encaminhada' } })
+    fireEvent.click(within(activityDialog).getByRole('button', { name: 'Salvar e continuar' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await screen.findByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ })
+    const persisted = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+    const movement = persisted.events.filter((event: { protocolId: string; kind: string }) => event.protocolId === 'pr-1' && event.kind === 'TRAMITACAO').at(-1)
+    expect(movement).toMatchObject({ phaseId: 'phase-analysis', activity: 'Conferência documental', result: 'Documentação conferida e encaminhada' })
+  })
+
+  it('bloqueia fase e destino previamente definidos pelo fluxo sugerido', async () => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.flowModeSnapshot = 'SUGGESTED'
+    protocol.currentPhaseId = 'phase-triage'
+    protocol.flowSnapshot!.phases[1].destinationUnitId = 'u-adm'
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(forwardDialog).getByText('Fluxo sugerido')).not.toBeNull()
+    const phaseSelect = within(forwardDialog).getByRole('combobox', { name: 'Fase *' })
+    const destinationSelect = within(forwardDialog).getByRole('combobox', { name: 'Unidade organizacional de destino *' })
+    expect(phaseSelect.hasAttribute('disabled')).toBe(true)
+    expect(destinationSelect.hasAttribute('disabled')).toBe(true)
+    expect(phaseSelect.textContent).toContain('Análise')
+    expect(destinationSelect.textContent).toContain('Administração')
   })
   it('revela somente os campos pedidos pelo tipo de processo selecionado', async () => {
     renderApp()
@@ -307,15 +453,21 @@ describe('jornada principal da interface', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abrir processo' }))
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
 
+    const openingChecklist = screen.getByRole('checkbox', { name: 'Conferir dados de abertura' })
+    fireEvent.click(openingChecklist)
+    await waitFor(() => expect((openingChecklist as HTMLInputElement).checked).toBe(true))
+
     fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
     const forwardDialog = await screen.findByRole('dialog')
     const forwardScope = within(forwardDialog)
-    fireEvent.click(forwardScope.getByRole('combobox', { name: 'Unidade destino *' }))
+    fireEvent.click(forwardScope.getByRole('combobox', { name: 'Unidade organizacional de destino *' }))
     fireEvent.click(screen.getByRole('option', { name: 'Administração' }))
     fireEvent.click(forwardScope.getByRole('combobox', { name: 'Destinatário' }))
     fireEvent.click(screen.getByRole('option', { name: 'Bruno Lima' }))
-    fireEvent.change(within(forwardDialog).getByLabelText('Despacho *'), { target: { value: 'Encaminhado para análise administrativa.' } })
+    fireEvent.change(within(forwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para análise administrativa.' } })
     fireEvent.click(forwardScope.getByRole('button', { name: 'Tramitar' }))
+    const activityConfirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
+    fireEvent.click(within(activityConfirmation).getByRole('button', { name: 'Não, apenas continuar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir menu do perfil' }))
@@ -339,21 +491,25 @@ describe('jornada principal da interface', () => {
     fireEvent.change(fileInput, { target: { files: [new File(['anexo de teste'], 'jornada.txt', { type: 'text/plain' })] } })
     await screen.findByText('jornada.txt')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Avançar fase' }))
-    const firstPhaseDialog = await screen.findByRole('dialog')
-    fireEvent.click(within(firstPhaseDialog).getByRole('checkbox', { name: 'Conferir dados de abertura' }))
-    fireEvent.click(within(firstPhaseDialog).getByRole('button', { name: 'Avançar fase' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await screen.findByText('Análise')
+    fireEvent.click(screen.getByRole('button', { name: /^Andamento\b/ }))
+    const analysisChecklist = await screen.findByRole('checkbox', { name: 'Registrar despacho ou resultado' })
+    fireEvent.click(analysisChecklist)
+    await waitFor(() => expect((analysisChecklist as HTMLInputElement).checked).toBe(true))
+    expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Devolver fase' })).toBeNull()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Avançar fase' }))
-    const secondPhaseDialog = await screen.findByRole('dialog')
-    fireEvent.click(within(secondPhaseDialog).getByRole('checkbox', { name: 'Registrar despacho ou resultado' }))
-    fireEvent.click(within(secondPhaseDialog).getByRole('button', { name: 'Avançar fase' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    const completionForwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(completionForwardDialog).getByRole('combobox', { name: 'Fase *' }).textContent).toContain('Conclusão')
+    fireEvent.change(within(completionForwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para conclusão.' } })
+    fireEvent.click(within(completionForwardDialog).getByRole('button', { name: 'Tramitar' }))
+    const completionActivityConfirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
+    fireEvent.click(within(completionActivityConfirmation).getByRole('button', { name: 'Não, apenas continuar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await screen.findByText('Conclusão')
+    fireEvent.click(await screen.findByRole('button', { name: 'Assumir e dar ciência' }))
+    const concludeButton = await screen.findByRole('button', { name: 'Concluir' })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Concluir' }))
+    fireEvent.click(concludeButton)
     const completeDialog = await screen.findByRole('dialog')
     fireEvent.change(within(completeDialog).getByLabelText('Resultado da conclusão *'), { target: { value: 'Jornada concluída com sucesso.' } })
     fireEvent.click(within(completeDialog).getByRole('button', { name: 'Concluir' }))
@@ -363,17 +519,17 @@ describe('jornada principal da interface', () => {
     renderApp()
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
     const phaseRows = screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase / })
-    expect(phaseRows).toHaveLength(3)
-    expect(within(screen.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })).getByText('Cadastrado')).not.toBeNull()
-    expect(within(screen.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ })).getByText('Em tramitação')).not.toBeNull()
-    expect(within(screen.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ })).getByText('Concluído')).not.toBeNull()
+    expect(phaseRows).toHaveLength(4)
+    expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ }).some((row) => within(row).queryByText('Cadastrado'))).toBe(true)
+    expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ }).some((row) => within(row).queryByText('Em tramitação'))).toBe(true)
+    expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ }).some((row) => within(row).queryByText('Concluído'))).toBe(true)
     expect(screen.getAllByText('Concluído').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: /^Documentos\b/ }))
     expect(await screen.findByText('Memorando da jornada')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /^Anexos\b/ }))
     expect(await screen.findByText('jornada.txt')).not.toBeNull()
     expect(JSON.parse(localStorage.getItem(DATABASE_KEY)!).protocols.some((protocol: { subject: string; status: string }) => protocol.subject === 'Fluxo integrado de teste' && protocol.status === 'CONCLUIDO')).toBe(true)
-  })
+  }, 15_000)
 })
 
 

@@ -58,11 +58,11 @@ test('troca entre uma estrutura vinculada e o contexto Todos', async ({ page, is
 test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMobile }) => {
   await page.goto('/categorias-processo')
   await expect(page.getByRole('heading', { name: 'Categorias de Processo' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Lista de categorias de processo' }).locator('article')).toHaveCount(2)
+  await expect(page.getByRole('region', { name: 'Lista de categorias de processo' }).locator('article')).toHaveCount(6)
 
   await page.getByRole('button', { name: 'Nova', exact: true }).click()
   const categoryDialog = page.getByRole('dialog', { name: 'Nova Categoria de Processo' })
-  await categoryDialog.getByLabel('Código *').fill('03')
+  await categoryDialog.getByLabel('Código *').fill('07')
   await categoryDialog.getByLabel('Nome *').fill('Atendimento ao cidadão')
   await categoryDialog.getByRole('combobox', { name: 'Ícone' }).click()
   await page.getByRole('option', { name: 'Tags', exact: true }).click()
@@ -79,7 +79,7 @@ test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMo
   else expect(dialogBox!.width).toBeGreaterThan(800)
   await typeDialog.getByLabel('Descrição *').fill('Ouvidoria municipal')
   await typeDialog.getByRole('combobox', { name: 'Categoria' }).click()
-  await page.getByRole('option', { name: '03 — Atendimento ao cidadão', exact: true }).click()
+  await page.getByRole('option', { name: '07 — Atendimento ao cidadão', exact: true }).click()
   await typeDialog.getByLabel('Observação *').fill('Demandas encaminhadas à ouvidoria.')
   if (isMobile) {
     await typeDialog.locator('section').first().evaluate((element) => element.scrollTo({ top: element.scrollHeight }))
@@ -90,7 +90,7 @@ test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMo
   await page.mouse.click(saveBox!.x + saveBox!.width / 2, saveBox!.y + saveBox!.height / 2)
 
   await expect(typeDialog).toBeHidden()
-  await expect(page.locator('article').filter({ hasText: 'Ouvidoria municipal' })).toContainText('03 · Atendimento ao cidadão')
+  await expect(page.locator('article').filter({ hasText: 'Ouvidoria municipal' })).toContainText('07 · Atendimento ao cidadão')
 })
 
 

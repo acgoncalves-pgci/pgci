@@ -11,7 +11,7 @@ test('cadastra uma fase e a utiliza em uma etapa de fluxo', async ({ page }) => 
   await page.goto('/fases')
 
   await expect(page.getByRole('heading', { name: 'Tipos de Fases' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Lista de fases' }).locator('article')).toHaveCount(3)
+  await expect(page.getByRole('region', { name: 'Lista de fases' }).locator('article')).toHaveCount(14)
 
   await page.getByRole('button', { name: 'Novo', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: 'Novo Tipo de Fase' })

@@ -5,6 +5,8 @@ import type { Database, Protocol, ProtocolStatus } from "../../domain/model";
 import { eventLabel, statusLabel } from "../../domain/model";
 import { currentProtocolSituation } from "../../domain/situations";
 import { IconGlyph } from "../../components/ui/IconSelect";
+import { OverflowMarquee } from "../../components/ui/OverflowMarquee";
+import { Tooltip } from "../../components/ui/Tooltip";
 import { dateTime } from "../../lib/format";
 
 export const Name = ({ db, userId }: { db: Database; userId?: string }) => (
@@ -21,15 +23,15 @@ export function StatusBadge({ status, situation }: { status: ProtocolStatus; sit
     CONCLUIDO: "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
     ARQUIVADO: "border-slate-300 bg-slate-200 text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
   };
-  return (
-    <span
-      className={"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide " + (situation ? "" : fallbackStyles[status])}
-      style={situation ? { backgroundColor: situation.color + "18", borderColor: situation.color + "55", color: situation.color } : undefined}
-    >
-      {situation && <IconGlyph name={situation.icon} size={11}/>}
-      {situation?.name ?? statusLabel[status]}
-    </span>
-  );
+  const label = situation?.name ?? statusLabel[status];
+  return <Tooltip
+    content={label}
+    className={"process-status-badge inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide " + (situation ? "" : fallbackStyles[status])}
+    style={situation ? { backgroundColor: situation.color + "18", borderColor: situation.color + "55", color: situation.color } : undefined}
+  >
+    {situation && <IconGlyph name={situation.icon} size={11}/>}
+    <OverflowMarquee text={label}/>
+  </Tooltip>;
 }
 function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
   const [printOpen, setPrintOpen] = useState(false);
@@ -115,7 +117,7 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
           <div className="min-w-0">
             <p className="process-card-type">{type?.name ?? "Processo"}</p>
             <h2>{process.subject}</h2>
-            <p className="process-card-description">{process.description}</p>
+            <Tooltip content={process.description} className="process-card-description">{process.description}</Tooltip>
           </div>
         </div>
         <dl className="process-card-movement">

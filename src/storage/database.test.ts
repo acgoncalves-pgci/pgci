@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { StorageError, cleanupOrphanedBlobs, deleteBlob, getBlob, putBlob } from './database'
+import { StorageError, cleanupOrphanedBlobs, deleteBlob, getBlob, putBlob, resetDb } from './database'
 import { seedDatabase } from '../mocks/seed'
 import { migrateDatabase } from './migrations'
 
@@ -36,8 +36,26 @@ const createIndexedDb = () => {
   return { blobs, database, indexedDb: { open } as unknown as IDBFactory }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); localStorage.clear() })
 
+describe('restauração da demonstração', () => {
+  it('mantém os catálogos e cria outro conjunto operacional a cada restauração', async () => {
+    const fake = createIndexedDb()
+    vi.stubGlobal('indexedDB', fake.indexedDb)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-19T12:00:00.000Z'))
+
+    const first = await resetDb()
+    const second = await resetDb()
+
+    expect(second.processCategories).toEqual(first.processCategories)
+    expect(second.protocolTypes).toEqual(first.protocolTypes)
+    expect(second.phases).toEqual(first.phases)
+    expect(second.situations).toEqual(first.situations)
+    expect(second.documentTypes).toEqual(first.documentTypes)
+    expect(second.protocols.map((protocol) => protocol.subject)).not.toEqual(first.protocols.map((protocol) => protocol.subject))
+  })
+})
 describe('armazenamento de anexos', () => {
   it('persiste, recupera, remove e limpa arquivos órfãos no IndexedDB', async () => {
     const fake = createIndexedDb(); vi.stubGlobal('indexedDB', fake.indexedDb)
@@ -72,11 +90,15 @@ describe('migração do banco local', () => {
       units: Array<{ position?: number }>
       memberships?: unknown
       auditEvents?: unknown
+      protocolTypes: Array<{ flowId?: string; flowMode?: string }>
+      protocols: Array<{ flowSnapshot?: unknown; currentPhaseId?: string }>
     }
     legacy.schemaVersion = 1
     legacy.units.forEach((unit) => delete unit.position)
     delete legacy.memberships
     delete legacy.auditEvents
+    legacy.protocolTypes.forEach((type) => { delete type.flowId; delete type.flowMode })
+    legacy.protocols.forEach((protocol) => { delete protocol.flowSnapshot; delete protocol.currentPhaseId })
 
     const migrated = migrateDatabase(legacy)
 

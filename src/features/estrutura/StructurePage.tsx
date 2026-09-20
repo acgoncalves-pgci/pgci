@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, ChevronRight, ChevronsUpDown, MoreHorizontal, Pencil, Plus, Search } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, ChevronsUpDown, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { Database, Unit } from '../../domain/model';
 import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { api } from '../../services/api';
@@ -16,13 +16,22 @@ import { ErrorBox, Field, Loading } from '../../components/ui/Feedback';
 const unitSorter = (left: Unit, right: Unit) =>
   (left.position ?? 0) - (right.position ?? 0) || left.name.localeCompare(right.name, 'pt-BR');
 
+type UnitEditorTarget = { unit?: Unit; parentId?: string };
+
 export function StructurePage() {
   const ctx = useSession();
+  const client = useQueryClient();
   const { data: db, isLoading } = useDb();
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string> | null>(null);
-  const [editing, setEditing] = useState<Unit | 'new' | null>(null);
+  const [editing, setEditing] = useState<UnitEditorTarget | null>(null);
+  const [deleting, setDeleting] = useState<Unit | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const admin = ctx.user?.role === 'ADMIN';
+  const remove = useMutation({
+    mutationFn: (unitId: string) => api.deleteUnit(ctx, unitId),
+    onSuccess: () => { invalidateAll(client); setDeleting(null); },
+  });
 
   const childrenByParent = useMemo(() => {
     const result = new Map<string | undefined, Unit[]>();
@@ -79,15 +88,12 @@ export function StructurePage() {
           <strong className="min-w-0 truncate text-sm">{unit.name}</strong>
           <small className="hidden shrink-0 text-xs text-slate-500 dark:text-slate-400 sm:inline">· {unit.abbreviation}</small>
           {hasChildren && <span className="structure-tree-count">{children.length}</span>}
-          {ctx.user?.role === 'ADMIN' && (
-            <button
-              type="button"
-              className="structure-tree-edit"
-              aria-label={`Editar ${unit.name}`}
-              onClick={() => setEditing(unit)}
-            >
-              <Pencil size={15} />
-            </button>
+          {admin && (
+            <span className="structure-tree-actions">
+              <button type="button" className="structure-tree-action" aria-label={`Criar unidade subordinada a ${unit.name}`} title="Criar unidade subordinada" onClick={() => setEditing({ parentId: unit.id })}><Plus size={16} /></button>
+              <button type="button" className="structure-tree-action" aria-label={`Editar ${unit.name}`} title="Editar unidade" onClick={() => setEditing({ unit })}><Pencil size={15} /></button>
+              <button type="button" className="structure-tree-action structure-tree-action--danger" aria-label={`Excluir ${unit.name}`} title="Excluir unidade" onClick={() => setDeleting(unit)}><Trash2 size={15} /></button>
+            </span>
           )}
         </div>
         {hasChildren && opened && (
@@ -109,7 +115,7 @@ export function StructurePage() {
             <p className="text-sm text-slate-500 dark:text-slate-400">{db.organization.name}</p>
           </div>
         </div>
-        {ctx.user?.role === 'ADMIN' && (
+        {admin && (
           <div className="flex items-center justify-end gap-2">
             <div className="relative">
               <button type="button" className="btn-secondary !p-2" aria-label="Mais ações" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)}>
@@ -123,7 +129,7 @@ export function StructurePage() {
                 </div>
               )}
             </div>
-            <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16} />Nova unidade organizacional</button>
+            <button className="btn-primary" onClick={() => setEditing({})}><Plus size={16} />Nova unidade organizacional</button>
           </div>
         )}
       </header>
@@ -138,21 +144,22 @@ export function StructurePage() {
         </button>
       </div>
 
-      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Estrutura organizacional hierárquica. Selecione a seta para expandir ou recolher cada unidade.</p>
+      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Selecione a seta para expandir ou recolher cada unidade. Use as ações da linha para criar uma subordinada, editar ou excluir.</p>
       <section className="structure-tree-panel" aria-label="Árvore da estrutura organizacional">
         {roots.length ? <ul role="tree">{roots.map((unit, index) => renderUnit(unit, [index + 1]))}</ul> : <p className="p-6 text-sm text-slate-500">Nenhuma unidade cadastrada.</p>}
       </section>
-      {editing && <UnitEditor unit={editing === 'new' ? undefined : editing} db={db} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />}
+      {editing && <UnitEditor key={`${editing.unit?.id ?? 'new'}:${editing.parentId ?? 'root'}`} unit={editing.unit} initialParentId={editing.parentId} db={db} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />}
+      {deleting && <Dialog title="Excluir unidade organizacional" onClose={() => setDeleting(null)}><p className="text-sm text-muted-foreground">Deseja excluir a unidade <strong>{deleting.name}</strong>? A exclusão só será permitida se ela não possuir unidades subordinadas, usuários, processos ou outros vínculos no sistema.</p>{remove.error && <div className="mt-4"><ErrorBox error={remove.error} /></div>}<div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></div></Dialog>}
     </div>
   );
 }
 
-function UnitEditor({ unit, db, onClose, onSaved }: { unit?: Unit; db: Database; onClose: () => void; onSaved: () => void }) {
+function UnitEditor({ unit, initialParentId, db, onClose, onSaved }: { unit?: Unit; initialParentId?: string; db: Database; onClose: () => void; onSaved: () => void }) {
   const ctx = useSession();
   const client = useQueryClient();
   const [name, setName] = useState(unit?.name ?? '');
   const [abbreviation, setAbbreviation] = useState(unit?.abbreviation ?? '');
-  const [parentId, setParentId] = useState(unit?.parentId ?? '');
+  const [parentId, setParentId] = useState(unit?.parentId ?? initialParentId ?? '');
   const [active, setActive] = useState(unit?.active ?? true);
   const mutation = useMutation({
     mutationFn: () => {
@@ -161,5 +168,5 @@ function UnitEditor({ unit, db, onClose, onSaved }: { unit?: Unit; db: Database;
     },
     onSuccess: () => { invalidateAll(client); onSaved(); },
   });
-  return <Dialog title={unit ? 'Editar unidade' : 'Nova unidade organizacional'} onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome *"><Input className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="Sigla *"><Input className="field" maxLength={12} value={abbreviation} onChange={(event) => setAbbreviation(event.target.value.toUpperCase())} /></Field><Field label="Unidade superior"><Select className="field" value={parentId} onChange={(event) => setParentId(event.target.value)}><option value="">Sem unidade superior</option>{sortUnitsByPath(db.units.filter((candidate) => candidate.active && candidate.id !== unit?.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{unitPath(db.units, candidate.id)}</option>)}</Select></Field>{unit && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)} /> Unidade ativa</label>}{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div></form></Dialog>;
+  return <Dialog title={unit ? 'Editar unidade' : 'Nova unidade organizacional'} onClose={onClose}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="Sigla *"><Input className="field" maxLength={12} value={abbreviation} onChange={(event) => setAbbreviation(event.target.value.toUpperCase())} /></Field><Field label="Unidade superior"><Select aria-label="Unidade superior" className="field" value={parentId} disabled={Boolean(initialParentId)} onChange={(event) => setParentId(event.target.value)}><option value="">Sem unidade superior</option>{sortUnitsByPath(db.units.filter((candidate) => candidate.active && candidate.id !== unit?.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{unitPath(db.units, candidate.id)}</option>)}</Select>{initialParentId && <p className="mt-1 text-xs text-muted-foreground">A nova unidade será criada diretamente abaixo desta unidade superior.</p>}</Field>{unit && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)} /> Unidade ativa</label>}{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim() || !abbreviation.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div></form></Dialog>;
 }
