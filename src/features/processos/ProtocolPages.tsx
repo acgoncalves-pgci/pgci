@@ -14,9 +14,11 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Clipboard,
   ClipboardList,
   Clock3,
   Eye,
@@ -45,6 +47,7 @@ import type {
   Attachment,
   AuditEvent,
   ChecklistAnswer,
+  ChecklistQuestion,
   Database,
   Protocol,
   ProtocolEvent,
@@ -2991,9 +2994,13 @@ function TimelineRow({
             {checklistAnswers.length ? (
               <ChecklistTimeline
                 answers={checklistAnswers}
+                questions={effectiveFlowPhase?.checklistQuestions ?? []}
+                attachmentCount={attachments.length}
+                canAttach={allowFiles && canEditChecklist}
                 editable={canEditChecklist}
                 pending={checklistPending}
                 waitingForAcknowledgement={isLatest && !acknowledged}
+                onAttachFile={onAttachFile}
                 onChange={onChecklistChange}
               />
             ) : null}
@@ -3216,90 +3223,88 @@ function DocumentPreviewDialog({
 
 function ChecklistTimeline({
   answers,
+  questions,
+  attachmentCount,
+  canAttach,
   editable,
   pending,
   waitingForAcknowledgement,
+  onAttachFile,
   onChange,
 }: {
   answers: ChecklistAnswer[];
+  questions: ChecklistQuestion[];
+  attachmentCount: number;
+  canAttach: boolean;
   editable: boolean;
   pending: boolean;
   waitingForAcknowledgement: boolean;
+  onAttachFile: () => void;
   onChange: (answers: ChecklistAnswer[]) => void;
 }) {
-  const [observingId, setObservingId] = useState<string>();
+  const [editingId, setEditingId] = useState<string>();
+  const [date, setDate] = useState("");
   const [observation, setObservation] = useState("");
-  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({
-    visibility: "hidden",
-  });
-  const observationTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const observationPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({ visibility: "hidden" });
+  const detailsTriggerRef = useRef<HTMLElement | null>(null);
+  const detailsPopoverRef = useRef<HTMLDivElement | null>(null);
   const completed = answers.filter((answer) => answer.checked).length;
+  const questionById = new Map(questions.map((question) => [question.id, question]));
   const updateAnswer = (questionId: string, patch: Partial<ChecklistAnswer>) =>
-    onChange(
-      answers.map((answer) =>
-        answer.questionId === questionId ? { ...answer, ...patch } : answer,
-      ),
-    );
-  const openObservation = (
-    answer: ChecklistAnswer,
-    trigger: HTMLButtonElement,
-  ) => {
-    if (observingId === answer.questionId) {
-      closeObservation();
+    onChange(answers.map((answer) => answer.questionId === questionId ? { ...answer, ...patch } : answer));
+  const closeDetails = () => {
+    setEditingId(undefined);
+    setDate("");
+    setObservation("");
+  };
+  const openDetails = (answer: ChecklistAnswer, trigger: HTMLElement) => {
+    if (editingId === answer.questionId) {
+      closeDetails();
       return;
     }
-    observationTriggerRef.current = trigger;
-    setObservingId(answer.questionId);
+    detailsTriggerRef.current = trigger;
+    setEditingId(answer.questionId);
+    setDate(answer.date ?? "");
     setObservation(answer.observation ?? "");
     setPopoverStyle({ visibility: "hidden" });
   };
-  const closeObservation = () => {
-    setObservingId(undefined);
-    setObservation("");
-  };
-  const saveObservation = () => {
-    if (!observingId) return;
-    updateAnswer(observingId, { observation: observation.trim() || undefined });
-    closeObservation();
+  const saveDetails = () => {
+    if (!editingId) return;
+    const question = questionById.get(editingId);
+    updateAnswer(editingId, {
+      checked: true,
+      date: date || undefined,
+      observation: observation.trim() || undefined,
+      attachmentProvided: question?.requiresAttachment ? attachmentCount > 0 : undefined,
+    });
+    closeDetails();
   };
 
   useEffect(() => {
-    if (!observingId) return;
+    if (!editingId) return;
     const position = () => {
-      const trigger = observationTriggerRef.current;
-      const popover = observationPopoverRef.current;
+      const trigger = detailsTriggerRef.current;
+      const popover = detailsPopoverRef.current;
       if (!trigger || !popover) return;
       const triggerRect = trigger.getBoundingClientRect();
       const popoverRect = popover.getBoundingClientRect();
       const gap = 6;
       const padding = 8;
-      const fitsBelow =
-        triggerRect.bottom + gap + popoverRect.height <=
-        window.innerHeight - padding;
+      const fitsBelow = triggerRect.bottom + gap + popoverRect.height <= window.innerHeight - padding;
       setPopoverStyle({
         position: "fixed",
         zIndex: 80,
         visibility: "visible",
-        top: fitsBelow
-          ? triggerRect.bottom + gap
-          : Math.max(padding, triggerRect.top - popoverRect.height - gap),
-        left: Math.min(
-          Math.max(padding, triggerRect.right - popoverRect.width),
-          Math.max(padding, window.innerWidth - popoverRect.width - padding),
-        ),
+        top: fitsBelow ? triggerRect.bottom + gap : Math.max(padding, triggerRect.top - popoverRect.height - gap),
+        left: Math.min(Math.max(padding, triggerRect.right - popoverRect.width), Math.max(padding, window.innerWidth - popoverRect.width - padding)),
       });
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (
-        !observationPopoverRef.current?.contains(target) &&
-        !observationTriggerRef.current?.contains(target)
-      )
-        closeObservation();
+      if (!detailsPopoverRef.current?.contains(target) && !detailsTriggerRef.current?.contains(target)) closeDetails();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeObservation();
+      if (event.key === "Escape") closeDetails();
     };
     const frame = window.requestAnimationFrame(position);
     window.addEventListener("resize", position);
@@ -3313,109 +3318,92 @@ function ChecklistTimeline({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [observingId]);
+  }, [editingId]);
 
-  const observingAnswer = observingId
-    ? answers.find((answer) => answer.questionId === observingId)
-    : undefined;
+  const editingAnswer = editingId ? answers.find((answer) => answer.questionId === editingId) : undefined;
+  const editingQuestion = editingId ? questionById.get(editingId) : undefined;
+  const missingRequiredDetails = Boolean(
+    (editingQuestion?.requiresDate && !date) ||
+    (editingQuestion?.requiresObservation && !observation.trim()) ||
+    (editingQuestion?.requiresAttachment && attachmentCount === 0),
+  );
   return (
     <section className="border-t border-slate-100 px-3 py-2 dark:border-slate-800">
       <div className="flex items-center justify-between gap-3">
-        <p className="label flex items-center gap-1.5">
-          <ClipboardList size={13} />
-          Check-list da etapa
-        </p>
-        <span className="text-xs font-semibold text-muted-foreground">
-          {completed}/{answers.length}
-        </span>
+        <p className="label flex items-center gap-1.5"><ClipboardList size={13} />Check-list da etapa</p>
+        <span className="text-xs font-semibold text-muted-foreground">{completed}/{answers.length}</span>
       </div>
       <div className="mt-2 h-1 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
-        <div
-          className="h-full bg-emerald-600 transition-[width]"
-          style={{
-            width: `${answers.length ? (completed / answers.length) * 100 : 0}%`,
-          }}
-        />
+        <div className="h-full bg-emerald-600 transition-[width]" style={{ width: `${answers.length ? (completed / answers.length) * 100 : 0}%` }}/>
       </div>
       <ul className="mt-1 divide-y divide-border/60">
-        {answers.map((answer) => (
-          <li key={answer.questionId} className="py-1">
-            <div className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/50">
-              <Checkbox
-                aria-label={answer.text}
-                checked={answer.checked}
-                disabled={!editable || pending}
-                onChange={(event) =>
-                  updateAnswer(answer.questionId, {
-                    checked: event.target.checked,
-                  })
-                }
-              />
-              <span
-                className={`min-w-0 flex-1 ${answer.checked ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}`}
-              >
-                {answer.text}
-              </span>
-              {answer.observation && (
-                <span className="hidden max-w-56 truncate text-xs text-muted-foreground sm:inline">
-                  {answer.observation}
+        {answers.map((answer) => {
+          const question = questionById.get(answer.questionId);
+          const hasRequiredDetails = Boolean(question && (question.requiresDate || question.requiresAttachment || question.requiresObservation));
+          return (
+            <li key={answer.questionId} className="py-1">
+              <div className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/50">
+                <Checkbox
+                  aria-label={answer.text}
+                  checked={answer.checked}
+                  disabled={!editable || pending}
+                  onChange={(event) => {
+                    if (!event.target.checked) {
+                      updateAnswer(answer.questionId, { checked: false });
+                      return;
+                    }
+                    if (hasRequiredDetails) openDetails(answer, event.currentTarget);
+                    else updateAnswer(answer.questionId, { checked: true });
+                  }}
+                />
+                <span className={`min-w-0 flex-1 ${answer.checked ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}`}>{answer.text}</span>
+                <span className="inline-flex shrink-0 items-center gap-0.5" aria-label="Informações solicitadas para este item">
+                  {question?.requiresDate && <CalendarDays aria-label="Data obrigatória" className="text-amber-600" size={15}/>}
+                  {question?.requiresAttachment && <Clipboard aria-label="Anexo obrigatório" className="text-amber-600" size={15}/>}
+                  {question?.requiresObservation && <MessageSquareText aria-label="Observação obrigatória" className="text-amber-600" size={15}/>}
                 </span>
-              )}
-              <button
-                type="button"
-                className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-card hover:text-primary disabled:cursor-not-allowed disabled:opacity-45"
-                aria-label={`${answer.observation ? "Editar" : "Adicionar"} observação em ${answer.text}`}
-                aria-haspopup="dialog"
-                aria-expanded={observingId === answer.questionId}
-                title={
-                  editable
-                    ? "Adicionar observação"
-                    : waitingForAcknowledgement
-                      ? "Dê ciência para preencher o checklist"
-                      : "Somente leitura"
-                }
-                disabled={!editable || pending}
-                onClick={(event) =>
-                  openObservation(answer, event.currentTarget)
-                }
-              >
-                {answer.observation ? (
-                  <MessageSquareText size={15} />
-                ) : (
-                  <MessageSquarePlus size={15} />
-                )}
-              </button>
-            </div>
-            {answer.observation && (
-              <p className="mt-1 flex items-start gap-1.5 pl-7 text-xs text-muted-foreground sm:hidden">
-                <MessageSquareText className="mt-0.5 shrink-0" size={13} />
-                <span>{answer.observation}</span>
-              </p>
-            )}
-          </li>
-        ))}
+                {answer.observation && <span className="hidden max-w-56 truncate text-xs text-muted-foreground sm:inline">{answer.observation}</span>}
+                <button
+                  type="button"
+                  className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-card hover:text-primary disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label={`${hasRequiredDetails ? "Preencher detalhes" : answer.observation ? "Editar" : "Adicionar observação"} em ${answer.text}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={editingId === answer.questionId}
+                  title={editable ? (hasRequiredDetails ? "Preencher informações do item" : "Adicionar observação") : waitingForAcknowledgement ? "Dê ciência para preencher o checklist" : "Somente leitura"}
+                  disabled={!editable || pending}
+                  onClick={(event) => openDetails(answer, event.currentTarget)}
+                >
+                  {hasRequiredDetails || answer.observation ? <MessageSquareText size={15}/> : <MessageSquarePlus size={15}/>}
+                </button>
+              </div>
+              {answer.observation && <p className="mt-1 flex items-start gap-1.5 pl-7 text-xs text-muted-foreground sm:hidden"><MessageSquareText className="mt-0.5 shrink-0" size={13}/><span>{answer.observation}</span></p>}
+            </li>
+          );
+        })}
       </ul>
-      {!editable && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LockKeyhole size={12} />
-          {waitingForAcknowledgement
-            ? "Dê ciência desta movimentação para preencher o checklist."
-            : "Checklist disponível somente para consulta."}
-        </p>
-      )}
-      {observingAnswer &&
-        createPortal(
-          <div
-            ref={observationPopoverRef}
-            role="dialog"
-            aria-label={`Observação do item ${observingAnswer.text}`}
-            style={popoverStyle}
-            data-checklist-observation-popover
-            className="w-[min(22rem,calc(100vw-1rem))] rounded-lg border border-border bg-popover p-3 shadow-xl"
-          >
-            <Field label="Observação">
+      {!editable && <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole size={12}/>{waitingForAcknowledgement ? "Dê ciência desta movimentação para preencher o checklist." : "Checklist disponível somente para consulta."}</p>}
+      {editingAnswer && createPortal(
+        <div
+          ref={detailsPopoverRef}
+          role="dialog"
+          aria-label={`Informações do item ${editingAnswer.text}`}
+          style={popoverStyle}
+          data-checklist-details-popover
+          className="w-[min(24rem,calc(100vw-1rem))] rounded-lg border border-border bg-popover p-3 shadow-xl"
+        >
+          <strong className="block text-sm">{editingAnswer.text}</strong>
+          <div className="mt-3 space-y-3">
+            {editingQuestion?.requiresDate && <Field label="Data obrigatória"><Input autoFocus type="date" value={date} onChange={(event) => setDate(event.target.value)}/></Field>}
+            {editingQuestion?.requiresAttachment && (
+              <div>
+                <p className="label">Anexo obrigatório</p>
+                <button type="button" className="btn-secondary mt-1 w-full" disabled={!canAttach || pending} onClick={onAttachFile}><Paperclip size={15}/>{attachmentCount ? `${attachmentCount} arquivo(s) anexado(s)` : "Selecionar arquivo"}</button>
+                {!canAttach && <p className="mt-1 text-xs text-red-600">Este tipo de processo não permite anexos.</p>}
+              </div>
+            )}
+            <Field label={editingQuestion?.requiresObservation ? "Observação obrigatória" : "Observação"}>
               <textarea
-                autoFocus
+                autoFocus={!editingQuestion?.requiresDate}
                 className="field min-h-20"
                 maxLength={1000}
                 placeholder="Digite a observação"
@@ -3423,30 +3411,17 @@ function ChecklistTimeline({
                 onChange={(event) => setObservation(event.target.value)}
               />
             </Field>
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={closeObservation}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={pending}
-                onClick={saveObservation}
-              >
-                Salvar
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={closeDetails}>Cancelar</button>
+            <button type="button" className="btn-primary" disabled={pending || missingRequiredDetails} onClick={saveDetails}>Salvar e marcar</button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </section>
   );
 }
-
 function MoveDialog({
   title,
   protocol,
@@ -4295,7 +4270,7 @@ function AssignDialog({
         }}
       >
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          A designação encerra o ciclo atual e exige nova ciência do responsável
+          A troca mantém a movimentação atual e exige nova ciência do responsável
           escolhido.
         </p>
         <Field label="Responsável *">

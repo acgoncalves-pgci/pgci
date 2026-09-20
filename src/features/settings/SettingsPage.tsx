@@ -510,6 +510,13 @@ export function SettingsPage() {
                     <AppearanceColorField label="Cor de fundo — tema escuro" value={appearance.darkBackgroundColor} onChange={(darkBackgroundColor) => setAppearance({ ...appearance, darkBackgroundColor })}/>
                   </div>
                 </section>
+                <section className="rounded-lg border p-4">
+                  <div className="mb-4"><p className="text-sm font-bold">Cores do rodapé</p><p className="mt-1 text-xs text-muted-foreground">Aplicadas ao rodapé em toda a interface.</p></div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <AppearanceColorField label="Cor de fundo do rodapé" value={appearance.footerBackgroundColor} onChange={(footerBackgroundColor) => setAppearance({ ...appearance, footerBackgroundColor })}/>
+                    <AppearanceColorField label="Cor do texto do rodapé" value={appearance.footerTextColor} onChange={(footerTextColor) => setAppearance({ ...appearance, footerTextColor })}/>
+                  </div>
+                </section>
               </div>
             </SettingsSection>
             <SettingsSection

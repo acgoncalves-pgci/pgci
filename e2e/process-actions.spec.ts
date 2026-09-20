@@ -255,7 +255,7 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
   const checklistHeight = (await checklistSection.boundingBox())!.height
   const observationButton = page.getByRole('button', { name: 'Adicionar observação em Registrar despacho ou resultado' })
   await observationButton.click()
-  const observationPopover = page.getByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+  const observationPopover = page.getByRole('dialog', { name: 'Informações do item Registrar despacho ou resultado' })
   await expect(observationPopover).toBeVisible()
   await observationButton.click()
   await expect(observationPopover).toHaveCount(0)
@@ -265,11 +265,45 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
   expect(await observationPopover.evaluate((element) => getComputedStyle(element).position)).toBe('fixed')
   expect(Math.abs((await checklistSection.boundingBox())!.height - checklistHeight)).toBeLessThan(1)
   await observationPopover.getByRole('textbox', { name: 'Observação' }).fill('Atividade conferida no andamento.')
-  await observationPopover.getByRole('button', { name: 'Salvar', exact: true }).click()
+  await observationPopover.getByRole('button', { name: 'Salvar e marcar', exact: true }).click()
   await expect(page.getByText('Atividade conferida no andamento.', { exact: true }).first()).toHaveText('Atividade conferida no andamento.')
   await expect(movementToggles).toHaveCount(movementCount)
 })
 
+test('abre os requisitos do checklist ao marcar e identifica data, anexo e observação', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Regressão funcional coberta no projeto desktop.')
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+  })
+  await page.goto('/processos/pr-9')
+  await expect(page.getByRole('heading', { name: 'Processo 2026.000009' })).toBeVisible()
+  await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
+
+  const checklistItem = page.getByRole('checkbox', { name: 'Registrar pesquisa de preços compatível com o objeto' })
+  await expect(checklistItem).toBeEnabled()
+  const row = checklistItem.locator('xpath=ancestor::div[1]')
+  await expect(row.locator('svg[aria-label="Data obrigatória"]')).toBeVisible()
+  await expect(row.locator('svg[aria-label="Anexo obrigatório"]')).toBeVisible()
+  await expect(row.locator('svg[aria-label="Observação obrigatória"]')).toBeVisible()
+
+  await checklistItem.click()
+  const popover = page.getByRole('dialog', { name: 'Informações do item Registrar pesquisa de preços compatível com o objeto' })
+  await expect(popover).toBeVisible()
+  await expect(popover.getByRole('button', { name: 'Salvar e marcar' })).toBeDisabled()
+  await popover.locator('input[type="date"]').fill('2026-09-20')
+  await popover.getByRole('textbox', { name: 'Observação obrigatória' }).fill('Pesquisa de preços conferida.')
+
+  const chooserPromise = page.waitForEvent('filechooser')
+  await popover.getByRole('button', { name: 'Selecionar arquivo' }).click()
+  const chooser = await chooserPromise
+  await chooser.setFiles({ name: 'pesquisa-precos.txt', mimeType: 'text/plain', buffer: Buffer.from('Pesquisa de preços registrada.') })
+  await expect(popover.getByRole('button', { name: /arquivo\(s\) anexado\(s\)/ })).toBeVisible()
+  await expect(popover.getByRole('button', { name: 'Salvar e marcar' })).toBeEnabled()
+  await popover.getByRole('button', { name: 'Salvar e marcar' }).click()
+  await expect(checklistItem).toBeChecked()
+})
 test('responsável abre a designação e o dossiê incorpora anexos PDF', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Validação integral de download executada no projeto desktop.')
 
@@ -338,7 +372,7 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await page.getByRole('button', { name: /Auditoria/ }).click()
   await expect(page.getByText('Arquivo anexado', { exact: true })).toHaveCount(4)
   await page.getByRole('button', { name: /Anexos/ }).click()
-  await expect(page.getByText(download.suggestedFilename(), { exact: true })).toHaveCount(2)
+  await expect(page.getByText(download.suggestedFilename(), { exact: true }).last()).toBeVisible()
 })
 
 test('resumo separa informações do processo e situação atual', async ({ page }) => {

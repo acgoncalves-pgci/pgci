@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { canAct, canView, isDueSoon, isOverdue } from './rules'
 import { seedDatabase } from '../mocks/seed'
+import { isMovementEvent } from './model'
 import { api } from '../services/api'
 import { DATABASE_KEY, loadDb, saveDb, StorageError, storageErrorMessage } from '../storage/database'
 
@@ -306,12 +307,28 @@ describe('usuários de demonstração', () => {
 
 describe('designação de responsável', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
-  it('reinicia a ciência ao designar responsável ativo da unidade atual', async () => {
-    const db = seedDatabase(); const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+  it('troca o responsável na movimentação atual, reinicia a ciência e registra somente auditoria', async () => {
+    const before = loadDb()
+    const protocol = before.protocols.find((item) => item.id === 'pr-1')!
+    const assignmentId = protocol.currentAssignmentId
+    const movement = before.events.find((event) => event.assignmentId === assignmentId && isMovementEvent(event))!
+    const assignmentCount = before.assignments.length
+    const eventCount = before.events.length
+    const auditCount = before.auditEvents.length
+
     const updated = await api.assign({ userId: 'usr-admin', activeUnitId: 'u-prot' }, protocol.id, protocol.version, 'usr-admin')
-    expect(updated.currentAssigneeId).toBe('usr-admin')
     const detail = await api.getProtocol({ userId: 'usr-admin', activeUnitId: 'u-prot' }, protocol.id)
-    expect(detail.assignment.receivedAt).toBeUndefined()
+    const persisted = loadDb()
+
+    expect(updated).toMatchObject({ currentAssigneeId: 'usr-admin', currentAssignmentId: assignmentId })
+    expect(detail.assignment).toMatchObject({ id: assignmentId, assigneeId: 'usr-admin' })
+    expect(detail.assignment).not.toHaveProperty('receivedAt')
+    expect(detail.assignment).not.toHaveProperty('receivedById')
+    expect(detail.events.find((event) => event.id === movement.id)).toMatchObject({ toUserId: 'usr-admin' })
+    expect(persisted.assignments).toHaveLength(assignmentCount)
+    expect(persisted.events).toHaveLength(eventCount)
+    expect(persisted.auditEvents).toHaveLength(auditCount + 1)
+    expect(persisted.auditEvents.at(-1)).toMatchObject({ action: 'PROTOCOL_ASSIGNEE_CHANGED', targetId: protocol.id })
   })
 })
 
@@ -549,6 +566,21 @@ describe('regras avançadas de processo', () => {
     expect(movement).toMatchObject({ phaseId: 'phase-analysis', activity: 'Conferência da solicitação', result: 'Solicitação validada e encaminhada' })
   })
 
+  it('permite sair de fase legada em unidade diferente e valida a unidade da próxima fase', async () => {
+    const db = loadDb()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.flowModeSnapshot = 'REQUIRED'
+    protocol.currentPhaseId = 'phase-triage'
+    protocol.flowSnapshot!.phases[0].eligibleUnitIds = ['u-fin']
+    protocol.flowSnapshot!.phases[1].eligibleUnitIds = ['u-adm']
+    protocol.flowSnapshot!.phases[1].destinationUnitId = 'u-adm'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-triage-data', text: 'Conferir dados de abertura', checked: true }]
+    saveDb(db)
+
+    await expect(api.forward({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, {
+      unitId: 'u-adm', assigneeId: 'usr-bruno', phaseId: 'phase-analysis', message: 'Seguir a unidade definida pelo fluxo obrigatório.'
+    })).resolves.toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-analysis' })
+  })
   it('impede alterar fase e destino definidos pelo fluxo sugerido', async () => {
     const db = loadDb()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!

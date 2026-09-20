@@ -11,7 +11,7 @@
   src: url('/fonts/Inter/Inter_18pt-Bold.ttf') format('truetype');
 }
 
-html { --ui-accent: #17628b; --ui-sidebar-bg: #dce8ee; --ui-header-bg: #dce8ee; --ui-page-bg: #ffffff; --ui-sidebar-fg: #0f172a; --ui-header-fg: #0f172a; --ui-page-fg: #0f172a; --ui-font: 'Inter', ui-sans-serif, system-ui, sans-serif; --ui-zoom: 1; }
+html { --ui-accent: #17628b; --ui-sidebar-bg: #dce8ee; --ui-header-bg: #dce8ee; --ui-page-bg: #ffffff; --ui-sidebar-fg: #0f172a; --ui-header-fg: #0f172a; --ui-page-fg: #0f172a; --ui-footer-bg: #303030; --ui-footer-fg: #e5e5e5; --ui-font: 'Inter', ui-sans-serif, system-ui, sans-serif; --ui-zoom: 1; }
 html[data-theme='light'] { color-scheme: light; }
 html[data-theme='dark'] { color-scheme: dark; }
 
@@ -106,8 +106,10 @@ html.dark .nav-link-active { background-color: color-mix(in srgb, var(--ui-accen
 .pgci-nav-link { display: flex; min-height: 2.35rem; align-items: center; gap: .55rem; border-radius: .75rem; padding: .45rem .7rem; font-size: .91rem; font-weight: 600; line-height: 1.2; transition: background-color 150ms ease, color 150ms ease; }
 .pgci-nav-link:is(:hover, :focus-visible, :active) { background: rgb(255 255 255 / .72); color: #111827; }
 .pgci-user-select [data-select-value] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pgci-footer { display: flex; min-height: 6rem; align-items: center; justify-content: space-between; background: #303030; padding: 1rem 3.4rem; color: #e5e5e5; font-size: .76rem; font-weight: 600; line-height: 1.25; }
+.pgci-footer { display: flex; min-height: 6rem; align-items: center; justify-content: space-between; background: var(--ui-footer-bg); padding: 1rem 3.4rem; color: var(--ui-footer-fg); font-size: .76rem; font-weight: 600; line-height: 1.25; }
 .pgci-footer span:last-child { white-space: nowrap; }
+.pgci-app-shell { min-height: calc(100dvh / var(--ui-zoom)); }
+.pgci-app-content { flex: 1 0 auto; }
 .pgci-dashboard .overview-shape-left { top: 10rem; left: 3.5rem; width: 18.75rem; height: 13.75rem; border-radius: 12rem 12rem 0 0; }
 .pgci-dashboard .overview-shape-right { top: 5.5rem; right: 1rem; width: 18rem; height: 16rem; border-radius: 1.3rem 9rem 1.3rem 10rem; }
 .pgci-dashboard .overview-search { min-height: 4rem; border: 1px solid #d4d4d4; border-radius: 1.5rem; background: white; padding-left: 2rem; font-size: 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .04); }

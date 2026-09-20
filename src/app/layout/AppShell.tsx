@@ -258,9 +258,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const isDashboard = location.pathname === "/dashboard";
   return (
-    <>
+    <div className="pgci-app-shell flex flex-col">
       <div
-        className={`min-h-[calc(100dvh-3.5rem)] lg:grid ${compactSidebar ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}
+        className={`pgci-app-content lg:grid ${compactSidebar ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}
         onClickCapture={handleInternalNavigation}
       >
         <div className={`hidden lg:block ${compactSidebar ? "w-[72px]" : "w-[240px]"}`}>{sidebar}</div>
@@ -367,7 +367,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </span>
         <span>v. 16.9.26</span>
       </footer>
-    </>
+    </div>
   );
 }
 

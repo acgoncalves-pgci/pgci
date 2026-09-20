@@ -14,6 +14,8 @@ export type AppearanceSettings = AppearancePalette & {
     darkSidebarColor: string;
     darkHeaderColor: string;
     darkBackgroundColor: string;
+    footerBackgroundColor: string;
+    footerTextColor: string;
     font: 'inter' | 'roboto' | 'system';
     zoom: number;
     sidebar: 'compact' | 'expanded';
@@ -28,6 +30,8 @@ export const defaultAppearance: AppearanceSettings = {
     darkSidebarColor: darkAppearanceColors.sidebarColor,
     darkHeaderColor: darkAppearanceColors.headerColor,
     darkBackgroundColor: darkAppearanceColors.backgroundColor,
+    footerBackgroundColor: '#303030',
+    footerTextColor: '#e5e5e5',
     font: 'inter',
     zoom: 100,
     sidebar: 'expanded',
@@ -60,6 +64,8 @@ const readAppearance = (): AppearanceSettings => {
             darkSidebarColor: validColor(saved.darkSidebarColor, defaultAppearance.darkSidebarColor),
             darkHeaderColor: validColor(saved.darkHeaderColor, defaultAppearance.darkHeaderColor),
             darkBackgroundColor: validColor(saved.darkBackgroundColor, defaultAppearance.darkBackgroundColor),
+            footerBackgroundColor: validColor(saved.footerBackgroundColor, defaultAppearance.footerBackgroundColor),
+            footerTextColor: validColor(saved.footerTextColor, defaultAppearance.footerTextColor),
             zoom: Math.min(120, Math.max(80, Number(saved.zoom) || defaultAppearance.zoom)),
         };
     } catch {
@@ -106,6 +112,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         root.style.setProperty('--ui-sidebar-fg', contrastColor(colors.sidebarColor));
         root.style.setProperty('--ui-header-fg', contrastColor(colors.headerColor));
         root.style.setProperty('--ui-page-fg', contrastColor(colors.backgroundColor));
+        root.style.setProperty('--ui-footer-bg', appearance.footerBackgroundColor);
+        root.style.setProperty('--ui-footer-fg', appearance.footerTextColor);
         root.style.setProperty('--ui-font', fontStacks[appearance.font]);
         root.style.setProperty('--ui-zoom', String(appearance.zoom / 100));
     }, [appearance, theme]);

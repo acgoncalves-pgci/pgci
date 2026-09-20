@@ -75,10 +75,8 @@ const currentPhase = (protocol: Protocol) => {
     return phase;
 };
 const orderedPhases = (protocol: Protocol) => protocol.flowSnapshot?.phases.slice().sort((a, b) => a.position - b.position) ?? [];
-const validatePhaseExit = (db: Database, protocol: Protocol, ctx: Context, values: ChecklistAnswer[] | string[]) => {
+const validatePhaseExit = (db: Database, protocol: Protocol, values: ChecklistAnswer[] | string[]) => {
     const phase = currentPhase(protocol);
-    if (phase.eligibleUnitIds.length && !phase.eligibleUnitIds.includes(ctx.activeUnitId))
-        throw new DomainError('FORBIDDEN', 'A unidade ativa não é elegível para executar esta fase.');
     const answers = normalizedAnswers(phase, values);
     const pending = phaseQuestions(phase).filter((question) => question.required && !answers.find((answer) => answer.questionId === question.id)?.checked);
     if (pending.length)
@@ -92,6 +90,10 @@ const validatePhaseExit = (db: Database, protocol: Protocol, ctx: Context, value
     const missingTypes = phase.requiredAttachmentTypes.filter((mimeType) => !db.attachments.some((attachment) => attachment.protocolId === protocol.id && attachment.mimeType === mimeType));
     if (missingTypes.length) throw new DomainError('VALIDATION', `Anexe os arquivos obrigatórios: ${missingTypes.join(', ')}.`);
     return { phase, answers };
+};
+const validatePhaseDestination = (eligibleUnitIds: string[], unitId: string) => {
+    if (eligibleUnitIds.length && !eligibleUnitIds.includes(unitId))
+        throw new DomainError('VALIDATION', 'A unidade de destino não é elegível para executar esta fase.');
 };
 const endCurrent = (db: Database, p: Protocol) => { getAssignment(db, p).endedAt = new Date().toISOString(); };
 const addAssignment = (db: Database, p: Protocol, unitId: string, assigneeId?: string) => { const assignment = { id: id(), protocolId: p.id, unitId, assigneeId, startedAt: new Date().toISOString() }; db.assignments.push(assignment); p.currentAssignmentId = assignment.id; p.currentUnitId = unitId; p.currentAssigneeId = assigneeId; return assignment; };
@@ -528,9 +530,42 @@ export const api = {
             bump(protocol);
             return movement;
         });
-    },    async assign(ctx: Context, protocolId: string, expectedVersion: number, assigneeId: string) { return mutate((db) => { const p = getProtocol(db, protocolId); requireVersion(p, expectedVersion); requireActive(p); const actor = requireAdmin(db, ctx); if (ctx.activeUnitId !== p.currentUnitId)
-        throw new DomainError('FORBIDDEN', 'Apenas admin no contexto da unidade atual pode designar responsável.'); const assignee = getUser(db, assigneeId); if (!assignee.active || !canReceiveWorkInUnit(db, assignee.id, p.currentUnitId))
-        throw new DomainError('VALIDATION', 'Responsável deve estar ativo e vinculado à unidade atual.'); endCurrent(db, p); const next = addAssignment(db, p, p.currentUnitId, assigneeId); bump(p); event(db, { protocolId, kind: 'ATRIBUICAO', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, toUnitId: p.currentUnitId, toUserId: assigneeId, assignmentId: next.id }); return p; }); },
+    },
+
+    async assign(ctx: Context, protocolId: string, expectedVersion: number, assigneeId: string) {
+        return mutate((db) => {
+            const protocol = getProtocol(db, protocolId);
+            requireVersion(protocol, expectedVersion);
+            requireActive(protocol);
+            const actor = requireAdmin(db, ctx);
+            if (ctx.activeUnitId !== protocol.currentUnitId)
+                throw new DomainError('FORBIDDEN', 'Apenas admin no contexto da unidade atual pode designar responsável.');
+            const assignee = getUser(db, assigneeId);
+            if (!assignee.active || !canReceiveWorkInUnit(db, assignee.id, protocol.currentUnitId))
+                throw new DomainError('VALIDATION', 'Responsável deve estar ativo e vinculado à unidade atual.');
+
+            const assignment = getAssignment(db, protocol);
+            const movement = resolveMovement(db, protocol);
+            const previousAssigneeId = protocol.currentAssigneeId;
+            const previousAssignee = previousAssigneeId ? db.users.find((user) => user.id === previousAssigneeId) : undefined;
+            assignment.assigneeId = assigneeId;
+            assignment.receivedAt = undefined;
+            assignment.receivedById = undefined;
+            protocol.currentAssigneeId = assigneeId;
+            movement.toUnitId ??= protocol.currentUnitId;
+            movement.toUserId = assigneeId;
+            bump(protocol);
+            audit(db, {
+                action: 'PROTOCOL_ASSIGNEE_CHANGED',
+                actorUserId: actor.id,
+                actorUnitId: ctx.activeUnitId,
+                targetType: 'PROTOCOL',
+                targetId: protocol.id,
+                details: `Responsável alterado de ${previousAssignee?.name ?? 'fila da unidade'} para ${assignee.name}.`,
+            });
+            return protocol;
+        });
+    },
     async forward(ctx: Context, protocolId: string, expectedVersion: number, input: {
         unitId: string;
         assigneeId?: string;
@@ -577,11 +612,15 @@ export const api = {
                 throw new DomainError('VALIDATION', 'A fase da tramitação é definida pelo fluxo do processo.');
             if (configuredPhase?.destinationUnitId && input.unitId !== configuredPhase.destinationUnitId)
                 throw new DomainError('VALIDATION', 'O destino da tramitação é definido pela próxima etapa do fluxo.');
+            const eligibleUnitIds = configuredPhase?.eligibleUnitIds
+                ?? db.phases.find((phase) => phase.id === selectedPhaseId)?.eligibleUnitIds
+                ?? [];
+            validatePhaseDestination(eligibleUnitIds, input.unitId);
 
             const phaseChanges = Boolean(configuredPhase && configuredPhase.phaseId !== protocol.currentPhaseId);
             if (phaseChanges) {
                 const currentMovement = resolveMovement(db, protocol);
-                const { answers } = validatePhaseExit(db, protocol, ctx, currentMovement.checklist ?? []);
+                const { answers } = validatePhaseExit(db, protocol, currentMovement.checklist ?? []);
                 currentMovement.checklist = answers;
             }
 
@@ -657,11 +696,12 @@ export const api = {
             requireAssignmentReceived(db, protocol);
             const currentMovement = resolveMovement(db, protocol);
             const checklistValues = checklist.length ? checklist : currentMovement.checklist ?? [];
-            const { phase: current, answers } = validatePhaseExit(db, protocol, ctx, checklistValues);
+            const { phase: current, answers } = validatePhaseExit(db, protocol, checklistValues);
             currentMovement.checklist = answers;
             const next = orderedPhases(protocol).find((phase) => phase.position > current.position);
             if (!next)
                 throw new DomainError('INVALID_STATE', 'Esta é a última fase. Conclua o processo.');
+            validatePhaseDestination(next.eligibleUnitIds, next.destinationUnitId ?? protocol.currentUnitId);
 
             const previousStatus = protocol.status;
             const fromUnitId = protocol.currentUnitId;

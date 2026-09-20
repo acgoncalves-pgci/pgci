@@ -123,17 +123,17 @@ describe('jornada principal da interface', () => {
     const observationButton = screen.getByRole('button', { name: 'Adicionar observação em Registrar despacho ou resultado' })
     await waitFor(() => expect(observationButton.hasAttribute('disabled')).toBe(false))
     fireEvent.click(observationButton)
-    const firstObservationPopover = await screen.findByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+    const firstObservationPopover = await screen.findByRole('dialog', { name: 'Informações do item Registrar despacho ou resultado' })
     expect(firstObservationPopover.parentElement).toBe(document.body)
     await waitFor(() => expect(firstObservationPopover.style.position).toBe('fixed'))
 
     fireEvent.click(observationButton)
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Informações do item Registrar despacho ou resultado' })).toBeNull())
     fireEvent.click(observationButton)
-    const observationPopover = await screen.findByRole('dialog', { name: 'Observação do item Registrar despacho ou resultado' })
+    const observationPopover = await screen.findByRole('dialog', { name: 'Informações do item Registrar despacho ou resultado' })
     await waitFor(() => expect(observationPopover.style.position).toBe('fixed'))
     fireEvent.change(within(observationPopover).getByRole('textbox', { name: 'Observação' }), { target: { value: 'Atividade conferida pela unidade.' } })
-    fireEvent.click(within(observationPopover).getByRole('button', { name: 'Salvar' }))
+    fireEvent.click(within(observationPopover).getByRole('button', { name: 'Salvar e marcar' }))
 
     expect((await screen.findAllByText('Atividade conferida pela unidade.')).length).toBeGreaterThan(0)
     await waitFor(() => {

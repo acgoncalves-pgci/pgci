@@ -193,6 +193,10 @@ test('oferece e aplica configurações de aparência', async ({ page }) => {
   await expect(page.locator('.pgci-sidebar').first()).toHaveCSS('background-color', 'rgb(240, 224, 214)')
   await expect(page.locator('.pgci-header')).toHaveCSS('background-color', 'rgb(245, 233, 225)')
   await expect(page.locator('#main-content')).toHaveCSS('background-color', 'rgb(255, 253, 251)')
+  await page.getByLabel('Cor de fundo do rodapé', { exact: true }).fill('#1f2937')
+  await page.getByLabel('Cor do texto do rodapé', { exact: true }).fill('#f8fafc')
+  await expect(page.locator('.pgci-footer')).toHaveCSS('background-color', 'rgb(31, 41, 55)')
+  await expect(page.locator('.pgci-footer')).toHaveCSS('color', 'rgb(248, 250, 252)')
   await page.getByLabel('Cor do header — tema claro', { exact: true }).fill('#123456')
   await page.getByLabel('Cor do header — tema escuro', { exact: true }).fill('#654321')
   await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-header-bg'))).toBe('#123456')
@@ -221,4 +225,18 @@ test('oferece e aplica configurações de aparência', async ({ page }) => {
   for (let index = 0; index < 6; index += 1) await zoom.press('ArrowRight')
   await expect(page.getByText('110%', { exact: true })).toBeVisible()
   await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-zoom'))).toBe('1.1')
+
+  if ((page.viewportSize()?.width ?? 0) >= 1024) {
+    await page.goto('/processos/pr-18')
+    const shellGeometry = await page.evaluate(() => {
+      const sidebar = document.querySelector<HTMLElement>('.pgci-sidebar')
+      const footer = document.querySelector<HTMLElement>('.pgci-footer')
+      if (!sidebar || !footer) throw new Error('Shell não encontrado.')
+      const sidebarBox = sidebar.getBoundingClientRect()
+      const footerBox = footer.getBoundingClientRect()
+      return { sidebarBottom: sidebarBox.bottom, footerTop: footerBox.top, footerBottom: footerBox.bottom, viewportHeight: window.innerHeight }
+    })
+    expect(Math.abs(shellGeometry.sidebarBottom - shellGeometry.footerTop)).toBeLessThan(1.5)
+    expect(shellGeometry.footerBottom).toBeGreaterThanOrEqual(shellGeometry.viewportHeight - 1.5)
+  }
 })
