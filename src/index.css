@@ -29,6 +29,7 @@ html[data-theme='dark'] { color-scheme: dark; }
   .ui-input[aria-invalid='true'], .ui-select[aria-invalid='true'] { @apply border-red-500 focus-visible:ring-red-500; }
   .ui-select-content { @apply border-slate-200 text-sm dark:border-slate-700; overscroll-behavior: contain; }
   .ui-select-option { @apply flex min-h-10 w-full items-start gap-2 rounded px-2 py-2 text-left text-slate-700 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800 dark:focus:bg-slate-800; }
+  .ui-select-option[data-highlighted='true'] { @apply bg-slate-100 dark:bg-slate-800; }
   .ui-checkbox { @apply size-4 shrink-0 cursor-pointer appearance-none rounded border border-slate-300 bg-white transition-colors checked:border-public-700 checked:bg-public-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950; background-position: center; background-repeat: no-repeat; }
   .ui-checkbox:checked { background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m3.2 8 3 3 6.6-6.6' stroke='white' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
   .ui-switch { @apply inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-slate-300 bg-slate-200 p-0.5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700; }

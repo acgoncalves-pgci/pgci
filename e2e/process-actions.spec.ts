@@ -367,7 +367,7 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   expect(secondDownloadedPath).not.toBeNull()
   const secondDossier = await PDFDocument.load(await readFile(secondDownloadedPath!))
   expect(secondDossier.getPageCount()).toBe(7)
-  await expect(page.getByText(secondDownload.suggestedFilename(), { exact: true })).toBeVisible()
+  await expect(page.getByText(secondDownload.suggestedFilename(), { exact: true }).last()).toBeVisible()
 
   await page.getByRole('button', { name: /Auditoria/ }).click()
   await expect(page.getByText('Arquivo anexado', { exact: true })).toHaveCount(4)

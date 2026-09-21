@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Checkbox } from './Checkbox'
+import { CurrencyInput } from './CurrencyInput'
 import { Dialog } from './Dialog'
 import { Input } from './Input'
 import { AdvancedSelect, SearchableSelect, Select } from './Select'
@@ -19,10 +20,66 @@ describe('controles de formulário', () => {
     const select = screen.getByRole('combobox', { name: 'Tipo' })
     expect(select.textContent).toContain('Memorando')
     fireEvent.click(select)
+    expect(screen.getByRole('searchbox', { name: 'Buscar opções' })).toBeTruthy()
     fireEvent.click(screen.getByRole('option', { name: 'Ofício' }))
     expect(select.textContent).toContain('Ofício')
   })
 
+  it('formata valores monetários em reais durante a digitação', async () => {
+    const onChange = vi.fn()
+    render(<><label htmlFor="valor">Valor (R$)</label><CurrencyInput id="valor" onChange={onChange} /></>)
+
+    const input = screen.getByLabelText('Valor (R$)') as HTMLInputElement
+    fireEvent.input(input, { target: { value: '1234,56' } })
+
+    await waitFor(() => expect(input.value).toBe('1.234,56'))
+    expect(input.inputMode).toBe('decimal')
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: input }))
+  })
+
+  it('oferece busca por padrão em todo Select e permite desativação explícita', () => {
+    const view = render(<Select aria-label="Categoria"><option value="">Todas</option><option value="compras">Compras e contratações</option></Select>)
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Categoria' }))
+    const search = screen.getByRole('searchbox', { name: 'Buscar opções' })
+    fireEvent.change(search, { target: { value: 'contratacoes' } })
+    expect(screen.getByRole('option', { name: 'Compras e contratações' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Todas' })).toBeNull()
+
+    view.rerender(<Select aria-label="Categoria" searchable={false}><option value="">Todas</option><option value="compras">Compras e contratações</option></Select>)
+    expect(screen.queryByRole('searchbox', { name: 'Buscar opções' })).toBeNull()
+  })
+  it('mantém o foco na busca, destaca com as setas e confirma somente com Enter', async () => {
+    const onChange = vi.fn()
+    render(<Select aria-label="Unidade" onChange={onChange}><option value="adm">Administração</option><option value="fin" disabled>Financeiro</option><option value="jur">Jurídico</option></Select>)
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Unidade' }))
+    const search = screen.getByRole('searchbox', { name: 'Buscar opções' })
+    await waitFor(() => expect(document.activeElement).toBe(search))
+    expect(search.getAttribute('aria-activedescendant')).toBe(screen.getByRole('option', { name: 'Administração' }).id)
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(search)
+    expect(search.getAttribute('aria-activedescendant')).toBe(screen.getByRole('option', { name: 'Jurídico' }).id)
+    expect(screen.getByRole('option', { name: 'Jurídico' }).getAttribute('data-highlighted')).toBe('true')
+
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ value: 'jur' }) }))
+    expect(screen.getByRole('combobox', { name: 'Unidade' }).textContent).toContain('Jurídico')
+  })
+
+  it('confirma a primeira opção filtrada com Enter sem usar as setas', () => {
+    const onChange = vi.fn()
+    render(<Select aria-label="Setor" onChange={onChange}><option value="agua">Água</option><option value="edu">Educação</option><option value="fin">Finanças</option></Select>)
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Setor' }))
+    const search = screen.getByRole('searchbox', { name: 'Buscar opções' })
+    fireEvent.change(search, { target: { value: 'fin' } })
+    fireEvent.keyDown(search, { key: 'Enter' })
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ value: 'fin' }) }))
+  })
   it('porta a lista para fora do modal e preserva opções longas', () => {
     const longOption = 'Unidade de acompanhamento orçamentário e financeiro'
     render(<Dialog title="Editar unidade" onClose={() => undefined}><label htmlFor="unidade">Unidade superior</label><Select id="unidade"><option value="">Selecione</option><option value="financeiro">{longOption}</option></Select></Dialog>)

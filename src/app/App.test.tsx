@@ -442,6 +442,32 @@ describe('jornada principal da interface', () => {
     expect(screen.queryByRole('combobox', { name: 'Credor *' })).toBeNull()
     expect(screen.queryByLabelText('Valor (R$) *')).toBeNull()
   })
+  it('mascara e persiste o valor monetário em centavos ao abrir um processo', async () => {
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Abrir processo' })
+    await choose('Tipo de processo *', 'Pagamento de fornecedor')
+    await choose('Interessado *', 'Ana Beatriz Costa')
+    await choose('Credor *', 'Papelaria Horizonte Ltda.')
+
+    const amount = screen.getByLabelText('Valor (R$) *') as HTMLInputElement
+    fireEvent.input(amount, { target: { value: '1234,56' } })
+    await waitFor(() => expect(amount.value).toBe('1.234,56'))
+
+    fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Pagamento com valor mascarado' } })
+    fireEvent.change(screen.getByLabelText('Descrição *'), { target: { value: 'Validação da persistência monetária em centavos.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir processo' }))
+
+    await waitFor(() => {
+      const current = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+      const created = current.protocols.find((protocol: { subject: string }) => protocol.subject === 'Pagamento com valor mascarado')
+      expect(created?.amountCents).toBe(123456)
+    }, { timeout: 3000 })
+    await screen.findByRole('heading', { name: 'Pagamento com valor mascarado' })
+    const stored = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+    const created = stored.protocols.find((protocol: { subject: string }) => protocol.subject === 'Pagamento com valor mascarado')
+    expect(created.amountCents).toBe(123456)
+  })
   it('abre, tramita, dá ciência, cria documento e anexo, conclui e mantém o resultado após recarga', async () => {
     renderApp()
 
@@ -531,7 +557,3 @@ describe('jornada principal da interface', () => {
     expect(JSON.parse(localStorage.getItem(DATABASE_KEY)!).protocols.some((protocol: { subject: string; status: string }) => protocol.subject === 'Fluxo integrado de teste' && protocol.status === 'CONCLUIDO')).toBe(true)
   }, 15_000)
 })
-
-
-
-

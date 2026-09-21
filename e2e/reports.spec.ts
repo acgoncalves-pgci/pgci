@@ -71,7 +71,7 @@ test('configuração persiste a logo e o endereço de consulta e gera capa pela 
   await (await download).saveAs(testInfo.outputPath('capa-timbrada.pdf'));
 });
 
-test('capa pagina descrições e movimentações extensas sem perder o conteúdo', async ({ page }, testInfo) => {
+test('capa mantém o modelo de página única mesmo com descrição e movimentações extensas', async ({ page }, testInfo) => {
   await page.goto('/relatorios');
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
   const pdf = await page.evaluate(async () => {
@@ -85,7 +85,7 @@ test('capa pagina descrições e movimentações extensas sem perder o conteúdo
     const doc = await createCoverPdf(db, protocol);
     return { pages: doc.getNumberOfPages(), base64: doc.output('datauristring').split(',')[1] };
   });
-  expect(pdf.pages).toBeGreaterThanOrEqual(4);
+  expect(pdf.pages).toBe(1);
   const { writeFile } = await import('node:fs/promises');
   await writeFile(testInfo.outputPath('capa-extensa.pdf'), Buffer.from(pdf.base64, 'base64'));
 });

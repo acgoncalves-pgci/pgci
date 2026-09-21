@@ -79,7 +79,12 @@ test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMo
   else expect(dialogBox!.width).toBeGreaterThan(800)
   await typeDialog.getByLabel('Descrição *').fill('Ouvidoria municipal')
   await typeDialog.getByRole('combobox', { name: 'Categoria' }).click()
-  await page.getByRole('option', { name: '07 — Atendimento ao cidadão', exact: true }).click()
+  const categorySearch = page.getByRole('searchbox', { name: 'Buscar opções' })
+  await categorySearch.fill('0')
+  await categorySearch.press('ArrowUp')
+  await expect(page.getByRole('option', { name: '07 — Atendimento ao cidadão', exact: true })).toHaveAttribute('data-highlighted', 'true')
+  await categorySearch.press('Enter')
+  await expect(typeDialog.getByRole('combobox', { name: 'Categoria' })).toContainText('07 — Atendimento ao cidadão')
   await typeDialog.getByLabel('Observação *').fill('Demandas encaminhadas à ouvidoria.')
   if (isMobile) {
     await typeDialog.locator('section').first().evaluate((element) => element.scrollTo({ top: element.scrollHeight }))

@@ -72,7 +72,7 @@ import {
   roleForContext,
 } from "../../domain/rules";
 import { sortUnitsByPath, unitPath } from "../../domain/units";
-import { dateOnly, dateTime, money } from "../../lib/format";
+import { currencyToCents, dateOnly, dateTime, money } from "../../lib/format";
 import {
   api,
   suggestedDeadline,
@@ -83,6 +83,7 @@ import { invalidateAll, useDb } from "../../app/queries";
 import { navigateWithLoading } from "../../app/routeLoading";
 import { Dialog } from "../../components/ui/Dialog";
 import { Input } from "../../components/ui/Input";
+import { CurrencyInput } from "../../components/ui/CurrencyInput";
 import { Select } from "../../components/ui/Select";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { Switch } from "../../components/ui/Switch";
@@ -697,9 +698,7 @@ export function NewProtocol() {
         files,
         useSuggestedFlow:
           flowMode === "SUGGESTED" ? useSuggestedFlow && flowReady : undefined,
-        amountCents: data.amount
-          ? Math.round(Number(data.amount.replace(",", ".")) * 100)
-          : undefined,
+        amountCents: currencyToCents(data.amount),
         dueAt: data.dueAt ? new Date(data.dueAt).toISOString() : undefined,
       }),
     onSuccess: (protocol) => {
@@ -879,11 +878,7 @@ export function NewProtocol() {
       });
       invalid = true;
     }
-    if (
-      data.amount &&
-      (!Number.isFinite(Number(data.amount.replace(",", "."))) ||
-        Number(data.amount.replace(",", ".")) < 0)
-    ) {
+    if (data.amount && currencyToCents(data.amount) === undefined) {
       form.setError("amount", {
         type: "validate",
         message: "Informe um valor válido.",
@@ -1116,9 +1111,8 @@ export function NewProtocol() {
                     label={"Valor (R$)" + (fields?.amount.required ? " *" : "")}
                     error={form.formState.errors.amount?.message}
                   >
-                    <Input
-                      className="field tabular-nums"
-                      inputMode="decimal"
+                    <CurrencyInput
+                      className="field"
                       placeholder="0,00"
                       {...form.register("amount")}
                     />

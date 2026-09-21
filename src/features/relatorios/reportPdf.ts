@@ -102,36 +102,97 @@ async function footer(doc: jsPDF, settings: InstitutionSettings, protocol?: Prot
 export async function createCoverPdf(db: Database, protocol: Protocol) {
   const settings = readInstitutionSettings();
   const doc = await newPdf();
+  const type = db.protocolTypes.find((item) => item.id === protocol.typeId)?.name ?? 'Não informado';
+  const interested = db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado';
+  const responsible = userName(db, protocol.currentAssigneeId);
+  const sector = unitName(db, protocol.currentUnitId);
+  const organization = settings.shortName || settings.organizationName || db.organization.name;
+  const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
+  const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
+  const barcodeCanvas = document.createElement('canvas');
+  JsBarcode(barcodeCanvas, protocol.number, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
+  const barcode = barcodeCanvas.toDataURL('image/png');
+  const coverValue = (value: string) => doc.splitTextToSize(value, 111)[0] ?? value;
+
   doc.setProperties({ title: `Capa do processo ${protocol.number}` });
   const startY = await timbre(doc, db, settings);
-  table(doc, ['DADOS DO PROCESSO'], [[`Número do Processo: ${protocol.number}`]], startY);
-  autoTable(doc, { startY: tableEnd(doc), theme: 'grid', styles: tableStyles,
+  autoTable(doc, {
+    startY,
+    theme: 'grid',
+    head: [['CAPA DO PROCESSO']],
+    body: [[`Número do protocolo: ${protocol.number}`]],
+    styles: { ...tableStyles, halign: 'center', cellPadding: 2.5 },
+    headStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold', fontSize: 10 },
+    margin: { left: 21, right: 21 },
+  });
+  autoTable(doc, {
+    startY: tableEnd(doc),
+    theme: 'grid',
+    styles: { ...tableStyles, cellPadding: 2.3 },
     body: [
       ['Data/Hora:', dateTime(protocol.createdAt)],
-      ['Tipo:', db.protocolTypes.find((t) => t.id === protocol.typeId)?.name ?? 'Não informado'],
-      ['Assunto:', protocol.subject],
-      ...(protocol.typeConfigSnapshot.interested.enabled ? [['Interessado:', db.people.find((p) => p.id === protocol.interestedPersonId)?.name ?? 'Não informado']] : []),
-      ['Responsável:', userName(db, protocol.currentAssigneeId)],
-      ['Setor:', unitName(db, protocol.currentUnitId)],
-      ...(protocol.typeConfigSnapshot.creditor.enabled ? [['Credor:', db.people.find((p) => p.id === protocol.creditorPersonId)?.name ?? 'Não informado']] : []),
-      ...(protocol.typeConfigSnapshot.amount.enabled ? [['Valor:', money(protocol.amountCents)]] : []),
-      ...(protocol.typeConfigSnapshot.contractNumber?.enabled ? [['Número de contrato:', protocol.contractNumber ?? 'Não informado']] : []),
-      ...(protocol.typeConfigSnapshot.biddingNumber?.enabled ? [['Número de licitação:', protocol.biddingNumber ?? 'Não informado']] : []),
-      ...(protocol.typeConfigSnapshot.legalProcessNumber?.enabled ? [['Número de processo jurídico:', protocol.legalProcessNumber ?? 'Não informado']] : []),
-      ...(protocol.typeConfigSnapshot.referenceNumber?.enabled ? [['Número:', protocol.referenceNumber ?? 'Não informado']] : []),
-    ], columnStyles: { 0: { cellWidth: 53, halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 21, right: 21, top: 20, bottom: 42 }, rowPageBreak: 'avoid' });
-  paragraph(doc, 'Informações Complementares', protocol.description, tableEnd(doc) + 6);
-  paragraph(doc, 'Movimentação do Processo', '', tableEnd(doc) + 2);
-  const events = db.events.filter((e) => e.protocolId === protocol.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  let movementStatus: keyof typeof statusLabel = 'CADASTRADO';
-  const movementRows = events.map((e) => {
-    movementStatus = e.nextStatus ?? e.previousStatus ?? (e.kind === 'ABERTURA' ? 'CADASTRADO' : ['TRAMITACAO', 'REABERTURA', 'FASE_AVANCADA', 'FASE_DEVOLVIDA'].includes(e.kind) ? 'EM_ANDAMENTO' : e.kind === 'CONCLUSAO' ? 'CONCLUIDO' : e.kind === 'ARQUIVAMENTO' ? 'ARQUIVADO' : movementStatus);
-    return [dateTime(e.createdAt), unitName(db, e.toUnitId || e.actorUnitId), eventLabel[e.kind], userName(db, e.toUserId || e.actorUserId),
-      [e.message || eventLabel[e.kind], e.relatedAttachmentId ? `Anexo: ${db.attachments.find((a) => a.id === e.relatedAttachmentId)?.filename ?? 'Arquivo vinculado'}` : '', e.relatedDocumentId ? `Documento: ${db.documents.find((d) => d.id === e.relatedDocumentId)?.number ?? 'Documento vinculado'}` : ''].filter(Boolean).join('\n'), statusLabel[movementStatus]];
+      ['Tipo:', coverValue(type)],
+      ['Assunto:', coverValue(protocol.subject)],
+      ...(protocol.typeConfigSnapshot.interested.enabled ? [['Interessado:', coverValue(interested)]] : []),
+      ['Responsável:', coverValue(responsible)],
+      ['Setor:', coverValue(sector)],
+      ...(protocol.typeConfigSnapshot.creditor.enabled ? [['Credor:', coverValue(db.people.find((p) => p.id === protocol.creditorPersonId)?.name ?? 'Não informado')]] : []),
+      ...(protocol.typeConfigSnapshot.amount.enabled ? [['Valor(R$):', coverValue(money(protocol.amountCents))]] : []),
+      ...(protocol.typeConfigSnapshot.contractNumber?.enabled ? [['Número de contrato:', coverValue(protocol.contractNumber ?? 'Não informado')]] : []),
+      ...(protocol.typeConfigSnapshot.biddingNumber?.enabled ? [['Número de licitação:', coverValue(protocol.biddingNumber ?? 'Não informado')]] : []),
+      ...(protocol.typeConfigSnapshot.legalProcessNumber?.enabled ? [['Número de processo jurídico:', coverValue(protocol.legalProcessNumber ?? 'Não informado')]] : []),
+      ...(protocol.typeConfigSnapshot.referenceNumber?.enabled ? [['Número:', coverValue(protocol.referenceNumber ?? 'Não informado')]] : []),
+    ],
+    columnStyles: { 0: { cellWidth: 53, halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 21, right: 21 },
+    rowPageBreak: 'avoid',
   });
-  table(doc, ['DATA/TEMPO', 'SETOR', 'ASSUNTO DO ANDAMENTO', 'RECEBIDO POR', 'DESCRIÇÃO DA TRAMITAÇÃO', 'SITUAÇÃO'], movementRows, tableEnd(doc) + 2);
-  await footer(doc, settings, protocol);
+
+  const dividerY = 247;
+  let y = tableEnd(doc) + 9;
+  doc.setFont('Roboto', 'bold').setFontSize(10).setTextColor(20);
+  doc.text('Descrição do protocolo', 105, y, { align: 'center' });
+  y += 7;
+  doc.setFont('Roboto', 'normal').setFontSize(8);
+  const availableDescriptionLines = Math.max(1, Math.min(6, Math.floor((dividerY - 69 - y) / 3.7)));
+  const description = doc.splitTextToSize(protocol.description || 'Não informado', 174).slice(0, availableDescriptionLines);
+  doc.text(description, 105, y, { align: 'center' });
+  y += Math.max(4, description.length * 3.7) + 8;
+
+  doc.setFont('Roboto', 'bold').setFontSize(10);
+  doc.text('Consulte o andamento do seu protocolo no nosso site', 105, y, { align: 'center' });
+  y += 6;
+  doc.setFont('Roboto', 'normal').setFontSize(7.2);
+  const accessInstructions = doc.splitTextToSize('1 - Para acessar a tramitação, informe o CPF/CNPJ do interessado e o número do protocolo acima na tela de consulta.', 184);
+  doc.text(accessInstructions, 13, y);
+  y += accessInstructions.length * 3.5 + 2;
+  const qrInstructions = doc.splitTextToSize('2 - O QR Code desta capa também pode ser usado para acompanhar o andamento do protocolo.', 184);
+  doc.text(qrInstructions, 13, y);
+  y += qrInstructions.length * 3.5 + 3;
+
+  const qrY = Math.min(y, dividerY - 39);
+  doc.addImage(qr, 'PNG', 93, qrY, 24, 24);
+  doc.addImage(barcode, 'PNG', 82, qrY + 25, 46, 8);
+  doc.setFontSize(6.5).text(protocol.number, 105, qrY + 36, { align: 'center' });
+
+  doc.setDrawColor(130).setLineWidth(0.2).setLineDashPattern([1.2, 1.2], 0).line(10, dividerY, 200, dividerY);
+  doc.setLineDashPattern([], 0);
+  doc.setFont('Roboto', 'bold').setFontSize(8);
+  doc.text(`PROTOCOLO: ${protocol.number} - ${organization}`, 105, dividerY + 6, { align: 'center' });
+  doc.addImage(qr, 'PNG', 11, dividerY + 10, 22, 22);
+  doc.setFont('Roboto', 'normal').setFontSize(6.7);
+  const stubDescription = doc.splitTextToSize(protocol.description || protocol.subject, 88)[0];
+  const stubRows = [
+    `Interessado: ${interested}`,
+    `Responsável: ${responsible}`,
+    ...(protocol.typeConfigSnapshot.amount.enabled ? [`Valor: ${money(protocol.amountCents)}`] : []),
+    `Setor: ${sector}`,
+    `Descrição: ${stubDescription}`,
+  ];
+  stubRows.forEach((row, index) => doc.text(row, 37, dividerY + 13 + index * 4));
+  doc.text(dateTime(protocol.createdAt), 198, dividerY + 13, { align: 'right' });
+  doc.addImage(barcode, 'PNG', 148, dividerY + 17, 50, 9);
+  doc.setFontSize(6).text(protocol.number, 173, dividerY + 31, { align: 'center' });
   return doc;
 }
 export async function downloadCover(db: Database, protocol: Protocol) {

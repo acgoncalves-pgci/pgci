@@ -355,6 +355,36 @@ test('abertura revela e valida os campos configurados pelo tipo de processo', as
   await expect(page.getByText('Observação preservada na abertura.')).toBeVisible()
 })
 
+test('formata e persiste valores monetários em reais na abertura', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+  })
+  await page.goto('/processos/novo')
+
+  await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
+  await page.getByRole('option', { name: 'Pagamento de fornecedor' }).click()
+  await page.getByRole('combobox', { name: 'Interessado *' }).click()
+  await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
+  await page.getByRole('combobox', { name: 'Credor *' }).click()
+  await page.getByRole('option', { name: 'Papelaria Horizonte Ltda.' }).click()
+
+  const amount = page.getByLabel('Valor (R$) *')
+  await amount.fill('1234,56')
+  await expect(amount).toHaveValue('1.234,56')
+
+  await page.getByLabel('Assunto *').fill('Pagamento monetário E2E')
+  await page.getByLabel('Descrição *').fill('Validação do valor monetário mascarado no navegador.')
+  await page.getByRole('button', { name: 'Abrir processo' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Pagamento monetário E2E' })).toBeVisible()
+  const amountCents = await page.evaluate(() => {
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    return database.protocols.find((item: { subject: string }) => item.subject === 'Pagamento monetário E2E').amountCents
+  })
+  expect(amountCents).toBe(123456)
+})
+
 test('permite dispensar o fluxo sugerido na abertura e registra essa escolha', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('fluxo-publico:user', 'usr-clara')
