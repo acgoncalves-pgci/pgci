@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Eye, Paperclip, Printer } from "lucide-react";
+import { ArrowRight, CheckCheck, Eye, Paperclip, Printer } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Database, Protocol, ProtocolStatus } from "../../domain/model";
 import { eventLabel, statusLabel } from "../../domain/model";
@@ -33,7 +33,17 @@ export function StatusBadge({ status, situation }: { status: ProtocolStatus; sit
     <OverflowMarquee text={label}/>
   </Tooltip>;
 }
-function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
+function ProcessCard({
+  db,
+  process,
+  acknowledgementState,
+  onAcknowledge,
+}: {
+  db: Database;
+  process: Protocol;
+  acknowledgementState?: "pending" | "acknowledged";
+  onAcknowledge?: (process: Protocol) => void;
+}) {
   const [printOpen, setPrintOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState("");
@@ -175,6 +185,26 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
         >
           <Eye size={16} />
         </Link>
+        {acknowledgementState && (
+          <button
+            type="button"
+            className={`process-card-action-button ${acknowledgementState === "acknowledged" ? "process-card-action-button--done" : "process-card-action-button--pulse"}`}
+            aria-label={
+              acknowledgementState === "acknowledged"
+                ? `Ciência registrada no processo ${process.number}`
+                : `Dar ciência do processo ${process.number}`
+            }
+            title={
+              acknowledgementState === "acknowledged"
+                ? "Ciência registrada"
+                : "Dar ciência sem abrir o processo"
+            }
+            disabled={acknowledgementState === "acknowledged"}
+            onClick={() => onAcknowledge?.(process)}
+          >
+            <CheckCheck size={16} />
+          </button>
+        )}
         {printError && (
           <span role="alert" className="process-print-error">
             {printError}
@@ -189,14 +219,26 @@ function ProcessCard({ db, process }: { db: Database; process: Protocol }) {
 export function ProtocolTable({
   db,
   protocols,
+  acknowledgementState,
+  onAcknowledge,
 }: {
   db: Database;
   protocols: Protocol[];
+  acknowledgementState?: (
+    process: Protocol,
+  ) => "pending" | "acknowledged" | undefined;
+  onAcknowledge?: (process: Protocol) => void;
 }) {
   return (
     <div className="process-card-list">
       {protocols.map((process) => (
-        <ProcessCard key={process.id} db={db} process={process} />
+        <ProcessCard
+          key={process.id}
+          db={db}
+          process={process}
+          acknowledgementState={acknowledgementState?.(process)}
+          onAcknowledge={onAcknowledge}
+        />
       ))}
     </div>
   );

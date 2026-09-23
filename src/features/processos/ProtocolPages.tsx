@@ -14,6 +14,7 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
+  CircleDot,
   CalendarDays,
   ChevronDown,
   ChevronRight,
@@ -72,6 +73,11 @@ import {
   roleForContext,
 } from "../../domain/rules";
 import { sortUnitsByPath, unitPath } from "../../domain/units";
+import {
+  participantName,
+  participantOptions,
+  type ParticipantOption,
+} from "../../domain/participants";
 import { currencyToCents, dateOnly, dateTime, money } from "../../lib/format";
 import {
   api,
@@ -97,6 +103,7 @@ import {
 import { Name, ProtocolTable, UnitName } from "./ProtocolTable";
 export function Protocols() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const ctx = useSession();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
@@ -140,6 +147,7 @@ export function Protocols() {
   });
   const { data: db } = useDb();
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [acknowledging, setAcknowledging] = useState<Protocol | null>(null);
   const set = (patch: Record<string, string>, replace = false) => {
     const q = new URLSearchParams(location.search);
     Object.entries(patch).forEach(([key, value]) =>
@@ -275,7 +283,24 @@ export function Protocols() {
       </section>
       {data!.items.length ? (
         <div className="process-list">
-          <ProtocolTable db={db} protocols={data!.items} />
+          <ProtocolTable
+            db={db}
+            protocols={data!.items}
+            acknowledgementState={(protocol) => {
+              const assignment = db.assignments.find(
+                (item) => item.id === protocol.currentAssignmentId,
+              );
+              if (
+                !isActive(protocol) ||
+                protocol.currentAssigneeId !== ctx.userId ||
+                !canActProtocol(db, protocol, ctx) ||
+                !assignment
+              )
+                return undefined;
+              return assignment.receivedAt ? "acknowledged" : "pending";
+            }}
+            onAcknowledge={setAcknowledging}
+          />
           <Pagination
             page={data!.page}
             total={data!.total}
@@ -302,6 +327,23 @@ export function Protocols() {
           onApply={(values) => {
             set(values);
             setAdvancedOpen(false);
+          }}
+        />
+      )}
+      {acknowledging && (
+        <ConfirmDialog
+          title="Confirmar visualização da tramitação?"
+          body={`Ao confirmar, a ciência do processo ${acknowledging.number} será registrada em seu nome sem abrir o processo.`}
+          confirm="Confirmar ciência"
+          onClose={() => setAcknowledging(null)}
+          onConfirm={async () => {
+            await api.acknowledge(
+              ctx,
+              acknowledging.id,
+              acknowledging.version,
+            );
+            setAcknowledging(null);
+            await invalidateAll(queryClient);
           }}
         />
       )}
@@ -421,11 +463,9 @@ function AdvancedProcessFilterDialog({
               onChange={(e) => update("interestedId", e.target.value)}
             >
               <option value="">Todos</option>
-              {db.people
-                .filter((person) => person.roles.includes("INTERESSADO"))
-                .map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
+              {participantOptions(db, "INTERESSADO").map((participant) => (
+                  <option key={`${participant.source}-${participant.id}`} value={participant.id}>
+                    {participant.name}
                   </option>
                 ))}
             </Select>
@@ -436,11 +476,9 @@ function AdvancedProcessFilterDialog({
               onChange={(e) => update("creditorId", e.target.value)}
             >
               <option value="">Todos</option>
-              {db.people
-                .filter((person) => person.roles.includes("CREDOR"))
-                .map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
+              {participantOptions(db, "CREDOR").map((participant) => (
+                  <option key={`${participant.source}-${participant.id}`} value={participant.id}>
+                    {participant.name}
                   </option>
                 ))}
             </Select>
@@ -770,7 +808,8 @@ export function NewProtocol() {
       </>
     );
 
-  const people = db.people.filter((person) => person.active);
+  const interestedOptions = participantOptions(db, "INTERESSADO");
+  const creditorOptions = participantOptions(db, "CREDOR");
   const availableTypes = db.protocolTypes.filter(
     (item) => item.active && canOpenProtocolType(db, item, ctx),
   );
@@ -1030,7 +1069,7 @@ export function NewProtocol() {
                   >
                     {flowMode === "REQUIRED"
                       ? "Configure ao menos uma fase ativa neste tipo antes de abrir processos."
-                      : "Nenhuma fase sugerida está disponível. O processo será aberto sem fluxo."}
+                      : "Nenhuma fase sugerida está disponível. O processo será aberto em fluxo livre."}
                   </p>
                 )}
               </section>
@@ -1046,7 +1085,7 @@ export function NewProtocol() {
                         (fields?.interested.required ? " *" : "")
                       }
                       field="interestedPersonId"
-                      people={people}
+                      participants={interestedOptions}
                       form={form}
                       error={form.formState.errors.interestedPersonId?.message}
                       onNew={() => setPersonDialog("interestedPersonId")}
@@ -1056,7 +1095,7 @@ export function NewProtocol() {
                     <PersonSelect
                       label={"Credor" + (fields?.creditor.required ? " *" : "")}
                       field="creditorPersonId"
-                      people={people}
+                      participants={creditorOptions}
                       form={form}
                       error={form.formState.errors.creditorPersonId?.message}
                       onNew={() => setPersonDialog("creditorPersonId")}
@@ -1292,19 +1331,18 @@ export function NewProtocol() {
 function PersonSelect({
   label,
   field,
-  people,
+  participants,
   form,
   error,
   onNew,
 }: {
   label: string;
   field: "interestedPersonId" | "creditorPersonId";
-  people: Database["people"];
+  participants: ParticipantOption[];
   form: ReturnType<typeof useForm<ProtocolFormData>>;
   error?: string;
   onNew: () => void;
 }) {
-  const role = field === "interestedPersonId" ? "INTERESSADO" : "CREDOR";
   return (
     <Field label={label} error={error}>
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -1318,11 +1356,9 @@ function PersonSelect({
           }
         >
           <option value="">Selecione</option>
-          {people
-            .filter((person) => person.roles.includes(role))
-            .map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.name}
+          {participants.map((participant) => (
+              <option key={`${participant.source}-${participant.id}`} value={participant.id}>
+                {participant.name}
               </option>
             ))}
         </Select>
@@ -1921,7 +1957,6 @@ export function ProtocolDetail() {
           <ProcessSummary
             protocol={p}
             db={db}
-            phaseName={currentPhaseName}
             latestMovement={latestMovement}
           />
         )}
@@ -2126,6 +2161,7 @@ function ProcessDetailOverview({
   const responsible = protocol.currentAssigneeId
     ? db.users.find((item) => item.id === protocol.currentAssigneeId)?.name
     : db.units.find((item) => item.id === protocol.currentUnitId)?.name;
+  const situation = currentProtocolSituation(db, protocol)?.name ?? statusLabel[protocol.status];
   const visiblePhases = phases.length
     ? phases
     : currentPhaseName
@@ -2157,9 +2193,9 @@ function ProcessDetailOverview({
           value={processType}
         />
         <ProcessMetaItem
-          icon={<GitBranch size={15} />}
-          label="Fase"
-          value={currentPhaseName ?? "Sem fase definida"}
+          icon={<CircleDot size={15} />}
+          label="Situação"
+          value={situation}
         />
         <ProcessMetaItem
           icon={<UsersRound size={15} />}
@@ -2218,7 +2254,7 @@ function ProcessMetaItem({
         {icon}
       </span>
       <span className="text-muted-foreground">{label}:</span>
-      <strong>{value}</strong>
+      <span className="process-detail-meta-value">{value}</span>
     </div>
   );
 }
@@ -2232,8 +2268,24 @@ function AuditTimeline({
   db: Database;
 }) {
   const labels: Record<string, string> = {
+    PROTOCOL_CREATED: "Processo criado",
+    PROTOCOL_UPDATED: "Dados do processo atualizados",
+    PROTOCOL_DELETED: "Processo excluído",
+    PROTOCOL_ASSUMED: "Responsabilidade assumida",
+    PROTOCOL_ACKNOWLEDGED: "Ciência registrada",
+    PROTOCOL_CHECKLIST_UPDATED: "Checklist atualizado",
+    PROTOCOL_ASSIGNEE_CHANGED: "Responsável alterado",
+    PROTOCOL_FORWARDED: "Processo tramitado",
+    PROTOCOL_COMPLETED: "Processo concluído",
+    PROTOCOL_PHASE_ADVANCED: "Fase avançada",
+    PROTOCOL_PHASE_RETURNED: "Fase devolvida",
+    PROTOCOL_ARCHIVED: "Processo arquivado",
+    PROTOCOL_REOPENED: "Processo reaberto",
     ATTACHMENT_ADDED: "Arquivo anexado",
     DOCUMENT_CREATED: "Documento anexado",
+    DOCUMENT_TEMPLATE_CREATED: "Modelo de documento criado",
+    DOCUMENT_TEMPLATE_UPDATED: "Modelo de documento atualizado",
+    DOCUMENT_TEMPLATE_DELETED: "Modelo de documento excluído",
   };
   const entries = [
     ...events.map((event) => ({
@@ -2262,7 +2314,7 @@ function AuditTimeline({
           className="flex items-start justify-between gap-4 px-4 py-3 text-sm"
         >
           <div>
-            <strong>{entry.label}</strong>
+            <span className="font-medium">{entry.label}</span>
             {entry.details && (
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {entry.details}
@@ -2283,12 +2335,10 @@ function AuditTimeline({
 function ProcessSummary({
   protocol,
   db,
-  phaseName,
   latestMovement,
 }: {
   protocol: Protocol;
   db: Database;
-  phaseName?: string;
   latestMovement?: ProtocolEvent;
 }) {
   const elapsedDays = latestMovement
@@ -2300,15 +2350,8 @@ function ProcessSummary({
         ),
       )
     : undefined;
-  const interested = db.people.find(
-    (item) => item.id === protocol.interestedPersonId,
-  )?.name;
-  const creditor = db.people.find(
-    (item) => item.id === protocol.creditorPersonId,
-  )?.name;
-  const type = db.protocolTypes.find(
-    (item) => item.id === protocol.typeId,
-  )?.name;
+  const interested = participantName(db, protocol.interestedPersonId);
+  const creditor = participantName(db, protocol.creditorPersonId);
   const originUnit = db.units.find(
     (item) => item.id === protocol.originUnitId,
   )?.name;
@@ -2319,18 +2362,7 @@ function ProcessSummary({
   return (
     <section className="panel mt-3 overflow-hidden">
       <SummarySection title="Informações do processo">
-        <SummaryField label="Tipo de processo" value={type} />
         <SummaryField label="Assunto" value={protocol.subject} />
-        <SummaryField
-          label="Responsável"
-          value={
-            protocol.currentAssigneeId ? (
-              <Name db={db} userId={protocol.currentAssigneeId} />
-            ) : (
-              "Sem responsável"
-            )
-          }
-        />
         <SummaryField label="Credor" value={creditor} />
         <SummaryField label="Interessado" value={interested} />
         <SummaryField label="Origem" value={originUnit} />
@@ -2379,28 +2411,10 @@ function ProcessSummary({
           />
         )}
       </SummarySection>
-      <SummarySection title="Situação atual" divided>
-        <SummaryField
-          label="Situação"
-          value={
-            currentProtocolSituation(db, protocol)?.name ??
-            statusLabel[protocol.status]
-          }
-        />
-        <SummaryField label="Fase" value={phaseName} />
+      <SummarySection title="Tramitação atual" divided>
         <SummaryField
           label="Unidade organizacional"
           value={<UnitName db={db} unitId={protocol.currentUnitId} />}
-        />
-        <SummaryField
-          label="Responsável atual"
-          value={
-            protocol.currentAssigneeId ? (
-              <Name db={db} userId={protocol.currentAssigneeId} />
-            ) : (
-              "Sem responsável"
-            )
-          }
         />
         <SummaryField
           label="Última movimentação"
@@ -2438,7 +2452,7 @@ function SummarySection({
 }) {
   return (
     <section className={divided ? "border-t border-border" : ""}>
-      <h2 className="border-b border-border px-4 py-3 text-sm font-bold sm:px-5">
+      <h2 className="border-b border-border px-4 py-3 text-sm font-semibold sm:px-5">
         {title}
       </h2>
       <dl className="grid gap-x-8 px-4 py-1 sm:grid-cols-3 sm:px-5">
@@ -2459,7 +2473,7 @@ function SummaryField({
   return (
     <div className={`min-w-0 border-b border-border/70 py-3 ${className}`}>
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="mt-1 whitespace-pre-wrap text-sm font-medium">
+      <dd className="mt-1 whitespace-pre-wrap text-sm font-normal">
         {value ?? "—"}
       </dd>
     </div>

@@ -12,7 +12,7 @@ export interface ProtocolTypeAiCatalog {
 export interface ProtocolTypeAiProposal {
   name: string
   description: string
-  categoryId?: string
+  categoryId: string
   color: string
   icon: string
   defaultDeadlineDays?: number
@@ -89,7 +89,7 @@ const objectSchema = (catalog: ProtocolTypeAiCatalog) => ({
   properties: {
     name: { type: 'string', description: 'Nome objetivo do tipo de processo.' },
     description: { type: 'string', description: 'Descrição administrativa clara do objetivo e funcionamento.' },
-    categoryId: { type: 'string', enum: ['', ...catalog.categories.map((item) => item.id)], description: 'ID de uma categoria existente; vazio apenas quando nenhuma for adequada.' },
+    categoryId: { type: 'string', enum: catalog.categories.map((item) => item.id), description: 'ID obrigatório de uma categoria existente.' },
     color: { type: 'string', description: 'Cor hexadecimal no formato #RRGGBB, escolhida semanticamente.' },
     icon: { type: 'string', enum: catalog.icons.map((item) => item.value), description: 'Ícone existente mais adequado.' },
     defaultDeadlineDays: { type: ['integer', 'null'], minimum: 1, maximum: 365, description: 'Prazo padrão em dias ou null.' },
@@ -158,11 +158,11 @@ function validateReferences(proposal: z.infer<typeof proposalSchema>, catalog: P
   const situationIds = new Set(catalog.situations.map((item) => item.id))
   const unitIds = new Set(catalog.units.map((item) => item.id))
   const icons = new Set(catalog.icons.map((item) => item.value))
-  if (proposal.categoryId && !categoryIds.has(proposal.categoryId)) throw new Error('A IA retornou uma categoria que não existe mais. Gere a proposta novamente.')
+  if (!proposal.categoryId || !categoryIds.has(proposal.categoryId)) throw new Error('A IA precisa retornar uma categoria ativa existente. Gere a proposta novamente.')
   if (!icons.has(proposal.icon) || proposal.stages.some((stage) => !icons.has(stage.icon))) throw new Error('A IA retornou um ícone não disponível. Gere a proposta novamente.')
   if (proposal.stages.some((stage) => !phaseIds.has(stage.phaseId) || !situationIds.has(stage.situationTypeId) || (stage.destinationUnitId && !unitIds.has(stage.destinationUnitId)))) throw new Error('A IA retornou uma fase, situação ou unidade inválida. Gere a proposta novamente.')
   if (new Set(proposal.stages.map((stage) => stage.phaseId)).size !== proposal.stages.length) throw new Error('A IA repetiu uma fase no fluxo. Gere a proposta novamente.')
-  if (proposal.flowMode === 'NONE' && proposal.stages.length) throw new Error('A proposta sem fluxo retornou etapas. Gere a proposta novamente.')
+  if (proposal.flowMode === 'NONE' && proposal.stages.length) throw new Error('A proposta de fluxo livre retornou etapas. Gere a proposta novamente.')
   if (proposal.flowMode !== 'NONE' && !proposal.stages.length) throw new Error('A proposta de fluxo não retornou etapas. Gere a proposta novamente.')
   if (proposal.flowMode !== 'NONE' && !proposal.fields.assunto) throw new Error('A proposta de fluxo precisa manter o campo assunto habilitado.')
   if (proposal.stages.some((stage) => stage.requiresChecklist && !stage.checklistQuestions.length)) throw new Error('Uma etapa exige checklist, mas não possui perguntas.')
@@ -170,7 +170,7 @@ function validateReferences(proposal: z.infer<typeof proposalSchema>, catalog: P
 
   return {
     ...proposal,
-    categoryId: proposal.categoryId || undefined,
+    categoryId: proposal.categoryId,
     defaultDeadlineDays: proposal.defaultDeadlineDays ?? undefined,
     stages: proposal.stages.map((stage) => ({ ...stage, destinationUnitId: stage.destinationUnitId || undefined, observation: stage.observation.trim() || undefined })),
   }

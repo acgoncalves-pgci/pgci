@@ -245,12 +245,24 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(
     const updateContentPosition = useCallback(() => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const computedZoom = Number.parseFloat(
+        window.getComputedStyle(document.body).zoom,
+      );
+      const portalZoom =
+        Number.isFinite(computedZoom) && computedZoom > 0 ? computedZoom : 1;
+      const anchorTop = rect.top / portalZoom;
+      const anchorBottom = rect.bottom / portalZoom;
+      const anchorLeft = rect.left / portalZoom;
+      const anchorWidth = rect.width / portalZoom;
       const padding = 8;
       const gap = 4;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const spaceAbove = Math.max(0, rect.top - padding);
-      const spaceBelow = Math.max(0, viewportHeight - rect.bottom - padding);
+      const viewportWidth = window.innerWidth / portalZoom;
+      const viewportHeight = window.innerHeight / portalZoom;
+      const spaceAbove = Math.max(0, anchorTop - padding);
+      const spaceBelow = Math.max(
+        0,
+        viewportHeight - anchorBottom - padding,
+      );
       const searchHeight = searchable ? 52 : 0;
       const estimatedHeight = Math.min(
         320,
@@ -265,11 +277,11 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(
       const height = Math.min(estimatedHeight, maxHeight);
       const maxWidth = Math.max(1, viewportWidth - padding * 2);
       const width = Math.min(
-        Math.max(rect.width, Math.min(240, maxWidth)),
+        Math.max(anchorWidth, Math.min(240, maxWidth)),
         maxWidth,
       );
       const left = Math.min(
-        Math.max(padding, rect.left),
+        Math.max(padding, anchorLeft),
         Math.max(padding, viewportWidth - width - padding),
       );
       setContentStyle(
@@ -277,7 +289,7 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(
           ? {
               position: "fixed",
               zIndex: selectLayer,
-              bottom: viewportHeight - rect.top + gap,
+              bottom: viewportHeight - anchorTop + gap,
               left,
               width,
               height,
@@ -286,7 +298,7 @@ export const Select = forwardRef<HTMLInputElement, SelectProps>(
           : {
               position: "fixed",
               zIndex: selectLayer,
-              top: rect.bottom + gap,
+              top: anchorBottom + gap,
               left,
               width,
               height,

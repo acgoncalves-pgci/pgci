@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { statusLabel } from '../../domain/model';
 import { sortUnitsByPath, unitPath } from '../../domain/units';
+import { participantOptions } from '../../domain/participants';
 import { emptyFilters, filterProtocols, visibleProtocols } from './reportData';
 import type { ReportFilters } from './reportData';
 
@@ -79,7 +80,7 @@ export function ReportsPage() {
           <ReportField label="Tipo"><Select value={filters.typeId} onChange={(e) => update('typeId', e.target.value)}><option value="">Todos</option>{db.protocolTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></ReportField>
           <ReportField label="Situação"><Select value={filters.status} onChange={(e) => update('status', e.target.value)}><option value="">Todas</option>{Object.entries(statusLabel).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</Select></ReportField>
           <ReportField label="Unidade organizacional"><Select value={filters.unitId} onChange={(e) => update('unitId', e.target.value)}><option value="">Todas</option>{sortUnitsByPath(db.units).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}</Select></ReportField>
-          <ReportField label="Interessado"><Select value={filters.interestedId} onChange={(e) => update('interestedId', e.target.value)}><option value="">Todos</option>{db.people.filter((p) => p.roles.includes('INTERESSADO')).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></ReportField>
+          <ReportField label="Interessado"><Select value={filters.interestedId} onChange={(e) => update('interestedId', e.target.value)}><option value="">Todos</option>{participantOptions(db, 'INTERESSADO').map((participant) => <option key={`${participant.source}-${participant.id}`} value={participant.id}>{participant.name}</option>)}</Select></ReportField>
           <ReportField label="Data inicial"><Input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => update('from', e.target.value)} /></ReportField>
           <ReportField label="Data final"><Input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => update('to', e.target.value)} /></ReportField>
           <ReportField label="Número contém"><Input placeholder="ex.: 2025" value={filters.number} onChange={(e) => update('number', e.target.value)} /></ReportField>

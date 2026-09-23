@@ -336,8 +336,14 @@ function UserEditor({ user, db, onClose, onSaved }: {
   return (
     <Dialog title={user ? 'Editar usuário' : 'Novo usuário'} onClose={onClose}>
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
-        <Field label="Nome *"><Input aria-label="Nome do usuário" value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="E-mail *"><Input aria-label="E-mail do usuário" type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Nome *">
+            <Input aria-label="Nome do usuário" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
+          </Field>
+          <Field label="E-mail *">
+            <Input aria-label="E-mail do usuário" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+          </Field>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Perfil principal">
             <Select aria-label="Perfil principal" value={role} onChange={(event) => setRole(event.target.value as Role)}>
@@ -357,7 +363,7 @@ function UserEditor({ user, db, onClose, onSaved }: {
         {mutation.error && <ErrorBox error={mutation.error} />}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-          <button className="btn-primary" disabled={mutation.isPending}>Salvar</button>
+          <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim() || !unitId}>Salvar</button>
         </div>
       </form>
     </Dialog>

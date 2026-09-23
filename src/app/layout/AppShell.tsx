@@ -325,6 +325,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Bell size={18} />
               </span>
               <span
+                className="hidden h-6 w-px bg-slate-300 sm:block dark:bg-slate-700"
+                aria-hidden="true"
+              />
+              <span
                 className="header-icon-button hidden sm:!grid"
                 aria-hidden="true"
               >
@@ -370,4 +374,3 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
-

@@ -21,6 +21,7 @@ import { Loading, PageTitle } from "../../components/ui/Feedback";
 import { defaultAppearance, useSession } from "../../app/session";
 import type { AppearancePalette } from "../../app/session";
 import { useDb } from "../../app/queries";
+import { formatConfiguredNumber, GENERAL_SETTINGS_KEY } from "../../lib/numbering";
 type Tab = "general" | "portal" | "appearance";
 type GeneralSettings = {
   organizationName: string;
@@ -76,7 +77,6 @@ const appearancePresets: AppearancePreset[] = [
     darkColors: { sidebarColor: "#0b1220", headerColor: "#111827", accent: "#38bdf8", backgroundColor: "#020617" },
   },
 ];
-const GENERAL_KEY = "fluxo-publico:settings-general";
 const defaultGeneral: GeneralSettings = {
   organizationName: "",
   shortName: "",
@@ -102,7 +102,7 @@ const readGeneral = () => {
     return {
       ...defaultGeneral,
       ...(JSON.parse(
-        localStorage.getItem(GENERAL_KEY) ?? "{}",
+        localStorage.getItem(GENERAL_SETTINGS_KEY) ?? "{}",
       ) as Partial<GeneralSettings>),
     };
   } catch {
@@ -140,7 +140,7 @@ export function SettingsPage() {
         const address = new URL(/^https?:\/\//i.test(general.publicUrl.trim()) ? general.publicUrl.trim() : `https://${general.publicUrl.trim()}`);
         if (!['http:', 'https:'].includes(address.protocol) || address.username || address.password) throw new Error('Informe um endereço público HTTP ou HTTPS válido.');
       }
-      localStorage.setItem(GENERAL_KEY, JSON.stringify(general));
+      localStorage.setItem(GENERAL_SETTINGS_KEY, JSON.stringify(general));
     } catch (error) {
       window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'error', message: error instanceof Error ? error.message : 'Não foi possível salvar as configurações.' } }));
       return;
@@ -166,7 +166,8 @@ export function SettingsPage() {
     } catch (error) { window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'error', message: error instanceof Error ? error.message : 'Falha ao enviar a logo.' } })); }
     finally { setUploadingLogo(false); if (logoInput.current) logoInput.current.value = ''; }
   };
-  const previewNumber = `2026.09.16.${String(42).padStart(Number(general.sequencePadding) || 4, "0")}`;
+  const previewProcessNumber = formatConfiguredNumber('protocol', 42, general);
+  const previewDocumentNumber = formatConfiguredNumber('document', 42, general);
   const applyAppearancePreset = (preset: AppearancePreset) => {
     setAppearance({
       ...appearance,
@@ -291,8 +292,8 @@ export function SettingsPage() {
             </div>
             <SettingsSection
               icon={FileText}
-              title="Numeração de processos"
-              detail="Formato do número gerado automaticamente ao abrir um novo processo."
+              title="Numeração de processos e documentos"
+              detail="Formato aplicado automaticamente na abertura de processos e na criação de documentos."
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <SettingField label="Formato">
@@ -322,12 +323,15 @@ export function SettingsPage() {
                     Quantidade de dígitos: 4 → 0042.
                   </small>
                 </SettingField>
-                <SettingField label="Prévia">
+                <SettingField label="Prévia do processo">
                   <Input
                     readOnly
                     className="bg-slate-50 dark:bg-slate-800"
-                    value={previewNumber}
+                    value={previewProcessNumber}
                   />
+                </SettingField>
+                <SettingField label="Prévia do documento">
+                  <Input readOnly className="bg-slate-50 dark:bg-slate-800" value={previewDocumentNumber}/>
                 </SettingField>
               </div>
             </SettingsSection>

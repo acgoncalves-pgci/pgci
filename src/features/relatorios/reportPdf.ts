@@ -9,6 +9,7 @@ import { readInstitutionSettings } from '../../lib/institution';
 import type { InstitutionSettings } from '../../lib/institution';
 import { consultationUrl } from './reportData';
 import { api } from '../../services/api';
+import { participantName } from '../../domain/participants';
 
 const unitName = (db: Database, id?: string) => db.units.find((u) => u.id === id)?.name ?? 'Não informado';
 const userName = (db: Database, id?: string) => db.users.find((u) => u.id === id)?.name ?? 'Não designado';
@@ -103,7 +104,7 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
   const settings = readInstitutionSettings();
   const doc = await newPdf();
   const type = db.protocolTypes.find((item) => item.id === protocol.typeId)?.name ?? 'Não informado';
-  const interested = db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado';
+  const interested = participantName(db, protocol.interestedPersonId) ?? 'Não informado';
   const responsible = userName(db, protocol.currentAssigneeId);
   const sector = unitName(db, protocol.currentUnitId);
   const organization = settings.shortName || settings.organizationName || db.organization.name;
@@ -136,7 +137,7 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
       ...(protocol.typeConfigSnapshot.interested.enabled ? [['Interessado:', coverValue(interested)]] : []),
       ['Responsável:', coverValue(responsible)],
       ['Setor:', coverValue(sector)],
-      ...(protocol.typeConfigSnapshot.creditor.enabled ? [['Credor:', coverValue(db.people.find((p) => p.id === protocol.creditorPersonId)?.name ?? 'Não informado')]] : []),
+      ...(protocol.typeConfigSnapshot.creditor.enabled ? [['Credor:', coverValue(participantName(db, protocol.creditorPersonId) ?? 'Não informado')]] : []),
       ...(protocol.typeConfigSnapshot.amount.enabled ? [['Valor(R$):', coverValue(money(protocol.amountCents))]] : []),
       ...(protocol.typeConfigSnapshot.contractNumber?.enabled ? [['Número de contrato:', coverValue(protocol.contractNumber ?? 'Não informado')]] : []),
       ...(protocol.typeConfigSnapshot.biddingNumber?.enabled ? [['Número de licitação:', coverValue(protocol.biddingNumber ?? 'Não informado')]] : []),
@@ -212,7 +213,7 @@ export async function downloadList(db: Database, protocols: Protocol[], grouping
     if (summary) {
       table(doc, ['Situação', 'Quantidade'], Object.entries(statusLabel).map(([key, value]) => [value, String(items.filter((p) => p.status === key).length)]), tableEnd(doc) + 3);
     } else {
-      table(doc, ['Número', 'Tipo / Assunto', 'Interessado', 'Unidade', 'Situação', 'Abertura'], items.map((p) => [p.number, `${db.protocolTypes.find((t) => t.id === p.typeId)?.name ?? ''}\n${p.subject}`, db.people.find((person) => person.id === p.interestedPersonId)?.name ?? 'Não informado', unitName(db, p.currentUnitId), statusLabel[p.status], dateTime(p.createdAt)]), tableEnd(doc) + 3);
+      table(doc, ['Número', 'Tipo / Assunto', 'Interessado', 'Unidade', 'Situação', 'Abertura'], items.map((p) => [p.number, `${db.protocolTypes.find((t) => t.id === p.typeId)?.name ?? ''}\n${p.subject}`, participantName(db, p.interestedPersonId) ?? 'Não informado', unitName(db, p.currentUnitId), statusLabel[p.status], dateTime(p.createdAt)]), tableEnd(doc) + 3);
     }
   }
   await footer(doc, settings);
@@ -281,7 +282,7 @@ export async function createMovementReceiptPdf(db: Database, protocol: Protocol,
     margin: { left: 12, right: 12, top: 18, bottom: 26 },
   });
   const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
-  const interested = db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado';
+  const interested = participantName(db, protocol.interestedPersonId) ?? 'Não informado';
   autoTable(doc, {
     startY: tableEnd(doc),
     theme: 'grid',
@@ -320,7 +321,7 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
   const settings = readInstitutionSettings();
   const doc = await newPdf();
   const type = db.protocolTypes.find((item) => item.id === protocol.typeId)?.name ?? 'Não informado';
-  const interested = db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado';
+  const interested = participantName(db, protocol.interestedPersonId) ?? 'Não informado';
   const organization = settings.shortName || settings.organizationName || db.organization.name;
   const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
   const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
@@ -344,7 +345,8 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
     theme: 'grid',
     body: [
       ['Data/Hora:', dateTime(protocol.createdAt)],
-      ['Assunto/Tipo:', `${protocol.subject} — ${type}`],
+      ['Assunto:', protocol.subject],
+      ['Tipo:', type],
       ['Interessado:', interested],
     ],
     styles: { ...tableStyles, cellPadding: 2.6 },
@@ -509,7 +511,7 @@ export async function createProcessDetailsPdf(db: Database, protocol: Protocol) 
     startY: tableEnd(doc), theme: 'grid',
     body: [
       ['Data/Hora:', dateTime(protocol.createdAt), 'Assunto/Tipo:', db.protocolTypes.find((type) => type.id === protocol.typeId)?.name ?? 'Não informado'],
-      ['Interessado:', db.people.find((person) => person.id === protocol.interestedPersonId)?.name ?? 'Não informado', '', ''],
+      ['Interessado:', participantName(db, protocol.interestedPersonId) ?? 'Não informado', '', ''],
       ['Descrição:', protocol.description, '', ''],
     ],
     styles: { ...tableStyles, valign: 'top' },

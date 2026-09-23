@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, CircleDot, ClipboardList, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Sparkles, Tags, Trash2 } from 'lucide-react'
+import { ChevronRight, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Sparkles, Trash2 } from 'lucide-react'
 import type { AppUser, Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
 import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
@@ -14,21 +13,11 @@ import { Switch } from '../../components/ui/Switch'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
-import { CategoryEditor, ProcessCategoriesPage } from '../categorias/ProcessCategoriesPage'
-import { SituationEditor, SituationsPage } from '../situacoes/SituationsPage'
 import { AiProtocolTypeDialog } from './AiProtocolTypeDialog'
-
-type Tab = 'types' | 'phases' | 'categories' | 'situations'
-
-function QuickCreateField({ label, actionLabel, onCreate, children }: { label: string; actionLabel: string; onCreate: () => void; children: ReactNode }) {
-  return <div className="relative min-w-0"><span className="label">{label}</span><button type="button" aria-label={actionLabel} className="absolute right-0 top-0 inline-flex items-center gap-1 text-xs font-semibold text-public-700 transition-colors hover:text-public-800 hover:underline" onClick={onCreate}><Plus size={13}/>Nova</button>{children}</div>
-}
 export function ProtocolTypesPage() {
   const ctx = useSession()
   const { data: db, isLoading } = useDb()
-  const [tab, setTab] = useState<Tab>('types')
   const [typeEditing, setTypeEditing] = useState<ProtocolType | 'new' | null>(null)
-  const [phaseEditing, setPhaseEditing] = useState<ProtocolPhase | 'new' | null>(null)
   const [typeFilesEditing, setTypeFilesEditing] = useState<ProtocolType | null>(null)
   const [flowManaging, setFlowManaging] = useState<ProtocolType | null>(null)
   const [aiCreating, setAiCreating] = useState(false)
@@ -40,22 +29,10 @@ export function ProtocolTypesPage() {
 
   return <>
     <PageTitle title="Tipos de processo" />
-    <p className="-mt-3 mb-5 text-sm text-slate-600 dark:text-slate-300">Configure os tipos, suas etapas de fluxo e as fases reutilizáveis.</p>
-    <div className="mb-5 flex gap-1 overflow-x-auto border-b" role="tablist" aria-label="Configuração de processos">
-      {([
-        ['types', ClipboardList, 'Tipos'],
-        ['phases', ListChecks, 'Fases'],
-        ['categories', Tags, 'Categorias'],
-        ['situations', CircleDot, 'Situações'],
-      ] as const).map(([key, Icon, label]) => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${tab === key ? 'border-public-700 text-public-700' : 'border-transparent text-slate-500 dark:text-slate-400'}`}><Icon size={16} />{label}</button>)}
-    </div>
-    {tab === 'types' && <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />}
-    {tab === 'phases' && <PhasesList phases={db.phases} editable={admin} onEdit={setPhaseEditing} onNew={() => setPhaseEditing('new')} />}
-    {tab === 'categories' && <ProcessCategoriesPage embedded />}
-    {tab === 'situations' && <SituationsPage embedded />}
+    <p className="-mt-3 mb-5 text-sm text-slate-600 dark:text-slate-300">Configure os tipos e suas etapas de fluxo. Fases, categorias e situações são administradas pelos itens próprios da barra lateral.</p>
+    <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />
     {aiCreating && <AiProtocolTypeDialog categories={db.processCategories} phases={db.phases} situations={db.situations} units={db.units} onClose={() => setAiCreating(false)} onCreated={() => setAiCreating(false)} />}
     {typeEditing && <ProtocolTypeEditor categories={db.processCategories} users={db.users} units={db.units} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
-    {phaseEditing && <PhaseEditor phase={phaseEditing === 'new' ? undefined : phaseEditing} onClose={() => setPhaseEditing(null)} onSaved={() => setPhaseEditing(null)} />}
     {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={admin} onClose={() => setTypeFilesEditing(null)} />}
   </>
 }
@@ -136,7 +113,7 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
       {shown.map((type) => {
         const category = categories.find((item) => item.id === type.categoryId)
         const flowMode = type.flowMode ?? (type.flowId ? 'REQUIRED' : 'NONE')
-        const flowLabel = flowMode === 'REQUIRED' ? 'FLUXO OBRIGATÓRIO' : flowMode === 'SUGGESTED' ? 'FLUXO SUGERIDO' : 'SEM FLUXO'
+        const flowLabel = flowMode === 'REQUIRED' ? 'FLUXO OBRIGATÓRIO' : flowMode === 'SUGGESTED' ? 'FLUXO SUGERIDO' : 'FLUXO LIVRE'
         const stageCount = type.flowId ? flowPhases.filter((stage) => stage.flowId === type.flowId).length : 0
         const fileCount = attachments.filter((attachment) => attachment.typeId === type.id).length
         return <article key={type.id} className="flex items-center gap-3 rounded-xl border px-3 py-2.5 shadow-sm" style={{ backgroundColor: `${type.color}0d`, borderColor: `${type.color}42` }}>
@@ -167,7 +144,7 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
 
     {filtersOpen && <Dialog title="Filtros" onClose={() => setFiltersOpen(false)}>
       <div className="space-y-4">
-        <Field label="Fluxo"><Select value={flowFilter} onChange={(event) => setFlowFilter(event.target.value as 'ALL' | FlowMode)}><option value="ALL">Todos os fluxos</option><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
+        <Field label="Fluxo"><Select value={flowFilter} onChange={(event) => setFlowFilter(event.target.value as 'ALL' | FlowMode)}><option value="ALL">Todos os fluxos</option><option value="NONE">Fluxo livre</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
         <Field label="Requisitos"><Select value={requirementFilter} onChange={(event) => setRequirementFilter(event.target.value)}><option value="">Selecionar...</option><option value="tramitacao">Tem tramitação</option><option value="credor">Tem credor</option><option value="interessado">Tem interessado</option><option value="responsavel">Tem responsável</option><option value="assunto">Tem assunto</option><option value="arquivos">Tem arquivos</option><option value="amount">Tem valor</option><option value="portal">Tem portal do cidadão</option></Select></Field>
         <Field label="Situação"><Select value={situationFilter} onChange={(event) => setSituationFilter(event.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}><option value="ALL">Todas as situações</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></Select></Field>
         <div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setFiltersOpen(false)}>Cancelar</button><button className="button-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
@@ -332,15 +309,6 @@ function TypeAttachmentsDialog({ type, attachments, editable, onClose }: { type:
     </div>
   </Dialog>
 }
-function PhasesList({ phases, editable, onEdit, onNew }: { phases: ProtocolPhase[]; editable: boolean; onEdit: (phase: ProtocolPhase) => void; onNew: () => void }) {
-  const [search, setSearch] = useState('')
-  const visible = phases.filter((phase) => `${phase.code} ${phase.name}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-
-  return <div className="space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar fase" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-60 pl-9" /></div><button className="button-secondary"><SlidersHorizontal size={16} />Mais filtros</button></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button" aria-label="Ações em massa"><MoreHorizontal size={18} /></button><button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button></div>}</div>
-    <div className="space-y-1.5">{visible.map((phase) => { const color = phase.color ?? '#3498db'; return <article key={phase.id} className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm"><span className="grid size-9 place-items-center rounded-lg" style={{ backgroundColor: `${color}20`, color }}><IconGlyph name={phase.icon} size={18}/></span><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{phase.name}</h2><p className="text-xs text-muted-foreground">{phase.description || phase.code}</p></div>{editable && <div className="flex items-center gap-2"><button className="button-secondary icon-button size-8" aria-label={`Editar ${phase.name}`} onClick={() => onEdit(phase)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${phase.name}`} disabled><Trash2 size={15} /></button></div>}</article> })}{visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma fase encontrada.</p>}</div>
-  </div>
-}
 function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; users: AppUser[]; units: Unit[]; onClose: () => void; onSaved: () => void }) {
   const ctx = useSession()
   const client = useQueryClient()
@@ -352,7 +320,6 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
   const [deadline, setDeadline] = useState(type?.defaultDeadlineDays?.toString() ?? '')
   const [active, setActive] = useState(type?.active ?? true)
   const [categoryId, setCategoryId] = useState(type?.categoryId ?? categories.find((category) => category.active)?.id ?? '')
-  const [creatingCategory, setCreatingCategory] = useState(false)
   const [interested, setInterested] = useState(type?.fieldsConfig.interested ?? { enabled: false, required: false })
   const [creditor, setCreditor] = useState(type?.fieldsConfig.creditor ?? { enabled: false, required: false })
   const [amount, setAmount] = useState(type?.fieldsConfig.amount ?? { enabled: false, required: false })
@@ -374,7 +341,7 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
   const mutation = useMutation({
     mutationFn: () => {
       const fieldsConfig = { interested, creditor, amount, tramitacao: { enabled: flowMode !== 'NONE' }, responsavel: { enabled: responsavel }, assunto: { enabled: assunto }, arquivos: { enabled: arquivos }, contractNumber: { enabled: contractNumber }, biddingNumber: { enabled: biddingNumber }, legalProcessNumber: { enabled: legalProcessNumber }, referenceNumber: { enabled: referenceNumber }, portal: { enabled: portal } }
-      const input = { name, categoryId: categoryId || undefined, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, authorizedUserIds, authorizedUnitIds, active, fieldsConfig }
+      const input = { name, categoryId, description: observation, color, icon, flowId: flowMode === 'NONE' ? undefined : type?.flowId, flowMode, defaultDeadlineDays: deadline ? Number(deadline) : undefined, authorizedUserIds, authorizedUnitIds, active, fieldsConfig }
       return type ? api.updateProtocolType(ctx, type.id, input) : api.createProtocolType(ctx, input)
     },
     onSuccess: () => { invalidateAll(client); onSaved() },
@@ -389,17 +356,17 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
             <h3 className="label mb-3">Identidade</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Descrição *"><Input className="field" placeholder="Ex.: Tipos de serviço público" value={name} onChange={(event) => setName(event.target.value)}/></Field>
-              <QuickCreateField label="Categoria" actionLabel="Nova categoria" onCreate={() => setCreatingCategory(true)}>
+              <Field label="Categoria *">
                 <Select aria-label="Categoria" className="field" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                  <option value="">Sem categoria</option>
+                  <option value="">Selecione uma categoria</option>
                   {categories.filter((category) => category.active || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.code} — {category.name}</option>)}
                 </Select>
-              </QuickCreateField>
+              </Field>
             </div>
           </section>
           <section className="rounded-lg border p-4 lg:col-span-5">
             <h3 className="label mb-3">Fluxo</h3>
-            <Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Sem fluxo</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
+            <Field label="Tipo"><Select className="field" value={flowMode} onChange={(event) => setFlowMode(event.target.value as FlowMode)}><option value="NONE">Fluxo livre</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Depois de salvar, use o botão <strong>Fluxo</strong> na lista para criar e ordenar as etapas deste tipo.</p>
           </section>
           <section className="rounded-lg border p-4 lg:col-span-7 lg:row-span-2">
@@ -439,28 +406,10 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
         </div>
         {type && <label className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}
         {mutation.error && <ErrorBox error={mutation.error}/>}
-        <div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending}>Salvar</button></div>
+        <div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !categoryId}>Salvar</button></div>
       </form>
     </Dialog>
-    {creatingCategory && <CategoryEditor stacked onClose={() => setCreatingCategory(false)} onSaved={(category) => { setCategoryId(category.id); setCreatingCategory(false) }}/>}
   </>
-}
-
-function PhaseEditor({ phase, onClose, onSaved, stacked = false }: { phase?: ProtocolPhase; onClose: () => void; onSaved: (phase: ProtocolPhase) => void; stacked?: boolean }) {
-  const ctx = useSession()
-  const client = useQueryClient()
-  const [name, setName] = useState(phase?.name ?? '')
-  const [color, setColor] = useState(phase?.color ?? '#3498db')
-  const [icon, setIcon] = useState(phase?.icon ?? 'FileText')
-  const [observation, setObservation] = useState(phase?.description ?? '')
-  const mutation = useMutation({
-    mutationFn: () => {
-      const input = { name, code: phase?.code ?? ('FASE-' + crypto.randomUUID().slice(0, 8).toUpperCase()), description: observation || undefined, color, icon, defaultDeadlineDays: undefined, eligibleUnitIds: [], checklistItems: [], checklistQuestions: [], requiredAttachmentTypes: [], active: phase?.active ?? true }
-      return phase ? api.updatePhase(ctx, phase.id, input) : api.createPhase(ctx, input)
-    },
-    onSuccess: async (savedPhase) => { await invalidateAll(client); onSaved(savedPhase) },
-  })
-  return <Dialog title={phase ? 'Editar tipo de fase' : 'Novo tipo de fase'} onClose={onClose} stacked={stacked}><form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} /></Field><div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></Field><Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field></div><Field label="Observação"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} /></Field>{mutation.error && <ErrorBox error={mutation.error} />}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar</button></div></form></Dialog>
 }
 function ChecklistEditor({ title, questions, onChange, onClose }: { title: string; questions: ChecklistQuestion[]; onChange: (questions: ChecklistQuestion[]) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<ChecklistQuestion | 'new' | null>(null); const ordered = questions.slice().sort((a, b) => a.order - b.order)
@@ -504,8 +453,6 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
   }) => void
 }) {
   const [stage, setStage] = useState(draft)
-  const [creatingPhase, setCreatingPhase] = useState(false)
-  const [creatingSituation, setCreatingSituation] = useState(false)
   const [editingQuestion, setEditingQuestion] = useState<ChecklistQuestion | 'new' | null>(null)
   const selectedSituation = situations.find((situation) => situation.id === stage.situationTypeId)
   const questions = (stage.checklistQuestions ?? []).slice().sort((left, right) => left.order - right.order)
@@ -522,12 +469,12 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
         <section className="rounded border p-4">
           <h3 className="label mb-3">Fase e situação</h3>
           <div className="grid gap-3 sm:grid-cols-2">
-            <QuickCreateField label="Fase *" actionLabel="Nova fase" onCreate={() => setCreatingPhase(true)}>
+            <Field label="Fase *">
               <Select aria-label="Fase *" className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active || phase.id === stage.phaseId).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select>
-            </QuickCreateField>
-            <QuickCreateField label="Situação" actionLabel="Nova situação" onCreate={() => setCreatingSituation(true)}>
+            </Field>
+            <Field label="Situação">
               <Select aria-label="Situação" className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select>
-            </QuickCreateField>
+            </Field>
           </div>
           {selectedSituation && <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" style={{ backgroundColor: selectedSituation.color + '18', borderColor: selectedSituation.color + '55', color: selectedSituation.color }}><IconGlyph name={selectedSituation.icon} size={14}/>{selectedSituation.name}</div>}
         </section>
@@ -545,8 +492,6 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
       </form>
     </Dialog>
-    {creatingPhase && <PhaseEditor stacked onClose={() => setCreatingPhase(false)} onSaved={(phase) => { setStage((current) => ({ ...current, phaseId: phase.id })); setCreatingPhase(false) }}/>}
-    {creatingSituation && <SituationEditor stacked onClose={() => setCreatingSituation(false)} onSaved={(situation) => { setStage((current) => ({ ...current, situationTypeId: situation.id })); setCreatingSituation(false) }}/>}
     {editingQuestion && <QuestionEditor stacked question={editingQuestion === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editingQuestion} onClose={() => setEditingQuestion(null)} onSave={saveQuestion}/>}
   </>
 }

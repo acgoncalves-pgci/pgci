@@ -1,19 +1,30 @@
 import { isMovementEvent } from '../domain/model'
-import type { Database, FlowPhase, ProtocolEvent, ProtocolFlow, ProtocolFlowSnapshot, ProtocolPhase, ProtocolStatus, Unit } from '../domain/model'
+import type { AppUser, Database, DocumentTemplate, FlowPhase, ProtocolEvent, ProtocolFlow, ProtocolFlowSnapshot, ProtocolPhase, ProtocolStatus, ProtocolType, Unit } from '../domain/model'
 import { legacySituationTypeId, systemSituationTypes } from '../domain/situations'
 import { defaultProcessCategories } from '../domain/processCategories'
 
-type LegacyDatabaseV1 = Omit<Database, 'schemaVersion' | 'units' | 'memberships' | 'auditEvents' | 'phases' | 'flows' | 'flowPhases' | 'situations' | 'processCategories'> & {
+type LegacyUser = AppUser & { personId?: string }
+type LegacyDatabaseV6 = Omit<Database, 'schemaVersion' | 'users'> & {
+  schemaVersion: 6
+  users: LegacyUser[]
+}
+type LegacyProtocolType = Omit<ProtocolType, 'categoryId'> & { categoryId?: string }
+type LegacyDatabaseV5 = Omit<Database, 'schemaVersion' | 'documentTemplates' | 'users' | 'protocolTypes'> & {
+  schemaVersion: 5
+  users: LegacyUser[]
+  protocolTypes: LegacyProtocolType[]
+}
+type LegacyDatabaseV1 = Omit<LegacyDatabaseV5, 'schemaVersion' | 'units' | 'memberships' | 'auditEvents' | 'phases' | 'flows' | 'flowPhases' | 'situations' | 'processCategories'> & {
   schemaVersion: 1
   units: Array<Omit<Unit, 'position'>>
 }
-type LegacyDatabaseV2 = Omit<Database, 'schemaVersion' | 'phases' | 'flows' | 'flowPhases' | 'situations' | 'processCategories'> & {
+type LegacyDatabaseV2 = Omit<LegacyDatabaseV5, 'schemaVersion' | 'phases' | 'flows' | 'flowPhases' | 'situations' | 'processCategories'> & {
   schemaVersion: 2
 }
-type LegacyDatabaseV3 = Omit<Database, 'schemaVersion' | 'situations' | 'processCategories'> & {
+type LegacyDatabaseV3 = Omit<LegacyDatabaseV5, 'schemaVersion' | 'situations' | 'processCategories'> & {
   schemaVersion: 3
 }
-type LegacyDatabaseV4 = Omit<Database, 'schemaVersion' | 'processCategories'> & {
+type LegacyDatabaseV4 = Omit<LegacyDatabaseV5, 'schemaVersion' | 'processCategories'> & {
   schemaVersion: 4
 }
 
@@ -116,7 +127,7 @@ const migrateV3 = (legacy: LegacyDatabaseV3): LegacyDatabaseV4 => {
   }
 }
 
-const migrateV4 = (legacy: LegacyDatabaseV4): Database => {
+const migrateV4 = (legacy: LegacyDatabaseV4): LegacyDatabaseV5 => {
   const processCategories = defaultProcessCategories()
   return {
     ...legacy,
@@ -128,6 +139,41 @@ const migrateV4 = (legacy: LegacyDatabaseV4): Database => {
     })),
   }
 }
+const defaultDocumentTemplates = (legacy: LegacyDatabaseV5): DocumentTemplate[] => {
+  const createdAt = legacy.initializedAt
+  return legacy.documentTypes.map((type) => ({
+    id: `template-${type.id}-default`,
+    typeId: type.id,
+    name: `Modelo padrão de ${type.name}`,
+    subject: type.name,
+    body: `<p>À(ao) {{destinatario}},</p><p>Em referência ao processo <strong>{{numero_processo}}</strong>, apresentamos o documento sobre <strong>{{assunto_processo}}</strong>.</p><p><br></p><p>Atenciosamente,</p><p>{{usuario}}</p>`,
+    active: true,
+    createdAt,
+    updatedAt: createdAt,
+  }))
+}
+
+const migrateV5 = (legacy: LegacyDatabaseV5): LegacyDatabaseV6 => {
+  return {
+    ...legacy,
+    schemaVersion: 6,
+    users: legacy.users,
+    protocolTypes: legacy.protocolTypes.map((type) => ({
+      ...type,
+      categoryId: type.categoryId ?? 'category-administrative',
+    })),
+    documentTemplates: defaultDocumentTemplates(legacy),
+  }
+}
+const migrateV6 = (legacy: LegacyDatabaseV6): Database => ({
+  ...legacy,
+  schemaVersion: 7,
+  users: legacy.users.map((user) => {
+    const migrated = { ...user }
+    delete migrated.personId
+    return migrated
+  }),
+})
 const relatedMovement = (database: Database, protocolId: string | undefined, createdAt: string, legacyEvent?: ProtocolEvent) => {
   if (!protocolId) return undefined
   const candidates = database.events
@@ -163,10 +209,12 @@ export const migrateDatabase = (value: unknown): Database => {
   ) {
     throw new Error('Dados locais incompatíveis.')
   }
-  if (value.schemaVersion === 5) return normalizeProcessTerminology(value as Database)
-  if (value.schemaVersion === 4) return normalizeProcessTerminology(migrateV4(value as LegacyDatabaseV4))
-  if (value.schemaVersion === 3) return normalizeProcessTerminology(migrateV4(migrateV3(value as LegacyDatabaseV3)))
-  if (value.schemaVersion === 2) return normalizeProcessTerminology(migrateV4(migrateV3(migrateV2(value as LegacyDatabaseV2))))
-  if (value.schemaVersion === 1) return normalizeProcessTerminology(migrateV4(migrateV3(migrateV2(migrateV1(value as LegacyDatabaseV1)))))
+  if (value.schemaVersion === 7) return normalizeProcessTerminology(value as Database)
+  if (value.schemaVersion === 6) return normalizeProcessTerminology(migrateV6(value as LegacyDatabaseV6))
+  if (value.schemaVersion === 5) return normalizeProcessTerminology(migrateV6(migrateV5(value as LegacyDatabaseV5)))
+  if (value.schemaVersion === 4) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(value as LegacyDatabaseV4))))
+  if (value.schemaVersion === 3) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(value as LegacyDatabaseV3)))))
+  if (value.schemaVersion === 2) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(value as LegacyDatabaseV2))))))
+  if (value.schemaVersion === 1) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(migrateV1(value as LegacyDatabaseV1)))))))
   throw new Error('Versão de dados não suportada.')
 }

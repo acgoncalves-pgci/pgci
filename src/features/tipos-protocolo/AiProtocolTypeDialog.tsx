@@ -12,7 +12,7 @@ import { Dialog } from '../../components/ui/Dialog'
 import { ErrorBox, Field } from '../../components/ui/Feedback'
 import { IconGlyph, iconOptions } from '../../components/ui/IconSelect'
 
-const flowLabels = { NONE: 'Sem fluxo', SUGGESTED: 'Fluxo sugerido', REQUIRED: 'Fluxo obrigatório' } as const
+const flowLabels = { NONE: 'Fluxo livre', SUGGESTED: 'Fluxo sugerido', REQUIRED: 'Fluxo obrigatório' } as const
 const requirementLabels: Array<[keyof ProtocolTypeAiProposal['fields'], string]> = [
   ['interested', 'Interessado'], ['creditor', 'Credor'], ['responsavel', 'Responsável'], ['assunto', 'Assunto'], ['arquivos', 'Arquivos'],
   ['amount', 'Valor'], ['contractNumber', 'Nº de contrato'], ['biddingNumber', 'Nº de licitação'], ['legalProcessNumber', 'Processo jurídico'],

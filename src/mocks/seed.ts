@@ -52,7 +52,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         active: true,
     });
     const auditEvents: Database['auditEvents'] = [];
-    const people = [
+    const people: Database['people'] = [
         ['p-1', 'PF', 'Ana Beatriz Costa', ['INTERESSADO', 'RESPONSAVEL']], ['p-2', 'PF', 'Caio Mendes', ['INTERESSADO']], ['p-3', 'PF', 'Fernanda Alves', ['INTERESSADO']], ['p-4', 'PF', 'Igor Rocha', ['INTERESSADO', 'RESPONSAVEL']], ['p-5', 'PF', 'Sofia Martins', ['INTERESSADO']], ['p-6', 'PF', 'Vitor Ramos', ['INTERESSADO']],
         ['p-7', 'PJ', 'Papelaria Horizonte Ltda.', ['CREDOR']], ['p-8', 'PJ', 'Construtora Boa Obra S.A.', ['CREDOR']], ['p-9', 'PJ', 'Água Clara Serviços Ltda.', ['CREDOR']], ['p-10', 'PJ', 'Editora Escola Viva Ltda.', ['CREDOR']], ['p-11', 'PJ', 'Tecnologia Cívica Ltda.', ['CREDOR']], ['p-12', 'PF', 'Helena Duarte', ['INTERESSADO', 'CREDOR']]
     ].map(([id, kind, name, roles]) => ({ id: id as string, kind: kind as 'PF' | 'PJ', name: name as string, roles: roles as ('INTERESSADO' | 'CREDOR' | 'RESPONSAVEL')[], responsibilityPeriods: (roles as string[]).includes('RESPONSAVEL') ? [{ id: 'responsibility-' + id, description: 'Administração municipal', startsAt: '2026-01-01' }] : [], active: true, email: `${String(name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]+/g, '.')}@example.com` }));
@@ -177,6 +177,16 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         { id: 'dt-legal-opinion', name: 'Parecer jurídico', description: 'Manifestação jurídica fundamentada.', color: '#9B3E48', active: true },
         { id: 'dt-official-letter', name: 'Resposta oficial', description: 'Resposta formal encaminhada ao interessado.', color: '#0284C7', active: true },
     ];
+    const documentTemplates: Database['documentTemplates'] = documentTypes.map((type) => ({
+        id: `template-${type.id}-default`,
+        typeId: type.id,
+        name: `Modelo padrão de ${type.name}`,
+        subject: type.name,
+        body: `<p>À(ao) {{destinatario}},</p><p>Em referência ao processo <strong>{{numero_processo}}</strong>, apresentamos o documento sobre <strong>{{assunto_processo}}</strong>.</p><p><br></p><p>Atenciosamente,</p><p>{{usuario}}</p>`,
+        active: true,
+        createdAt: catalogStartedAt,
+        updatedAt: catalogStartedAt,
+    }));
     const flowSnapshotFor = (type: Database['protocolTypes'][number]) => {
         if (!type.flowId || type.flowMode === 'NONE') return undefined;
         const flow = flows.find((item) => item.id === type.flowId)!;
@@ -545,5 +555,5 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         const protocol = spec.protocolId ? protocols.find((item) => item.id === spec.protocolId) : undefined;
         return { id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: spec.typeId, protocolId: spec.protocolId, movementEventId: spec.movementEventId, subject: spec.subject, body: spec.body, unitId: protocol?.currentUnitId ?? 'u-prot', authorUserId: protocol?.currentAssigneeId ?? protocol?.createdById ?? 'usr-clara', createdAt: isoDaysFromNow(-index - 1) };
     });    documents.filter((d) => d.protocolId).forEach((d) => events.push({ id: `ev-doc-${d.id}`, protocolId: d.protocolId!, kind: 'DOCUMENTO_CRIADO', actorUserId: d.authorUserId, actorUnitId: d.unitId, relatedDocumentId: d.id, createdAt: d.createdAt }));
-    return { schemaVersion: 5, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 8 }, units, users, memberships, auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };
+    return { schemaVersion: 7, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 8 }, units, users, memberships, auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };
 }

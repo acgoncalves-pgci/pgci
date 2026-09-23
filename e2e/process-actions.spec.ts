@@ -2,6 +2,45 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
 
+test('responsável atual dá ciência pela lista sem abrir o processo', async ({ page, isMobile }) => {
+  await page.goto('/processos?tab=all&search=2026.000019')
+  await expect(page.getByRole('button', { name: 'Dar ciência do processo 2026.000019' })).toHaveCount(0)
+
+  await page.evaluate(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+  })
+  await page.reload()
+
+  const card = page.locator('.process-card').filter({ hasText: '2026.000019' })
+  const view = card.getByRole('link', { name: 'Visualizar processo 2026.000019' })
+  const acknowledge = card.getByRole('button', { name: 'Dar ciência do processo 2026.000019' })
+  await expect(view).toBeVisible()
+  await expect(acknowledge).toBeVisible()
+  await expect(acknowledge).toHaveClass(/process-card-action-button--pulse/)
+  if (!isMobile) {
+    const [viewBox, acknowledgeBox] = await Promise.all([view.boundingBox(), acknowledge.boundingBox()])
+    expect(viewBox).not.toBeNull()
+    expect(acknowledgeBox).not.toBeNull()
+    expect(acknowledgeBox!.x).toBeGreaterThan(viewBox!.x)
+  }
+
+  await acknowledge.click()
+  await expect(page).toHaveURL(/\/processos\?/)
+  const confirmation = page.getByRole('dialog', { name: 'Confirmar visualização da tramitação?' })
+  await expect(confirmation).toContainText('sem abrir o processo')
+  await confirmation.getByRole('button', { name: 'Confirmar ciência' }).click()
+
+  await expect(confirmation).toBeHidden()
+  const registered = card.getByRole('button', { name: 'Ciência registrada no processo 2026.000019' })
+  await expect(registered).toBeVisible()
+  await expect(registered).toBeDisabled()
+  await expect(registered).toHaveClass(/process-card-action-button--done/)
+  await expect(registered).not.toHaveClass(/process-card-action-button--pulse/)
+  await expect(page).toHaveURL(/\/processos\?/)
+})
+
 test('lista compacta mostra anexos e menu de impressão completo', async ({ page }) => {
   await page.goto('/processos?tab=all')
 
@@ -375,15 +414,16 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await expect(page.getByText(download.suggestedFilename(), { exact: true }).last()).toBeVisible()
 })
 
-test('resumo separa informações do processo e situação atual', async ({ page }) => {
+test('resumo separa informações do processo e tramitação atual', async ({ page }) => {
   await page.goto('/processos/pr-1')
   await page.getByRole('button', { name: 'Resumo' }).click()
 
   const processInformation = page.getByRole('heading', { name: 'Informações do processo' })
-  const currentSituation = page.getByRole('heading', { name: 'Situação atual' })
+  const currentSituation = page.getByRole('heading', { name: 'Tramitação atual' })
   await expect(processInformation).toBeVisible()
   await expect(currentSituation).toBeVisible()
-  await expect(page.getByText('Tipo de processo', { exact: true })).toBeVisible()
+  await expect(page.getByText('Tipo:', { exact: true })).toBeVisible()
+  await expect(page.getByText('Tipo de processo', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Descrição da movimentação', { exact: true })).toBeVisible()
 })
 

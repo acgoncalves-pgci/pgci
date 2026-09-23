@@ -4,6 +4,8 @@ import { seedDatabase } from '../mocks/seed'
 import { isMovementEvent } from './model'
 import { api } from '../services/api'
 import { DATABASE_KEY, loadDb, saveDb, StorageError, storageErrorMessage } from '../storage/database'
+import { GENERAL_SETTINGS_KEY } from '../lib/numbering'
+import { participantOptions } from './participants'
 
 describe('regras do MVP', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
@@ -103,7 +105,7 @@ describe('regras do MVP', () => {
     const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
     const common = { typeId: 'pt-admin', subject: 'Teste sequencial', description: 'Descrição de teste.', interestedPersonId: 'p-1' }
     const first = await api.createProtocol(ctx, common); const second = await api.createProtocol(ctx, common)
-    expect(first.number).toMatch(/^2026\./); expect(Number(second.number.split('.')[1])).toBe(Number(first.number.split('.')[1]) + 1)
+    expect(first.number).toMatch(/^2026\./); expect(Number(second.number.split('.').at(-1))).toBe(Number(first.number.split('.').at(-1)) + 1)
   })
 })
 
@@ -154,9 +156,18 @@ describe('validação de hierarquia', () => {
 
 describe('tipos de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+  it('recusa criar tipo de processo sem uma categoria ativa', async () => {
+    const existing = loadDb().protocolTypes[0]
+    await expect(api.createProtocolType({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
+      ...existing,
+      name: 'Tipo sem categoria',
+      categoryId: '',
+    })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
   it('permite que admin crie tipo com configuração de campos válida', async () => {
     const type = await api.createProtocolType({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
-      name: 'Novo tipo', description: 'Descrição do novo tipo', color: '#17628b', flowId: 'flow-standard-v1', defaultDeadlineDays: 5, active: true,
+      name: 'Novo tipo', categoryId: 'category-administrative', description: 'Descrição do novo tipo', color: '#17628b', flowId: 'flow-standard-v1', defaultDeadlineDays: 5, active: true,
       fieldsConfig: { interested: { enabled: true, required: true }, creditor: { enabled: false, required: false }, amount: { enabled: false, required: false } }
     })
     expect(type.name).toBe('Novo tipo')
@@ -165,7 +176,7 @@ describe('tipos de processo', () => {
 
   it('persiste os campos complementares e as autorizações do tipo', async () => {
     const type = await api.createProtocolType({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
-      name: 'Contrato administrativo restrito', description: 'Contratos disponíveis para usuários e unidades autorizados.', color: '#17628b', flowMode: 'NONE', active: true,
+      name: 'Contrato administrativo restrito', categoryId: 'category-administrative', description: 'Contratos disponíveis para usuários e unidades autorizados.', color: '#17628b', flowMode: 'NONE', active: true,
       authorizedUserIds: ['usr-clara', 'usr-clara'], authorizedUnitIds: ['u-jur'],
       fieldsConfig: {
         interested: { enabled: false }, creditor: { enabled: false }, amount: { enabled: true }, arquivos: { enabled: true },
@@ -200,7 +211,7 @@ describe('tipos de processo', () => {
   it('salva os novos campos no processo e bloqueia arquivos e documentos quando desabilitados', async () => {
     const context = { userId: 'usr-admin', activeUnitId: 'u-prot' }
     const type = await api.createProtocolType(context, {
-      name: 'Registro sem arquivos', description: 'Tipo que recebe referências, mas não aceita arquivos.', color: '#17628b', flowMode: 'NONE', active: true,
+      name: 'Registro sem arquivos', categoryId: 'category-administrative', description: 'Tipo que recebe referências, mas não aceita arquivos.', color: '#17628b', flowMode: 'NONE', active: true,
       fieldsConfig: {
         interested: { enabled: false }, creditor: { enabled: false }, amount: { enabled: false }, arquivos: { enabled: false },
         contractNumber: { enabled: true }, biddingNumber: { enabled: true }, legalProcessNumber: { enabled: true }, referenceNumber: { enabled: true },
@@ -260,14 +271,62 @@ describe('tipos de documento', () => {
     const type = await api.createDocumentType({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Circular', description: 'Comunicação circular', color: '#17628b', active: true })
     expect(type.name).toBe('Circular')
   })
+
+  it('cria, sanitiza, atualiza e exclui modelos de documento', async () => {
+    const context = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const created = await api.createDocumentTemplate(context, {
+      typeId: 'dt-oficio',
+      name: 'Resposta padrão',
+      subject: 'Resposta ao processo {{numero_processo}}',
+      body: '<p>Olá, {{destinatario}}</p><script>alert(1)</script>',
+      active: true,
+    })
+    expect(created.body).toBe('<p>Olá, {{destinatario}}</p>')
+
+    const updated = await api.updateDocumentTemplate(context, created.id, {
+      typeId: created.typeId,
+      name: created.name,
+      subject: created.subject,
+      body: '<p>Conteúdo atualizado.</p>',
+      active: true,
+    })
+    expect(updated.body).toBe('<p>Conteúdo atualizado.</p>')
+    await expect(api.deleteDocumentTemplate(context, created.id)).resolves.toBe(true)
+    expect(loadDb().documentTemplates.some((item) => item.id === created.id)).toBe(false)
+  })
 })
 
 describe('usuários de demonstração', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
-  it('permite que admin crie operador vinculado a uma unidade ativa', async () => {
-    const user = await api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Paula Nery', email: 'paula.nery@example.com', role: 'OPERADOR', unitId: 'u-edu', active: true })
+  it('permite que admin crie operador sem vínculo com pessoa', async () => {
+    const peopleBefore = loadDb().people.length
+    const user = await api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Servidor Independente', email: 'servidor.independente@example.com', role: 'OPERADOR', unitId: 'u-edu', active: true })
     expect(user.unitId).toBe('u-edu')
     expect(user.role).toBe('OPERADOR')
+    expect(user).toMatchObject({ name: 'Servidor Independente', email: 'servidor.independente@example.com' })
+    expect(user).not.toHaveProperty('personId')
+    expect(loadDb().people).toHaveLength(peopleBefore)
+    await expect(api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Outro servidor', email: 'servidor.independente@example.com', role: 'LEITOR', unitId: 'u-prot', active: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('oferece e aceita usuários ativos como interessado e credor sem criar pessoas artificiais', async () => {
+    const db = loadDb()
+    expect(participantOptions(db, 'INTERESSADO')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'usr-admin', name: 'Marina Duarte', source: 'user' }),
+    ]))
+    expect(participantOptions(db, 'CREDOR')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'usr-clara', name: 'Clara Nunes', source: 'user' }),
+    ]))
+    expect(db.people.some((person) => person.id === 'person-usr-admin')).toBe(false)
+    const protocol = await api.createProtocol({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
+      typeId: 'pt-pay',
+      subject: 'Pagamento entre usuários cadastrados',
+      description: 'Valida usuário como participante sem cadastro de pessoa.',
+      interestedPersonId: 'usr-admin',
+      creditorPersonId: 'usr-clara',
+      amountCents: 100,
+    })
+    expect(protocol).toMatchObject({ interestedPersonId: 'usr-admin', creditorPersonId: 'usr-clara' })
   })
 
   it('permite administrar acessos por unidade e preserva ao menos um vínculo ativo', async () => {
@@ -374,6 +433,16 @@ describe('destinatário de documento', () => {
     await expect(api.createDocument({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
       typeId: 'dt-oficio', subject: 'Comunicado', body: 'Texto do comunicado.', recipientPersonId: 'p-inexistente'
     })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('aplica a configuração de numeração também aos documentos', async () => {
+    localStorage.setItem(GENERAL_SETTINGS_KEY, JSON.stringify({ numberFormat: 'Anual — YYYY.NNNN', sequencePadding: '3' }))
+    const context = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+    const first = await api.createDocument(context, { typeId: 'dt-oficio', subject: 'Primeiro ofício', body: '<p>Conteúdo.</p>' })
+    const second = await api.createDocument(context, { typeId: 'dt-oficio', subject: 'Segundo ofício', body: '<p>Conteúdo.</p>' })
+    const prefix = `DOC-${new Date().getFullYear()}.`
+    expect(first.number).toMatch(new RegExp(`^${prefix}\\d{3}$`))
+    expect(Number(second.number.slice(prefix.length))).toBe(Number(first.number.slice(prefix.length)) + 1)
   })
 })
 
@@ -490,6 +559,19 @@ describe('contexto de unidade em processos', () => {
     })).rejects.toMatchObject({ code: 'INVALID_STATE' })
 
     expect(loadDb().protocols.find((item) => item.id === protocol.id)).toMatchObject(original)
+  })
+  it('registra na auditoria a alteração dos dados gerais do processo', async () => {
+    const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
+    await api.updateProtocol({ userId: 'usr-admin', activeUnitId: protocol.currentUnitId }, protocol.id, protocol.version, {
+      subject: 'Assunto atualizado e auditado',
+      description: 'Descrição atualizada com registro obrigatório de auditoria.',
+      dueAt: protocol.dueAt,
+    })
+    expect(loadDb().auditEvents).toContainEqual(expect.objectContaining({
+      action: 'PROTOCOL_UPDATED',
+      targetType: 'PROTOCOL',
+      targetId: protocol.id,
+    }))
   })
   it('recusa tramitação por operador com contexto diferente de seu vínculo', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
@@ -737,6 +819,7 @@ describe('fluxos e fases de processo', () => {
     })
     const type = await api.createProtocolType(ctx, {
       name: 'Demanda técnica',
+      categoryId: 'category-administrative',
       description: 'Tipo configurado para validação.',
       color: '#17628b',
       flowId: flow.id,
@@ -755,6 +838,7 @@ describe('fluxos e fases de processo', () => {
     const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
     const type = await api.createProtocolType(ctx, {
       name: 'Demanda sem etapas',
+      categoryId: 'category-administrative',
       description: 'Tipo criado para validar a recuperação de fluxo.',
       color: '#17628b',
       flowMode: 'SUGGESTED',

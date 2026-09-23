@@ -102,7 +102,7 @@ describe('migração do banco local', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(5)
+    expect(migrated.schemaVersion).toBe(7)
     expect(migrated.units.map((unit) => unit.position)).toEqual([0, 1, 0, 2, 3])
     expect(migrated.memberships).toHaveLength(migrated.users.length + migrated.units.filter((unit) => unit.active).length - 1)
     expect(migrated.memberships.find((membership) => membership.userId === 'usr-admin')).toMatchObject({
@@ -119,6 +119,30 @@ describe('migração do banco local', () => {
     expect(migrated.phases.map((phase) => phase.code)).toEqual(['TRIAGEM', 'ANALISE', 'CONCLUSAO'])
     expect(migrated.protocolTypes.every((type) => type.flowId === migrated.flows[0].id)).toBe(true)
     expect(migrated.protocols.every((protocol) => protocol.flowSnapshot?.flowId === migrated.flows[0].id)).toBe(true)
+    expect(migrated.users.every((user) => !("personId" in user))).toBe(true)
+    expect(migrated.documentTemplates).toHaveLength(migrated.documentTypes.length)
+  })
+
+  it('remove o vínculo obrigatório com pessoa ao migrar a versão 6', () => {
+    const legacy = structuredClone(seedDatabase()) as unknown as {
+      schemaVersion: number
+      users: Array<{ id: string; personId?: string; name: string; email: string }>
+      people: Array<{ id: string }>
+    }
+    legacy.schemaVersion = 6
+    legacy.users[0].personId = 'p-1'
+    const peopleBefore = legacy.people.length
+
+    const migrated = migrateDatabase(legacy)
+
+    expect(migrated.schemaVersion).toBe(7)
+    expect(migrated.users[0]).toMatchObject({
+      id: 'usr-admin',
+      name: 'Marina Duarte',
+      email: 'marina.duarte@example.com',
+    })
+    expect(migrated.users[0]).not.toHaveProperty('personId')
+    expect(migrated.people).toHaveLength(peopleBefore)
   })
 })
 describe('migração de situações da versão 3', () => {
@@ -161,7 +185,7 @@ describe('migração de categorias da versão 4', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(5)
+    expect(migrated.schemaVersion).toBe(7)
     expect(migrated.processCategories.map((category) => category.code)).toEqual(['01', '02'])
     expect(migrated.protocolTypes.every((type) => type.categoryId)).toBe(true)
   })

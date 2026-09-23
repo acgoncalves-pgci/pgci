@@ -1,5 +1,31 @@
 import { test, expect } from '@playwright/test';
 
+test('select permanece alinhado ao elemento âncora com zoom reduzido', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:appearance', JSON.stringify({ zoom: 80 }));
+  });
+  await page.goto('/relatorios');
+
+  const trigger = page.getByRole('combobox', { name: 'Tipo' });
+  await trigger.click();
+  const content = page.locator('.ui-select-content');
+  await expect(content).toBeVisible();
+
+  const anchorRect = await trigger.boundingBox();
+  const menuRect = await content.boundingBox();
+  if (!anchorRect || !menuRect) throw new Error('Select não encontrado.');
+  const alignment = {
+    leftDelta: Math.abs(menuRect.x - anchorRect.x),
+    verticalGap: menuRect.y - (anchorRect.y + anchorRect.height),
+    widthDelta: Math.abs(menuRect.width - anchorRect.width),
+  };
+
+  expect(alignment.leftDelta).toBeLessThanOrEqual(1);
+  expect(alignment.verticalGap).toBeGreaterThanOrEqual(0);
+  expect(alignment.verticalGap).toBeLessThanOrEqual(5);
+  expect(alignment.widthDelta).toBeLessThanOrEqual(1);
+});
+
 test('relatórios exibem filtros em abas e geram os três PDFs', async ({ page }, testInfo) => {
   await page.goto('/relatorios');
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
@@ -40,8 +66,13 @@ test('sidebar recolhe imediatamente após selecionar e reabre ao retornar o pont
   await page.goto('/dashboard');
   await page.getByRole('button', { name: 'Minimizar sidebar' }).click();
   const sidebar = page.locator('aside').first();
+  const main = page.locator('#main-content');
+  await main.hover({ position: { x: 500, y: 300 } });
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(72);
+  const collapsedMainX = (await main.boundingBox())!.x;
   await sidebar.hover();
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(240);
+  await expect.poll(async () => (await main.boundingBox())!.x).toBeGreaterThan(collapsedMainX + 150);
   await sidebar.getByRole('link', { name: 'Relatórios', exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(72);
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();

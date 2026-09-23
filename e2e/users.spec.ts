@@ -7,6 +7,34 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test('cria usuário sem pessoa vinculada e o oferece nos papéis do processo', async ({ page }) => {
+  await page.goto('/usuarios')
+  await page.getByRole('button', { name: 'Novo usuário' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Novo usuário' })
+  await expect(dialog.getByRole('combobox', { name: 'Pessoa do usuário' })).toHaveCount(0)
+  await dialog.getByLabel('Nome do usuário').fill('Carlos Participante')
+  await dialog.getByLabel('E-mail do usuário').fill('carlos.participante@example.com')
+  await dialog.getByRole('button', { name: 'Salvar' }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('region', { name: 'Lista de usuários' }).getByText('Carlos Participante', { exact: true })).toBeVisible()
+  await page.goto('/processos/novo')
+
+  await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
+  await page.getByRole('option', { name: 'Pedido de informação' }).click()
+  await page.getByRole('combobox', { name: 'Interessado *' }).click()
+  await expect(page.getByRole('option', { name: 'Carlos Participante' })).toBeVisible()
+  await page.getByRole('option', { name: 'Carlos Participante' }).click()
+  await page.getByRole('combobox', { name: 'Responsável *' }).click()
+  await expect(page.getByRole('option', { name: 'Carlos Participante' })).toBeVisible()
+  await page.getByRole('option', { name: 'Carlos Participante' }).click()
+
+  await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
+  await page.getByRole('option', { name: 'Pagamento de fornecedor' }).click()
+  await page.getByRole('combobox', { name: 'Credor *' }).click()
+  await expect(page.getByRole('option', { name: 'Carlos Participante' })).toBeVisible()
+})
+
 test('lista usuários e administra unidades e permissões', async ({ page, isMobile }) => {
   await page.goto('/usuarios')
 
