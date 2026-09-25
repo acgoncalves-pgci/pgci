@@ -73,12 +73,13 @@ import {
   roleForContext,
 } from "../../domain/rules";
 import { sortUnitsByPath, unitPath } from "../../domain/units";
+import { documentText } from "../../lib/richText";
 import {
   participantName,
   participantOptions,
   type ParticipantOption,
 } from "../../domain/participants";
-import { currencyToCents, dateOnly, dateTime, money } from "../../lib/format";
+import { currencyToCents, dateTime, money } from "../../lib/format";
 import {
   api,
   suggestedDeadline,
@@ -88,6 +89,8 @@ import { useSession } from "../../app/session";
 import { invalidateAll, useDb } from "../../app/queries";
 import { navigateWithLoading } from "../../app/routeLoading";
 import { Dialog } from "../../components/ui/Dialog";
+import { PdfViewerDialog } from "../../components/ui/PdfViewerDialog";
+import { DocumentBody } from "../documents/DocumentBody";
 import { Input } from "../../components/ui/Input";
 import { CurrencyInput } from "../../components/ui/CurrencyInput";
 import { Select } from "../../components/ui/Select";
@@ -699,9 +702,13 @@ type ProtocolFormData = z.infer<typeof protocolSchema>;
 
 export function NewProtocol() {
   const navigate = useNavigate();
+  const location = useLocation();
   const ctx = useSession();
   const queryClient = useQueryClient();
   const { data: db, isLoading } = useDb();
+  const sourceDocumentId = new URLSearchParams(location.search).get("documentId") || undefined;
+  const sourceDocument = sourceDocumentId ? db?.documents.find((item) => item.id === sourceDocumentId) : undefined;
+  const sourceApplied = useRef("");
   const [personDialog, setPersonDialog] = useState<
     "interestedPersonId" | "creditorPersonId" | null
   >(null);
@@ -727,6 +734,12 @@ export function NewProtocol() {
       dueAt: "",
     },
   });
+  useEffect(() => {
+    if (!sourceDocument || sourceApplied.current === sourceDocument.id) return;
+    form.setValue("subject", sourceDocument.subject);
+    form.setValue("description", documentText(sourceDocument.body).slice(0, 4000) || sourceDocument.subject);
+    sourceApplied.current = sourceDocument.id;
+  }, [form, sourceDocument]);
   const typeId = form.watch("typeId");
   const type = db?.protocolTypes.find((item) => item.id === typeId);
   const create = useMutation({
@@ -734,6 +747,7 @@ export function NewProtocol() {
       api.createProtocol(ctx, {
         ...data,
         files,
+        sourceDocumentId,
         useSuggestedFlow:
           flowMode === "SUGGESTED" ? useSuggestedFlow && flowReady : undefined,
         amountCents: currencyToCents(data.amount),
@@ -807,11 +821,13 @@ export function NewProtocol() {
         />
       </>
     );
+  if (sourceDocumentId && (!sourceDocument || sourceDocument.protocolId || !db.documentTypes.some((documentType) => documentType.id === sourceDocument.typeId && documentType.active)))
+    return <><PageTitle title="Abrir processo" /><ErrorBox error={new Error("O documento de origem não está disponível para abrir um processo.")}/></>;
 
   const interestedOptions = participantOptions(db, "INTERESSADO");
   const creditorOptions = participantOptions(db, "CREDOR");
   const availableTypes = db.protocolTypes.filter(
-    (item) => item.active && canOpenProtocolType(db, item, ctx),
+    (item) => item.active && canOpenProtocolType(db, item, ctx) && (!sourceDocumentId || item.fieldsConfig.arquivos?.enabled),
   );
   const fields = type?.fieldsConfig;
   const hasInterested = Boolean(fields?.interested.enabled);
@@ -956,6 +972,7 @@ export function NewProtocol() {
         onSubmit={form.handleSubmit(submit)}
         className="mx-auto max-w-7xl space-y-5"
       >
+        {sourceDocument && <div className="panel flex items-center gap-3 p-4 text-sm"><FileText size={18} className="text-[var(--ui-accent)]"/><span>Documento de origem: <strong>{sourceDocument.number}</strong> · {sourceDocument.subject}. Ele será vinculado na abertura do processo.</span></div>}
         <section className="panel p-5">
           <h2 className="label mb-4">IDENTIFICAÇÃO</h2>
           <div className="grid gap-4 md:grid-cols-2">
@@ -3166,7 +3183,6 @@ function MovementFiles({
       {documentPreview && (
         <DocumentPreviewDialog
           document={documentPreview}
-          db={db}
           onClose={() => setDocumentPreview(undefined)}
         />
       )}{" "}
@@ -3182,50 +3198,37 @@ function MovementFiles({
 
 function DocumentPreviewDialog({
   document,
-  db,
   onClose,
 }: {
   document: AppDocument;
-  db: Database;
   onClose: () => void;
 }) {
-  const type = db.documentTypes.find(
-    (item) => item.id === document.typeId,
-  )?.name;
-  const recipient = document.recipientPersonId
-    ? db.people.find((person) => person.id === document.recipientPersonId)?.name
-    : undefined;
+  const source = useRef<HTMLElement>(null);
+  const [blob, setBlob] = useState<Blob>();
+  const [error, setError] = useState<unknown>();
+  useEffect(() => {
+    if (!source.current) return;
+    const element = source.current;
+    let active = true;
+    const generate = async () => {
+      try {
+        const { createDocumentPreviewPdf } = await import("../documents/documentPdf");
+        const result = await createDocumentPreviewPdf(element, document.number);
+        if (active) setBlob(result);
+      } catch (failure) {
+        if (active) setError(failure);
+      }
+    };
+    void generate();
+    return () => { active = false; };
+  }, [document.id, document.number]);
   return (
-    <Dialog
-      title={`Visualizar documento — ${document.number}`}
-      onClose={onClose}
-      wide
-    >
-      <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card p-5 sm:p-7">
-        <header className="border-b border-border pb-4">
-          <p className="font-mono text-xs text-muted-foreground">
-            {document.number}
-          </p>
-          <h3 className="mt-2 text-xl font-bold">{document.subject}</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {type} · {dateOnly(document.createdAt)}
-            {recipient && <> · Destinatário: {recipient}</>}
-          </p>
-        </header>
-        <div className="whitespace-pre-wrap py-6 text-[15px] leading-7">
-          {document.body}
-        </div>
+    <>
+      <article ref={source} className="document-page" style={{ position: "fixed", left: -10000, top: 0, width: "210mm", visibility: "hidden", pointerEvents: "none" }} aria-hidden="true">
+        <DocumentBody document={document} />
       </article>
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
-        <button type="button" className="btn-secondary" onClick={onClose}>
-          Fechar
-        </button>
-        <Link className="btn-primary" to={`/documentos/${document.id}`}>
-          <FileText size={16} />
-          Abrir documento
-        </Link>
-      </div>
-    </Dialog>
+      <PdfViewerDialog title={`${document.number}.pdf`} blob={blob} error={error} onClose={onClose} />
+    </>
   );
 }
 
@@ -4084,6 +4087,8 @@ function AttachmentPreviewDialog({
       if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
     };
   }, [attachment.blobKey, kind]);
+  if (kind === "pdf" && url)
+    return <PdfViewerDialog title={attachment.filename} url={url} onClose={onClose} />;
   return (
     <Dialog title={attachment.filename} onClose={onClose} wide>
       {error ? (
@@ -4103,13 +4108,6 @@ function AttachmentPreviewDialog({
               alt={`Pré-visualização de ${attachment.filename}`}
             />
           )}{" "}
-          {kind === "pdf" && url && (
-            <iframe
-              className="h-[65vh] w-full rounded-md border"
-              src={url}
-              title={`Pré-visualização de ${attachment.filename}`}
-            />
-          )}
         </>
       )}
     </Dialog>

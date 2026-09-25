@@ -507,11 +507,13 @@ describe('jornada principal da interface', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Redigir documento' }))
     await choose('Tipo de documento *', 'Memorando')
     fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Memorando da jornada' } })
-    fireEvent.change(screen.getByLabelText('Corpo do documento *'), { target: { value: 'Corpo do documento de teste.' } })
+    const documentEditor = screen.getByRole('textbox', { name: 'Corpo do documento * visual' })
+    documentEditor.innerHTML = '<p>Corpo do documento de teste.</p>'
+    fireEvent.input(documentEditor)
     fireEvent.click(screen.getByRole('button', { name: 'Salvar documento' }))
+    const linkedProcess = await screen.findByRole('link', { name: 'Abrir processo vinculado' })
     await screen.findByText('Corpo do documento de teste.')
-
-    fireEvent.click(screen.getByRole('link', { name: 'Abrir processo vinculado' }))
+    fireEvent.click(linkedProcess)
     fireEvent.click(await screen.findByRole('button', { name: /^Anexos\b/ }))
     const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
     fireEvent.change(fileInput, { target: { files: [new File(['anexo de teste'], 'jornada.txt', { type: 'text/plain' })] } })

@@ -1,4 +1,4 @@
-import type { AppUser, Context, Database, Protocol, ProtocolType, Role, UserUnitMembership } from './model'
+import type { AppDocument, AppUser, Context, Database, Protocol, ProtocolType, Role, UserUnitMembership } from './model'
 import { isActive } from './model'
 
 export class DomainError extends Error {
@@ -40,6 +40,15 @@ export const findActiveMembership = (db: Database, ctx: Context) =>
 export const canReceiveWorkInUnit = (db: Database, userId: string, unitId: string) => {
   const membership = findActiveMembershipForUnit(db, userId, unitId)
   return Boolean(membership && membership.role !== 'LEITOR')
+}
+
+export const canManageDocument = (db: Database, document: AppDocument, ctx: Context) => {
+  if (!db.users.some((user) => user.id === ctx.userId && user.active)) return false
+  if (document.protocolId) {
+    const protocol = db.protocols.find((item) => item.id === document.protocolId)
+    return Boolean(protocol && isActive(protocol) && canAct(db, protocol, ctx))
+  }
+  return canReceiveWorkInUnit(db, ctx.userId, document.unitId)
 }
 
 export const canOpenProtocolType = (db: Database, type: ProtocolType, ctx: Context) => {

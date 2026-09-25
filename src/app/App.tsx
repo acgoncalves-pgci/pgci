@@ -4,11 +4,12 @@ import { RecoveryGate } from './recovery/RecoveryGate';
 import { AppShell } from './layout/AppShell';
 import { Dashboard } from '../features/dashboard/DashboardPage';
 import { ProtocolDetail, Protocols, NewProtocol } from '../features/processos/ProtocolPages';
-import { DocumentDetail, Documents, NewDocument } from '../features/documents/DocumentPages';
+import { DocumentDetail, Documents, EditDocument, NewDocument } from '../features/documents/DocumentPages';
 import { PeoplePage } from '../features/pessoas/PeoplePage';
 import { StructurePage } from '../features/estrutura/StructurePage';
 import { ProtocolTypesPage } from '../features/tipos-protocolo/ProtocolTypesPage';
 import { DocumentTypesPage } from '../features/tipos-documento/DocumentTypesPage';
+import { DocumentTemplatePage } from '../features/tipos-documento/DocumentTemplatePage';
 import { UserAccessPage, UsersPage } from '../features/usuarios/UsersPage';
 import { ReportsPage } from '../features/relatorios/ReportsPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
@@ -35,6 +36,7 @@ export function App() {
     <Route path="/protocolos/:id" element={<LegacyProcessRedirect />}/>
     <Route path="/documentos" element={<Documents />}/>
     <Route path="/documentos/novo" element={<NewDocument />}/>
+    <Route path="/documentos/:id/editar" element={<EditDocument />}/>
     <Route path="/documentos/:id" element={<DocumentDetail />}/>
     <Route path="/pessoas" element={<PeoplePage />}/>
     <Route path="/estrutura" element={<StructurePage />}/>
@@ -44,6 +46,8 @@ export function App() {
     <Route path="/fases" element={<PhasesPage />}/>
     <Route path="/tipos-protocolo" element={<Navigate to="/tipos-processo" replace/>}/>
     <Route path="/tipos-documento" element={<DocumentTypesPage />}/>
+    <Route path="/tipos-documento/:typeId/modelos/novo" element={<DocumentTemplatePage />}/>
+    <Route path="/tipos-documento/:typeId/modelos/:templateId/editar" element={<DocumentTemplatePage />}/>
     <Route path="/usuarios" element={<UsersPage />}/>
     <Route path="/usuarios/:id/unidades" element={<UserAccessPage />}/>
     <Route path="/configuracoes" element={<SettingsPage />}/>

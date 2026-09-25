@@ -380,6 +380,11 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await expect(movementToggles).toHaveCount(movementCount)
   await expect(page.getByText('anexo-integrado.pdf', { exact: true })).toBeVisible()
   await expect(page.getByText('anexo-com-duas-paginas.pdf', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Visualizar anexo anexo-integrado.pdf' }).click()
+  const pdfViewer = page.getByRole('dialog', { name: 'anexo-integrado.pdf' })
+  await expect(pdfViewer.getByTitle('Pré-visualização de anexo-integrado.pdf')).toBeVisible()
+  await pdfViewer.getByRole('button', { name: 'Fechar diálogo' }).click()
+  await expect(pdfViewer).toBeHidden()
   const dossierButton = page.getByRole('button', { name: 'Dossiê' })
   await expect(dossierButton).toHaveCount(1)
 
@@ -429,18 +434,23 @@ test('resumo separa informações do processo e tramitação atual', async ({ pa
 
 
 
-test('documentos e anexos da movimentação abrem prévia ao clicar', async ({ page }) => {
+test('documentos da movimentação abrem diretamente o visualizador de PDF', async ({ page }) => {
   await page.goto('/processos/pr-1')
 
   const documentButton = page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })
   await expect(documentButton).toBeVisible()
   await documentButton.click()
 
-  const documentDialog = page.getByRole('dialog', { name: 'Visualizar documento — DOC-2026.000001' })
+  const documentDialog = page.getByRole('dialog', { name: 'DOC-2026.000001.pdf' })
   await expect(documentDialog).toBeVisible()
-  await expect(documentDialog.getByText('Justificativa para reposição do estoque', { exact: true })).toBeVisible()
-  await expect(documentDialog.getByText(/Documento de demonstração do Fluxo Público/)).toBeVisible()
-  await documentDialog.getByRole('button', { name: 'Fechar', exact: true }).click()
+  const viewer = documentDialog.getByTitle('Pré-visualização de DOC-2026.000001.pdf')
+  await expect(viewer).toBeVisible({ timeout: 15_000 })
+  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
+    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
+    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
+  })
+  expect((await PDFDocument.load(Buffer.from(encoded, 'base64'))).getPageCount()).toBeGreaterThan(0)
+  await documentDialog.getByRole('button', { name: 'Fechar diálogo' }).click()
   await expect(documentDialog).toBeHidden()
 
   const attachmentButton = page.getByRole('button', { name: 'Visualizar anexo comprovante-demo.txt' })
@@ -450,6 +460,36 @@ test('documentos e anexos da movimentação abrem prévia ao clicar', async ({ p
   const attachmentDialog = page.getByRole('dialog', { name: 'comprovante-demo.txt' })
   await expect(attachmentDialog).toBeVisible()
   await expect(attachmentDialog.getByText('Comprovante fictício disponível para visualização.', { exact: true })).toBeVisible()
+})
+
+test('documento formatado da movimentação mantém HTML renderizado na prévia PDF', async ({ page }) => {
+  test.setTimeout(45_000)
+  await page.goto('/documentos/novo?protocolId=pr-1&movementEventId=ev-open-1')
+  await page.getByRole('combobox', { name: 'Tipo de documento *' }).click()
+  await page.getByRole('option', { name: 'Ofício', exact: true }).click()
+  await page.getByLabel('Assunto *').fill('Documento formatado da movimentação')
+  await page.getByRole('textbox', { name: 'Corpo do documento * visual' }).evaluate((element) => {
+    element.innerHTML = '<p>Texto <strong>formatado</strong> com espaços preservados.</p>'
+    element.dispatchEvent(new InputEvent('input', { bubbles: true }))
+  })
+  await page.getByRole('button', { name: 'Salvar documento' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Documento formatado da movimentação' })).toBeVisible()
+
+  await page.goto('/processos/pr-1')
+  const documentButton = page.getByRole('button', { name: /Visualizar documento DOC-/ }).filter({ hasText: 'Documento formatado da movimentação' })
+  await expect(documentButton).toBeVisible()
+  const number = (await documentButton.getAttribute('aria-label'))!.replace('Visualizar documento ', '')
+  await documentButton.click()
+  const dialog = page.getByRole('dialog', { name: `${number}.pdf` })
+  await expect(dialog).toBeVisible()
+  await expect(page.locator('article.document-page[aria-hidden="true"] strong')).toHaveText('formatado')
+  const viewer = dialog.getByTitle(`Pré-visualização de ${number}.pdf`)
+  await expect(viewer).toBeVisible({ timeout: 15_000 })
+  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
+    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
+    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
+  })
+  expect((await PDFDocument.load(Buffer.from(encoded, 'base64'))).getPageCount()).toBeGreaterThan(0)
 })
 
 

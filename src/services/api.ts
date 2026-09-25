@@ -1,6 +1,7 @@
 import type { AppDocument, AppUser, Attachment, AuditEvent, Context, Database, Person, Protocol, Unit, ProtocolType, DocumentType, DocumentTemplate, ProtocolEvent, ProtocolStatus, ProtocolPhase, ProtocolFlow, ChecklistAnswer, ChecklistQuestion, FlowPhase, Role, SituationType, UserUnitMembership, ProcessCategory } from '../domain/model';
+import { documentTemplateValues, replaceTemplateVariables, validateTemplateContent } from '../lib/documentTemplate';
 import { isActive, isLegacyAssumptionEvent, isMovementEvent } from '../domain/model';
-import { canAct, canOpenProtocolType, canReceiveWorkInUnit, canView, DomainError, getAssignment, getProtocol, getUser, requireActive, requireActor, requireAdmin, requireAssignmentReceived, requireOperationalMembership, requireVersion, unitIdsForScope } from '../domain/rules';
+import { canAct, canManageDocument, canOpenProtocolType, canReceiveWorkInUnit, canView, DomainError, findActiveMembershipForUnit, getAssignment, getProtocol, getUser, requireActive, requireActor, requireAdmin, requireAssignmentReceived, requireOperationalMembership, requireVersion, unitIdsForScope } from '../domain/rules';
 import { cleanupOrphanedBlobs, deleteBlob, getBlob, loadDb, putBlob, saveDb } from '../storage/database';
 import { isoDaysFromNow } from '../lib/format';
 import { currentProtocolSituation } from '../domain/situations';
@@ -352,6 +353,7 @@ export const api = {
         assigneeId?: string;
         dueAt?: string;
         files?: File[];
+        sourceDocumentId?: string;
         useSuggestedFlow?: boolean;
     }) {
         const files = input.files ?? [];
@@ -368,6 +370,8 @@ export const api = {
             throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
         if (files.length && !preflightType.fieldsConfig.arquivos?.enabled)
             throw new DomainError('VALIDATION', 'Este tipo de processo não permite anexos ou documentos.');
+        if (input.sourceDocumentId && !preflightType.fieldsConfig.arquivos?.enabled)
+            throw new DomainError('VALIDATION', 'Selecione um tipo de processo que permita documentos.');
         const staged = files.map((file) => ({ file, blobKey: id() }));
         try {
             await Promise.all(staged.map(({ blobKey, file }) => putBlob(blobKey, file)));
@@ -379,6 +383,11 @@ export const api = {
                     throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
                 if (files.length && !type.fieldsConfig.arquivos?.enabled)
                     throw new DomainError('VALIDATION', 'Este tipo de processo não permite anexos ou documentos.');
+                const sourceDocument = input.sourceDocumentId ? db.documents.find((document) => document.id === input.sourceDocumentId) : undefined;
+                if (input.sourceDocumentId && (!sourceDocument || sourceDocument.protocolId || !db.documentTypes.some((documentType) => documentType.id === sourceDocument.typeId && documentType.active)))
+                    throw new DomainError('VALIDATION', 'O documento de origem não está disponível para abrir um processo.');
+                if (sourceDocument && (!type.fieldsConfig.arquivos?.enabled || !canManageDocument(db, sourceDocument, ctx)))
+                    throw new DomainError('FORBIDDEN', 'Você não pode vincular este documento ao processo.');
                 const { mode: flowModeSnapshot, snapshot: flowSnapshot } = flowSnapshotFor(db, type, input.useSuggestedFlow ?? true);
                 if (!input.subject.trim() || input.subject.length > 160)
                     throw new DomainError('VALIDATION', 'Informe um assunto de até 160 caracteres.');
@@ -469,6 +478,12 @@ export const api = {
                 const openingPhase = phaseForChecklist(db, protocol);
                 const opening = event(db, { protocolId: protocol.id, kind: 'ABERTURA', actorUserId: user.id, actorUnitId: ctx.activeUnitId, toUnitId: ctx.activeUnitId, toUserId: assigneeId, assignmentId: assignment.id, phaseId: protocol.currentPhaseId, nextStatus: 'CADASTRADO', checklist: openingPhase ? emptyChecklist(openingPhase) : undefined });
                 audit(db, { action: 'PROTOCOL_CREATED', actorUserId: user.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Processo ${protocol.number} criado com o assunto “${protocol.subject}”.` });
+                if (sourceDocument) {
+                    sourceDocument.protocolId = protocol.id;
+                    sourceDocument.movementEventId = opening.id;
+                    event(db, { protocolId: protocol.id, kind: 'DOCUMENTO_CRIADO', actorUserId: user.id, actorUnitId: ctx.activeUnitId, relatedDocumentId: sourceDocument.id, message: `Documento ${sourceDocument.number} vinculado na abertura.` });
+                    audit(db, { action: 'DOCUMENT_LINKED', actorUserId: user.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: sourceDocument.id, details: `Documento ${sourceDocument.number} vinculado ao processo ${protocol.number} na abertura.` });
+                }
                 if (creatorReceived)
                     event(db, { protocolId: protocol.id, kind: 'RECEBIMENTO', actorUserId: user.id, actorUnitId: ctx.activeUnitId, assignmentId: assignment.id });
                 for (const { file, blobKey } of staged) {
@@ -483,7 +498,7 @@ export const api = {
             throw error;
         }
     },    async updateProtocol(ctx: Context, protocolId: string, expectedVersion: number, input: { subject: string; description: string; dueAt?: string }) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); requireActive(protocol); const actor = requireAdmin(db, ctx); if (protocol.currentUnitId !== ctx.activeUnitId) throw new DomainError('FORBIDDEN', 'Selecione a unidade atual do processo para editá-lo.'); if (!input.subject.trim() || input.subject.trim().length > 160) throw new DomainError('VALIDATION', 'Informe um assunto de até 160 caracteres.'); if (!input.description.trim() || input.description.trim().length > 4000) throw new DomainError('VALIDATION', 'Informe uma descrição de até 4.000 caracteres.'); if (input.dueAt && new Date(input.dueAt).getTime() < Date.now()) throw new DomainError('VALIDATION', 'O prazo não pode estar no passado.'); protocol.subject = input.subject.trim(); protocol.description = input.description.trim(); protocol.dueAt = input.dueAt; bump(protocol); audit(db, { action: 'PROTOCOL_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Dados gerais do processo ${protocol.number} atualizados.` }); return protocol; }); },
-    async deleteProtocol(ctx: Context, protocolId: string, expectedVersion: number) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); const actor = requireAdmin(db, ctx); if (protocol.currentUnitId !== ctx.activeUnitId || protocol.status !== 'CADASTRADO') throw new DomainError('FORBIDDEN', 'Somente processos cadastrados, na unidade atual, podem ser excluídos.'); audit(db, { action: 'PROTOCOL_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Processo ${protocol.number} excluído.` }); db.protocols = db.protocols.filter((item) => item.id !== protocolId); db.assignments = db.assignments.filter((item) => item.protocolId !== protocolId); db.events = db.events.filter((item) => item.protocolId !== protocolId); db.documents = db.documents.filter((item) => item.protocolId !== protocolId); db.attachments = db.attachments.filter((item) => item.protocolId !== protocolId); return undefined; }); },
+    async deleteProtocol(ctx: Context, protocolId: string, expectedVersion: number) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); const actor = requireAdmin(db, ctx); if (protocol.currentUnitId !== ctx.activeUnitId || protocol.status !== 'CADASTRADO') throw new DomainError('FORBIDDEN', 'Somente processos cadastrados, na unidade atual, podem ser excluídos.'); audit(db, { action: 'PROTOCOL_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Processo ${protocol.number} excluído.` }); db.protocols = db.protocols.filter((item) => item.id !== protocolId); db.assignments = db.assignments.filter((item) => item.protocolId !== protocolId); db.events = db.events.filter((item) => item.protocolId !== protocolId); db.documents.filter((item) => item.protocolId === protocolId).forEach((item) => { item.protocolId = undefined; item.movementEventId = undefined; }); db.attachments = db.attachments.filter((item) => item.protocolId !== protocolId); return undefined; }); },
     async assume(ctx: Context, protocolId: string, expectedVersion: number) {
         return mutate((db) => {
             const protocol = getProtocol(db, protocolId);
@@ -869,7 +884,7 @@ export const api = {
         await deleteBlob(blobKey); await cleanupOrphanedBlobs(loadDb().attachments.map((attachment) => attachment.blobKey)).catch(() => undefined);
         return true;
     },    async listDocuments(ctx: Context, search = '', typeId = '') { await sleep(); const db = loadDb(); requireActor(db, ctx); const q = search.toLocaleLowerCase(); const scopeUnitIds = unitIdsForScope(db, ctx); const items = db.documents.filter((d) => { const p = d.protocolId ? db.protocols.find((x) => x.id === d.protocolId) : undefined; return (!p || canView(db, p, ctx) || d.authorUserId === ctx.userId || scopeUnitIds.includes(d.unitId)) && (!q || d.number.toLowerCase().includes(q) || d.subject.toLowerCase().includes(q)) && (!typeId || d.typeId === typeId); }); return { items, db }; },
-    async createDocument(ctx: Context, input: Omit<AppDocument, 'id' | 'number' | 'unitId' | 'authorUserId' | 'createdAt'>) { return mutate((db) => { const author = requireActor(db, ctx); if (!author.active)
+    async createDocument(ctx: Context, input: Omit<AppDocument, 'id' | 'number' | 'authorUserId' | 'createdAt' | 'unitId'> & { unitId?: string }) { return mutate((db) => { const author = requireActor(db, ctx); if (!author.active)
         throw new DomainError('FORBIDDEN', 'Usuário inativo não pode criar documentos.'); const type = db.documentTypes.find((t) => t.id === input.typeId && t.active); if (!type || !input.subject.trim() || !documentText(input.body))
         throw new DomainError('VALIDATION', 'Preencha tipo, assunto e corpo do documento.'); if (input.recipientPersonId && !db.people.some((person) => person.id === input.recipientPersonId && person.active))
         throw new DomainError('VALIDATION', 'Selecione um destinatário ativo.'); let linkedProtocol: Protocol | undefined; let movementEventId = input.movementEventId; if (input.protocolId) {
@@ -880,7 +895,40 @@ export const api = {
             throw new DomainError('FORBIDDEN', 'Documento vinculado exige atuação em processo ativo.');
         movementEventId = resolveMovement(db, linkedProtocol, movementEventId).id;
     } else if (movementEventId) throw new DomainError('VALIDATION', 'Uma movimentação só pode ser informada para documento vinculado a processo.');
-    const doc: AppDocument = { ...input, movementEventId, id: id(), number: nextNumber(db, 'document'), subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), unitId: ctx.activeUnitId, authorUserId: author.id, createdAt: new Date().toISOString() }; db.documents.push(doc); audit(db, { action: 'DOCUMENT_CREATED', actorUserId: author.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: doc.id, details: linkedProtocol ? `Documento ${doc.number} — “${doc.subject}” anexado à movimentação do processo ${linkedProtocol.number}.` : `Documento avulso ${doc.number} — “${doc.subject}” criado.` }); return doc; }); },
+    const unitId = input.unitId || ctx.activeUnitId;
+    const membership = findActiveMembershipForUnit(db, author.id, unitId);
+    if (!db.units.some((unit) => unit.id === unitId && unit.active) || !membership || membership.role === 'LEITOR' || (linkedProtocol && unitId !== ctx.activeUnitId))
+        throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
+    const number = nextNumber(db, 'document');
+    const values = documentTemplateValues(db, ctx, { ...input, unitId }, number);
+    const doc: AppDocument = { ...input, movementEventId, id: id(), number, subject: replaceTemplateVariables(input.subject.trim(), values), body: sanitizeDocumentHtml(replaceTemplateVariables(input.body, values, true)), unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined, authorUserId: author.id, createdAt: new Date().toISOString() }; db.documents.push(doc); audit(db, { action: 'DOCUMENT_CREATED', actorUserId: author.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: doc.id, details: linkedProtocol ? `Documento ${doc.number} — “${doc.subject}” anexado à movimentação do processo ${linkedProtocol.number}.` : `Documento avulso ${doc.number} — “${doc.subject}” criado.` }); return doc; }); },
+    async updateDocument(ctx: Context, documentId: string, input: Pick<AppDocument, 'typeId' | 'subject' | 'body' | 'recipientPersonId' | 'unitId' | 'signerName' | 'signerTitle'>) { return mutate((db) => {
+        const actor = requireActor(db, ctx);
+        const document = db.documents.find((item) => item.id === documentId);
+        if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
+        if (!canManageDocument(db, document, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode editar este documento.');
+        if (!db.documentTypes.some((type) => type.id === input.typeId && (type.active || type.id === document.typeId)) || !input.subject.trim() || !documentText(input.body))
+            throw new DomainError('VALIDATION', 'Preencha tipo, assunto e corpo do documento.');
+        if (input.recipientPersonId && !db.people.some((person) => person.id === input.recipientPersonId && person.active))
+            throw new DomainError('VALIDATION', 'Selecione um destinatário ativo.');
+        const membership = findActiveMembershipForUnit(db, actor.id, input.unitId);
+        if (document.protocolId ? input.unitId !== document.unitId : !db.units.some((unit) => unit.id === input.unitId && unit.active) || !membership || membership.role === 'LEITOR')
+            throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
+        Object.assign(document, { typeId: input.typeId, subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), recipientPersonId: input.recipientPersonId || undefined, unitId: input.unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined });
+        audit(db, { action: 'DOCUMENT_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento ${document.number} atualizado.` });
+        return document;
+    }); },
+    async deleteDocument(ctx: Context, documentId: string) { return mutate((db) => {
+        const actor = requireActor(db, ctx);
+        const document = db.documents.find((item) => item.id === documentId);
+        if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
+        if (document.protocolId || db.events.some((event) => event.relatedDocumentId === documentId))
+            throw new DomainError('VALIDATION', 'Documentos anexados a um processo não podem ser excluídos.');
+        if (!canManageDocument(db, document, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode excluir este documento.');
+        db.documents = db.documents.filter((item) => item.id !== documentId);
+        audit(db, { action: 'DOCUMENT_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento ${document.number} excluído.` });
+        return true;
+    }); },
     async listData() { await sleep(); return loadDb(); },
     async listPeople(ctx: Context, search = '') { await sleep(); const db = loadDb(); requireActor(db, ctx); const query = search.trim().toLocaleLowerCase(); return { items: db.people.filter((person) => !query || person.name.toLocaleLowerCase().includes(query) || person.document?.includes(query)), db }; },
     async createUnit(ctx: Context, input: Omit<Unit, 'id'>) { return mutate((db) => { requireAdmin(db, ctx); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
@@ -1165,10 +1213,14 @@ export const api = {
     async createDocumentTemplate(ctx: Context, input: Omit<DocumentTemplate, 'id' | 'createdAt' | 'updatedAt'>) { return mutate((db) => {
         requireAdmin(db, ctx);
         if (!db.documentTypes.some((type) => type.id === input.typeId && type.active)) throw new DomainError('VALIDATION', 'Selecione um tipo de documento ativo.');
-        if (!input.name.trim() || !input.subject.trim() || !documentText(input.body)) throw new DomainError('VALIDATION', 'Informe nome, assunto e conteúdo do modelo.');
+        if (!input.name.trim()) throw new DomainError('VALIDATION', 'Informe o nome do modelo.');
+        const contentError = validateTemplateContent(input.subject, input.body);
+        if (contentError) throw new DomainError('VALIDATION', contentError);
+        if (input.isDefault && !input.active) throw new DomainError('VALIDATION', 'Ative o modelo antes de torná-lo padrão.');
         if (db.documentTemplates.some((template) => template.typeId === input.typeId && template.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase())) throw new DomainError('VALIDATION', 'Já existe um modelo com este nome para o tipo selecionado.');
         const createdAt = new Date().toISOString();
-        const template: DocumentTemplate = { ...input, id: id(), name: input.name.trim(), subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), createdAt, updatedAt: createdAt };
+        if (input.isDefault) db.documentTemplates.filter((item) => item.typeId === input.typeId).forEach((item) => { item.isDefault = false; });
+        const template: DocumentTemplate = { ...input, id: id(), name: input.name.trim(), description: input.description?.trim(), subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), createdAt, updatedAt: createdAt };
         db.documentTemplates.push(template);
         audit(db, { action: 'DOCUMENT_TEMPLATE_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: template.id, details: `Modelo “${template.name}” criado.` });
         return template;
@@ -1178,9 +1230,13 @@ export const api = {
         const template = db.documentTemplates.find((item) => item.id === templateId);
         if (!template) throw new DomainError('NOT_FOUND', 'Modelo de documento não encontrado.');
         if (!db.documentTypes.some((type) => type.id === input.typeId && type.active)) throw new DomainError('VALIDATION', 'Selecione um tipo de documento ativo.');
-        if (!input.name.trim() || !input.subject.trim() || !documentText(input.body)) throw new DomainError('VALIDATION', 'Informe nome, assunto e conteúdo do modelo.');
+        if (!input.name.trim()) throw new DomainError('VALIDATION', 'Informe o nome do modelo.');
+        const contentError = validateTemplateContent(input.subject, input.body);
+        if (contentError) throw new DomainError('VALIDATION', contentError);
+        if (input.isDefault && !input.active) throw new DomainError('VALIDATION', 'Ative o modelo antes de torná-lo padrão.');
         if (db.documentTemplates.some((item) => item.id !== templateId && item.typeId === input.typeId && item.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase())) throw new DomainError('VALIDATION', 'Já existe um modelo com este nome para o tipo selecionado.');
-        Object.assign(template, { ...input, name: input.name.trim(), subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), updatedAt: new Date().toISOString() });
+        if (input.isDefault) db.documentTemplates.filter((item) => item.typeId === input.typeId && item.id !== templateId).forEach((item) => { item.isDefault = false; });
+        Object.assign(template, { ...input, name: input.name.trim(), description: input.description?.trim(), subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), updatedAt: new Date().toISOString() });
         audit(db, { action: 'DOCUMENT_TEMPLATE_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: template.id, details: `Modelo “${template.name}” atualizado.` });
         return template;
     }); },

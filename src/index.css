@@ -48,7 +48,7 @@ html[data-theme='dark'] { color-scheme: dark; }
   .nav-link-active { @apply bg-public-50 text-public-800 dark:bg-slate-800 dark:text-slate-100; }
   .table-head { @apply bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300; }
 }
-@media print { .no-print { display: none !important; } .print-shell { display: block !important; } body { background: white; } .panel { border: 0; box-shadow: none; } body:has(.print-preview) .print-shell { display: none !important; } body:has(.print-preview) [role="dialog"] { position: static !important; display: block !important; background: white !important; padding: 0 !important; } body:has(.print-preview) [role="dialog"] > section { max-height: none !important; max-width: none !important; overflow: visible !important; border-radius: 0 !important; box-shadow: none !important; } body:has(.print-preview) [role="dialog"] > section > header { display: none !important; } .print-preview { display: block !important; max-width: none !important; padding: 0 !important; } }
+@media print { .no-print { display: none !important; } .print-shell { display: block !important; } body { background: white; } .panel { border: 0; box-shadow: none; } }
 
 .route-loading-overlay { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; pointer-events: none; background: color-mix(in srgb, var(--ui-page-bg) 82%, transparent); backdrop-filter: blur(1px); animation: route-loading-in 140ms ease-out both; }
 .route-loading-indicator { display: grid; size: 4.5rem; place-items: center; }
@@ -639,25 +639,42 @@ html.dark .timeline-action-button { border-color: #475569; background: #111827; 
 .rich-editor-group:last-child { border-right: 0; }
 .rich-editor-button { display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid transparent; border-radius: .35rem; color: #475569; }
 .rich-editor-button:hover, .rich-editor-button:focus-visible { border-color: #cbd5e1; background: white; color: var(--ui-accent); outline: 0; }
+.rich-editor-font-size { position: relative; gap: 0; }
+.rich-editor-font-size-input { width: 2.4rem; height: 2rem; border: 1px solid #cbd5e1; border-right: 0; border-radius: .35rem 0 0 .35rem; background: white; color: #334155; font-size: .8rem; text-align: center; outline: 0; }
+.rich-editor-font-size-input:focus { border-color: var(--ui-accent); }
+.rich-editor-font-size-unit { height: 2rem; border-block: 1px solid #cbd5e1; background: white; color: #64748b; font-size: .65rem; line-height: 2rem; }
+.rich-editor-font-size-toggle { display: grid; width: 1.4rem; height: 2rem; place-items: center; border: 1px solid #cbd5e1; border-left: 0; border-radius: 0 .35rem .35rem 0; background: white; color: #475569; }
+.rich-editor-font-size-toggle:hover, .rich-editor-font-size-toggle:focus-visible { color: var(--ui-accent); outline: 0; }
+.rich-editor-font-size-menu { position: absolute; top: calc(100% + .35rem); left: 0; z-index: 5; width: 8.5rem; max-height: 15rem; overflow: auto; border: 1px solid #cbd5e1; border-radius: .5rem; background: white; padding: .25rem; box-shadow: 0 12px 24px rgb(15 23 42 / .16); }
+.rich-editor-font-size-menu button { display: block; width: 100%; border-radius: .3rem; padding: .35rem .5rem; color: #334155; font-size: .75rem; text-align: left; }
+.rich-editor-font-size-menu button:hover, .rich-editor-font-size-menu button:focus-visible { background: #f1f5f9; color: var(--ui-accent); outline: 0; }
 .a4-editor-viewport { max-height: 72vh; overflow: auto; padding: 1.25rem; }
 .a4-page { width: min(210mm, 100%); min-height: 297mm; margin-inline: auto; background: white; color: #0f172a; box-shadow: 0 12px 30px rgb(15 23 42 / .14); }
-.rich-editor-content, .document-page { padding: 20mm; font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.6; }
-.rich-editor-content { border: 0; outline: 0; }
+.rich-editor-content, .document-page { padding: 20mm; font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; font-weight: 400; overflow-wrap: anywhere; }
+.rich-editor-content *, .document-page * { font-family: inherit; }
+.rich-editor-content { width: 210mm; max-width: none; min-height: 0; overflow: auto; border: 0; outline: 0; }
 .rich-editor-content:empty::before { color: #94a3b8; content: attr(data-placeholder); pointer-events: none; }
-.document-rich-content p { margin: 0 0 .8em; }
+.rich-editor-content h1, .document-rich-content h1 { margin: .7em 0 .4em; font-size: 1.6em; font-weight: 700; line-height: 1.25; }
+.rich-editor-content h2, .document-rich-content h2 { margin: .7em 0 .4em; font-size: 1.35em; font-weight: 700; line-height: 1.3; }
+.rich-editor-content h3, .document-rich-content h3 { margin: .7em 0 .4em; font-size: 1.15em; font-weight: 700; line-height: 1.35; }
+.rich-editor-content p, .document-rich-content p { margin: 0; }
 .document-rich-content ul, .document-rich-content ol, .rich-editor-content ul, .rich-editor-content ol { margin: .65em 0 .65em 1.5rem; }
 .document-rich-content ul, .rich-editor-content ul { list-style: disc; }
 .document-rich-content ol, .rich-editor-content ol { list-style: decimal; }
 .document-rich-content a, .rich-editor-content a { color: var(--ui-accent); text-decoration: underline; }
+.document-rich-content { white-space: normal; }
 .document-page { margin-bottom: 2rem; }
 html.dark .rich-editor-shell { border-color: #334155; background: #020617; }
 html.dark .rich-editor-toolbar { border-color: #334155; background: #0f172a; }
 html.dark .rich-editor-group { border-color: #334155; }
 html.dark .rich-editor-button { color: #cbd5e1; }
+html.dark .rich-editor-font-size-input, html.dark .rich-editor-font-size-unit, html.dark .rich-editor-font-size-toggle, html.dark .rich-editor-font-size-menu { border-color: #475569; background: #0f172a; color: #e2e8f0; }
+html.dark .rich-editor-font-size-menu button { color: #e2e8f0; }
+html.dark .rich-editor-font-size-menu button:hover, html.dark .rich-editor-font-size-menu button:focus-visible { background: #1e293b; }
 
 @page { size: A4 portrait; margin: 0; }
 @media print {
   html, body { width: 210mm; min-height: 297mm; }
-  .a4-page, .print-preview { width: 210mm !important; min-height: 297mm !important; margin: 0 !important; box-shadow: none !important; }
+  .a4-page { width: 210mm !important; min-height: 297mm !important; margin: 0 !important; box-shadow: none !important; }
   .document-page { padding: 20mm !important; }
 }

@@ -294,6 +294,27 @@ describe('tipos de documento', () => {
     await expect(api.deleteDocumentTemplate(context, created.id)).resolves.toBe(true)
     expect(loadDb().documentTemplates.some((item) => item.id === created.id)).toBe(false)
   })
+
+  it('valida variáveis, mantém um único padrão e substitui o número real ao criar documento', async () => {
+    const context = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    await expect(api.createDocumentTemplate(context, {
+      typeId: 'dt-oficio', name: 'Variável inválida', subject: '', body: '<p>{{campo_inexistente}}</p>', active: true,
+    })).rejects.toThrow('Variáveis desconhecidas')
+    const first = await api.createDocumentTemplate(context, {
+      typeId: 'dt-oficio', name: 'Primeiro padrão', subject: 'Ofício', body: '<p>Texto normal.</p>', active: true, isDefault: true,
+    })
+    const second = await api.createDocumentTemplate(context, {
+      typeId: 'dt-oficio', name: 'Segundo padrão', subject: 'Ofício', body: '<p>Nº {{numero_documento}} — {{nome_autor}}</p>', active: true, isDefault: true,
+    })
+    expect(loadDb().documentTemplates.find((item) => item.id === first.id)?.isDefault).toBe(false)
+    expect(loadDb().documentTemplates.find((item) => item.id === second.id)?.isDefault).toBe(true)
+    const document = await api.createDocument(context, {
+      typeId: 'dt-oficio', subject: 'Ofício', body: second.body, unitId: 'u-prot',
+    })
+    expect(document.body).toContain(document.number)
+    expect(document.body).toContain('Marina Duarte')
+    expect(document.body).not.toContain('{{')
+  })
 })
 
 describe('usuários de demonstração', () => {

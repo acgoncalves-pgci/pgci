@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Printer, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -101,12 +101,4 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
         </OverlayLayerContext.Provider>,
         document.body,
     );
-}
-
-export function PrintPreviewDialog({ title, children, onClose }: {
-    title: string;
-    children: ReactNode;
-    onClose: () => void;
-}) {
-    return <Dialog title={`Prévia de impressão — ${title}`} onClose={onClose} wide><p className="no-print mb-4 text-sm text-slate-600 dark:text-slate-300">Confira o conteúdo abaixo. Menus e ações não serão impressos.</p><article className="print-preview mx-auto max-w-3xl bg-white p-6 text-slate-900 sm:p-8">{children}</article><div className="no-print mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Fechar</button><button type="button" className="btn-primary" onClick={() => window.print()}><Printer size={16}/>Imprimir</button></div></Dialog>;
 }
