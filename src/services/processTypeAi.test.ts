@@ -33,7 +33,7 @@ const validProposal = {
 const geminiResponse = (proposal: unknown) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(proposal) }] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 
 describe('criação de tipos de processo com Gemini', () => {
-  it('solicita saída estruturada e valida uma proposta baseada no catálogo', async () => {
+  it('solicita JSON e valida uma proposta baseada no catálogo', async () => {
     let requestedUrl = ''
     let requestedInit: RequestInit | undefined
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,8 +52,9 @@ describe('criação de tipos de processo com Gemini', () => {
     expect(fetcher).toHaveBeenCalledOnce()
     expect(requestedUrl).toContain('/models/gemini-test:generateContent')
     const body = JSON.parse(String(requestedInit?.body))
-    expect(body.generationConfig.responseFormat.text.mimeType).toBe('application/json')
-    expect(body.generationConfig.responseFormat.text.schema.properties.categoryId.enum).toContain('category-purchases')
+    expect(body.generationConfig.responseMimeType).toBe('application/json')
+    expect(body.generationConfig.responseFormat).toBeUndefined()
+    expect(body.contents[0].parts[0].text).toContain('"categoryId":{"type":"string","enum":["category-purchases"]')
   })
 
   it('rejeita referências que não existem no catálogo local', async () => {

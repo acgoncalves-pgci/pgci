@@ -12,6 +12,7 @@ import { Select } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
+import { ListPagination, paginateItems } from '../../components/ui/ListPagination'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 import { AiProtocolTypeDialog } from './AiProtocolTypeDialog'
 export function ProtocolTypesPage() {
@@ -38,6 +39,7 @@ export function ProtocolTypesPage() {
 }
 function TypesList({ types, categories, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onCreateWithAi, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onCreateWithAi: () => void; onNew: () => void }) {
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [flowFilter, setFlowFilter] = useState<'ALL' | FlowMode>('ALL')
@@ -88,11 +90,12 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
     const matchesSituation = situationFilter === 'ALL' || (situationFilter === 'ACTIVE' ? type.active : !type.active)
     return matchesSearch && matchesFlow && matchesSituation && hasRequirement(type, requirementFilter)
   })
+  const paginated = paginateItems(shown, page)
 
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de processo" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
+        <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de processo" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
         <button className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />Mais filtros</button>
       </div>
       {editable && <div ref={menuRef} className="relative flex items-center gap-2">
@@ -110,7 +113,7 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
     </div>
 
     <div className="space-y-1.5">
-      {shown.map((type) => {
+      {paginated.items.map((type) => {
         const category = categories.find((item) => item.id === type.categoryId)
         const flowMode = type.flowMode ?? (type.flowId ? 'REQUIRED' : 'NONE')
         const flowLabel = flowMode === 'REQUIRED' ? 'FLUXO OBRIGATÓRIO' : flowMode === 'SUGGESTED' ? 'FLUXO SUGERIDO' : 'FLUXO LIVRE'
@@ -141,12 +144,13 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
       })}
       {shown.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhum tipo encontrado. Ajuste a busca ou os filtros aplicados.</p>}
     </div>
+    <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="tipos de processo"/>
 
     {filtersOpen && <Dialog title="Filtros" onClose={() => setFiltersOpen(false)}>
       <div className="space-y-4">
-        <Field label="Fluxo"><Select value={flowFilter} onChange={(event) => setFlowFilter(event.target.value as 'ALL' | FlowMode)}><option value="ALL">Todos os fluxos</option><option value="NONE">Fluxo livre</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
-        <Field label="Requisitos"><Select value={requirementFilter} onChange={(event) => setRequirementFilter(event.target.value)}><option value="">Selecionar...</option><option value="tramitacao">Tem tramitação</option><option value="credor">Tem credor</option><option value="interessado">Tem interessado</option><option value="responsavel">Tem responsável</option><option value="assunto">Tem assunto</option><option value="arquivos">Tem arquivos</option><option value="amount">Tem valor</option><option value="portal">Tem portal do cidadão</option></Select></Field>
-        <Field label="Situação"><Select value={situationFilter} onChange={(event) => setSituationFilter(event.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}><option value="ALL">Todas as situações</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></Select></Field>
+        <Field label="Fluxo"><Select value={flowFilter} onChange={(event) => { setFlowFilter(event.target.value as 'ALL' | FlowMode); setPage(1) }}><option value="ALL">Todos os fluxos</option><option value="NONE">Fluxo livre</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
+        <Field label="Requisitos"><Select value={requirementFilter} onChange={(event) => { setRequirementFilter(event.target.value); setPage(1) }}><option value="">Selecionar...</option><option value="tramitacao">Tem tramitação</option><option value="credor">Tem credor</option><option value="interessado">Tem interessado</option><option value="responsavel">Tem responsável</option><option value="assunto">Tem assunto</option><option value="arquivos">Tem arquivos</option><option value="amount">Tem valor</option><option value="portal">Tem portal do cidadão</option></Select></Field>
+        <Field label="Situação"><Select value={situationFilter} onChange={(event) => { setSituationFilter(event.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE'); setPage(1) }}><option value="ALL">Todas as situações</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></Select></Field>
         <div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setFiltersOpen(false)}>Cancelar</button><button className="button-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
       </div>
     </Dialog>}
@@ -386,8 +390,8 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
           </section>
           <section className="rounded-lg border p-4 lg:col-span-5">
             <h3 className="label mb-3">Outros</h3>
-            <Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
-            <Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></Field>
+            <Field label="Observação *"><textarea className="field min-h-24" maxLength={4000} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Descreva a finalidade e as regras deste tipo de processo..."/></Field>
+            <Field label="Prazo padrão"><Input className="field mt-3" type="number" min="1" value={deadline} onChange={(event) => setDeadline(event.target.value)} placeholder="Ex.: 10 dias"/></Field>
           </section>
           <section className="rounded-lg border p-4 lg:col-span-12">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -417,7 +421,7 @@ function ChecklistEditor({ title, questions, onChange, onClose }: { title: strin
   return <><Dialog title={title} onClose={onClose}><div className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}<div className="pt-3 text-right"><button className="btn-secondary" onClick={onClose}>Fechar</button></div></div></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save} stacked/>}</>
 }
 function QuestionEditor({ question, onClose, onSave, stacked }: { question: ChecklistQuestion; onClose: () => void; onSave: (question: ChecklistQuestion) => void; stacked?: boolean }) {
-  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose} stacked={stacked}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })}/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })}/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
+  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose} stacked={stacked}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} placeholder="Ex.: Os documentos foram conferidos?"/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })} placeholder="Ex.: 1"/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
 }
 
 function StageEditor({ draft, phases, situations, units, order, saving, onClose, onSave }: {
@@ -487,7 +491,7 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
           </div>
           {questions.length ? <div className="mt-4 divide-y rounded-lg border">{questions.map((question) => <article key={question.id} className="flex items-center gap-3 px-3 py-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-muted text-xs font-semibold">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-muted-foreground">{[question.required && 'Obrigatório', question.requiresDate && 'Data', question.requiresAttachment && 'Anexo', question.requiresObservation && 'Observação'].filter(Boolean).join(' · ') || 'Sem requisitos adicionais'}</p></div><button type="button" className="btn-secondary !p-2" aria-label={`Editar pergunta ${question.text}`} onClick={() => setEditingQuestion(question)}><Pencil size={15}/></button><button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir pergunta ${question.text}`} onClick={() => setStage((current) => ({ ...current, checklistQuestions: questions.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })) }))}><Trash2 size={15}/></button></article>)}</div> : <div className="mt-4 rounded-lg border border-dashed px-4 py-8 text-center"><span className="mx-auto grid size-9 place-items-center rounded-full bg-muted text-muted-foreground"><ListChecks size={18}/></span><p className="mt-3 text-sm font-medium">Nenhuma pergunta cadastrada</p><p className="mt-1 text-xs text-muted-foreground">Adicione perguntas para orientar o preenchimento e a validação desta etapa.</p></div>}
         </section>}
-        <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })}/></section>
+        <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })} placeholder="Oriente a execução desta etapa..."/></section>
         <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
       </form>

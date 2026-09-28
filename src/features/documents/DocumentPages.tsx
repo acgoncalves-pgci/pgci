@@ -11,6 +11,7 @@ import { PdfViewerDialog } from '../../components/ui/PdfViewerDialog'
 import { Input } from '../../components/ui/Input'
 import { RichTextEditor } from '../../components/ui/RichTextEditor'
 import { Select } from '../../components/ui/Select'
+import { ListPagination, paginateItems } from '../../components/ui/ListPagination'
 import type { AppDocument, Database } from '../../domain/model'
 import { canManageDocument, canOpenProtocolType, canReceiveWorkInUnit } from '../../domain/rules'
 import { unitPath } from '../../domain/units'
@@ -38,6 +39,7 @@ export function Documents() {
   const ctx = useSession()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [typeId, setTypeId] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [deleting, setDeleting] = useState<AppDocument | null>(null)
@@ -45,17 +47,20 @@ export function Documents() {
   const { data, isLoading, error } = useQuery({ queryKey: ['documents', ctx.userId, ctx.activeUnitId, search, typeId], queryFn: () => api.listDocuments(ctx, search, typeId) })
   if (isLoading) return <Loading variant="list"/>
   if (error || !data) return <ErrorBox error={error}/>
+  const sorted = data.items.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const paginated = paginateItems(sorted, page)
   return <>
     <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div className="flex items-start gap-3"><span className="rounded-lg bg-[color-mix(in_srgb,var(--ui-accent)_12%,transparent)] p-2 text-[var(--ui-accent)]"><FileText size={18}/></span><div><h1 className="text-2xl font-bold tracking-tight">Documentos</h1><p className="text-sm text-muted-foreground">Ofícios, memorandos e demais documentos da entidade.</p></div></div>
       <Link className="btn-primary" to="/documentos/novo"><Plus size={16}/>Novo</Link>
     </div>
     <div className="mb-5 flex flex-wrap gap-2">
-      <label className="relative min-w-0 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 text-slate-400" size={17}/><Input aria-label="Buscar documentos" className="field !mt-0 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por número ou assunto..."/></label>
+      <label className="relative min-w-0 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 text-slate-400" size={17}/><Input aria-label="Buscar documentos" className="field !mt-0 pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por número ou assunto..."/></label>
       <button type="button" className="btn-secondary" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}><ListFilter size={16}/>Mais filtros</button>
-      {showFilters && <Select aria-label="Filtrar por tipo de documento" className="field !mt-0 w-full sm:w-52" value={typeId} onChange={(event) => setTypeId(event.target.value)}><option value="">Todos os tipos</option>{data.db.documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</Select>}
+      {showFilters && <Select aria-label="Filtrar por tipo de documento" className="field !mt-0 w-full sm:w-52" value={typeId} onChange={(event) => { setTypeId(event.target.value); setPage(1) }}><option value="">Todos os tipos</option>{data.db.documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</Select>}
     </div>
-    {data.items.length ? <div className="space-y-2">{data.items.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((document) => <DocumentRow key={document.id} document={document} db={data.db} ctx={ctx} onDelete={() => setDeleting(document)}/>)}</div> : <Empty title="Nenhum documento encontrado" detail="Comece redigindo um documento em formato A4."/>}
+    {data.items.length ? <div className="space-y-2">{paginated.items.map((document) => <DocumentRow key={document.id} document={document} db={data.db} ctx={ctx} onDelete={() => setDeleting(document)}/>)}</div> : <Empty title="Nenhum documento encontrado" detail="Comece redigindo um documento em formato A4."/>}
+    <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="documentos"/>
     {deleting && <Dialog title="Excluir documento?" onClose={() => setDeleting(null)}><div className="space-y-4 p-5"><p className="text-sm">O documento <strong>{deleting.number}</strong> será excluído. Esta ação não pode ser desfeita.</p>{remove.error && <ErrorBox error={remove.error}/>}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir documento'}</button></div></div></Dialog>}
   </>
 }
@@ -135,11 +140,11 @@ export function NewDocument({ editing = false }: { editing?: boolean }) {
         {typeId && <Field label="Modelo"><Select aria-label="Modelo do documento" className="field" value={templateId} disabled={templates.length === 0} onChange={(event) => applyTemplate(event.target.value)}><option value="">{!templates.length ? 'Nenhum modelo disponível' : 'Selecione um modelo (opcional)'}</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</Select><span className="mt-1 block text-xs text-muted-foreground">O modelo preenche o corpo do documento; o texto continua editável.</span></Field>}
         <div className="sm:col-span-2"><Field label="Lotação" error={form.formState.errors.unitId?.message}><Select aria-label="Lotação" searchable searchPlaceholder="Buscar na estrutura..." className="field" value={unitId} disabled={Boolean(protocol || document?.protocolId)} onChange={(event) => { form.setValue('unitId', event.target.value, { shouldValidate: true }); resolveAvailableTokens({ unitId: event.target.value }) }}><option value="">Selecione na estrutura...</option>{db.units.filter((unit) => unit.active && db.memberships.some((membership) => membership.userId === ctx.userId && membership.unitId === unit.id && membership.active && membership.role !== 'LEITOR')).sort((left, right) => unitPath(db.units, left.id).localeCompare(unitPath(db.units, right.id), 'pt-BR')).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}</Select></Field></div>
         <Field label="Destinatário"><Select className="field" value={recipientPersonId ?? ''} onChange={(event) => { form.setValue('recipientPersonId', event.target.value); resolveAvailableTokens({ recipientPersonId: event.target.value }) }}><option value="">Sem destinatário</option>{db.people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</Select></Field>
-        <Field label="Assunto *" error={form.formState.errors.subject?.message}><Input className="field" {...form.register('subject')}/></Field>
+        <Field label="Assunto *" error={form.formState.errors.subject?.message}><Input className="field" placeholder="Ex.: Encaminhamento de solicitação" {...form.register('subject')}/></Field>
         {(protocol || document?.protocolId) && <div className="sm:col-span-2"><Field label="Processo vinculado"><Input className="field bg-slate-50" value={protocol ? `${protocol.number} — ${protocol.subject}` : db.protocols.find((item) => item.id === document?.protocolId)?.number ?? ''} readOnly/></Field></div>}
       </div></section>
       <div><span className="label mb-1 block">Corpo do documento *</span><RichTextEditor ariaLabel="Corpo do documento *" value={body} onChange={(value) => form.setValue('body', value, { shouldDirty: true, shouldValidate: true })}/>{form.formState.errors.body?.message && <span role="alert" className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{form.formState.errors.body.message}</span>}</div>
-      <div className="grid gap-4 sm:grid-cols-2"><Field label="Assinante"><Input className="field" {...form.register('signerName')}/></Field><Field label="Cargo do assinante"><Input className="field" {...form.register('signerTitle')}/></Field></div>
+      <div className="grid gap-4 sm:grid-cols-2"><Field label="Assinante"><Input className="field" placeholder="Nome de quem assinará o documento" {...form.register('signerName')}/></Field><Field label="Cargo do assinante"><Input className="field" placeholder="Ex.: Secretário municipal" {...form.register('signerTitle')}/></Field></div>
       {create.error && <ErrorBox error={create.error}/>}<div className="flex justify-end gap-2 border-t pt-4"><Link className="btn-secondary" to={editing ? `/documentos/${documentId}` : '/documentos'}>Cancelar</Link><button className="btn-primary" disabled={create.isPending}>{create.isPending ? 'Salvando…' : 'Salvar documento'}</button></div>
     </form>
   </>

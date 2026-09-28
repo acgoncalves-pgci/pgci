@@ -102,15 +102,19 @@ html.dark .overview-metric:hover, html.dark button.overview-protocol-row:hover {
 .ui-switch[data-state='checked'], .ui-checkbox:checked { border-color: var(--ui-accent); background-color: var(--ui-accent); }
 .nav-link-active { background-color: color-mix(in srgb, var(--ui-accent) 11%, white); color: var(--ui-accent); }
 html.dark .nav-link-active { background-color: color-mix(in srgb, var(--ui-accent) 20%, #0f172a); color: white; }
-@media print { body { zoom: 1; } }
+@media print {
+  body { zoom: 1; }
+  .pgci-app-shell, .pgci-app-content, #main-content, .pgci-page-scroll { height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  .pgci-app-content, #main-content { display: block !important; }
+}
 
 .pgci-nav-link { display: flex; min-height: 2.35rem; align-items: center; gap: .55rem; border-radius: .75rem; padding: .45rem .7rem; font-size: .91rem; font-weight: 600; line-height: 1.2; transition: background-color 150ms ease, color 150ms ease; }
 .pgci-nav-link:is(:hover, :focus-visible, :active) { background: rgb(255 255 255 / .72); color: #111827; }
 .pgci-user-select [data-select-value] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pgci-footer { display: flex; min-height: 6rem; align-items: center; justify-content: space-between; background: var(--ui-footer-bg); padding: 1rem 3.4rem; color: var(--ui-footer-fg); font-size: .76rem; font-weight: 600; line-height: 1.25; }
+.pgci-footer { display: flex; min-height: 2.75rem; align-items: center; justify-content: space-between; gap: 1rem; background: var(--ui-footer-bg); padding: .35rem 1.75rem; color: var(--ui-footer-fg); font-size: .68rem; font-weight: 600; line-height: 1.15; }
 .pgci-footer span:last-child { white-space: nowrap; }
-.pgci-app-shell { min-height: calc(100dvh / var(--ui-zoom)); }
-.pgci-app-content { flex: 1 0 auto; transition: grid-template-columns 180ms ease; }
+.pgci-app-shell { height: calc(100dvh / var(--ui-zoom)); }
+.pgci-app-content { flex: 1 1 auto; transition: grid-template-columns 180ms ease; }
 @media (min-width: 1024px) {
   .pgci-app-content:has(.pgci-sidebar-compact:not(.pgci-sidebar-dismissed):is(:hover, :focus-within)) { grid-template-columns: 240px minmax(0, 1fr) !important; }
 }
@@ -129,8 +133,8 @@ html.dark .pgci-dashboard .overview-search { background: rgb(15 23 42); border-c
 html.dark .overview-quick-link { border-color: rgb(71 85 105); color: #f8fafc; }
 html.dark .overview-quick-link small { color: #cbd5e1; }
 html.dark .overview-quick-link:hover { background: rgb(30 41 59); }
-@media (max-width: 1023px) { .pgci-footer { padding: 1.1rem 1.25rem; } .pgci-dashboard-shapes { width: 1397px; max-width: none; left: 50%; transform: translateX(-50%); } }
-@media (max-width: 639px) { .pgci-footer { min-height: 4.6rem; font-size: .66rem; } .overview-quick-link { min-height: 6.5rem; padding: 1rem; } }
+@media (max-width: 1023px) { .pgci-footer { padding-inline: 1.25rem; } .pgci-dashboard-shapes { width: 1397px; max-width: none; left: 50%; transform: translateX(-50%); } }
+@media (max-width: 639px) { .pgci-footer { min-height: 2.5rem; padding: .3rem .75rem; font-size: .58rem; } .overview-quick-link { min-height: 6.5rem; padding: 1rem; } }
 .pgci-dashboard-shapes { position: absolute; top: 3rem; left: 0; z-index: 0; width: 100%; aspect-ratio: 1397 / 330; overflow: hidden; pointer-events: none; }
 .pgci-dashboard-shape { position: absolute; display: block; aspect-ratio: 1; border-radius: 9999px; background: var(--ui-accent); }
 .pgci-dashboard-shape-left { top: 24.85%; left: -6.3%; width: 30.64%; opacity: .11; }
@@ -140,7 +144,6 @@ html.dark .overview-quick-link:hover { background: rgb(30 41 59); }
 .pgci-sidebar .pgci-nav-link-active { margin-right: -2.25rem; border-radius: .9rem 0 0 .9rem; background: var(--ui-page-bg); color: #111827; box-shadow: none; }
 .pgci-sidebar .pgci-nav-link-active:hover { background: var(--ui-page-bg); color: #111827; }
 html.dark .pgci-sidebar .pgci-nav-link-active, html.dark .pgci-sidebar .pgci-nav-link-active:hover { background: var(--ui-page-bg); color: white; }
-.pgci-footer { min-height: 3.5rem; padding-top: .5rem; padding-bottom: .5rem; }
 .pgci-sidebar nav .pgci-nav-link { width: calc(100% + 1.5rem); margin-right: -1.5rem; border-radius: .9rem 0 0 .9rem; white-space: nowrap; font-size: .84rem; }
 .pgci-sidebar nav .pgci-nav-link-active,
 .pgci-sidebar nav .pgci-nav-link:is(:hover, :focus-visible, :active) { margin-right: -1.5rem; border-radius: .9rem 0 0 .9rem; background: var(--ui-page-bg); color: #111827; box-shadow: none; }

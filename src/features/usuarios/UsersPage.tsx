@@ -6,6 +6,8 @@ import {
   Building2,
   CalendarDays,
   ChevronRight,
+  Download,
+  FileUp,
   Pencil,
   Plus,
   Search,
@@ -22,9 +24,13 @@ import { useSession } from '../../app/session';
 import { invalidateAll, useDb } from '../../app/queries';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
+import { CpfInput } from '../../components/ui/CpfInput';
 import { Select } from '../../components/ui/Select';
 import { Switch } from '../../components/ui/Switch';
 import { Empty, ErrorBox, Field, Loading } from '../../components/ui/Feedback';
+import { ListPagination, paginateItems } from '../../components/ui/ListPagination';
+import { parseUserCsv } from '../../lib/userCsv';
+import type { UserImportResult } from '../../lib/userCsv';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Administrador',
@@ -50,7 +56,9 @@ export function UsersPage() {
   const ctx = useSession();
   const { data: db, isLoading } = useDb();
   const [editing, setEditing] = useState<AppUser | 'new' | null>(null);
+  const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [role, setRole] = useState<'all' | Role>('all');
@@ -60,13 +68,14 @@ export function UsersPage() {
     const query = normalize(search.trim());
     return db.users
       .filter((user) => {
-        const matchesQuery = !query || normalize(user.name + ' ' + user.email).includes(query);
+        const matchesQuery = !query || normalize(user.name + ' ' + user.email + ' ' + (user.cpf ?? '')).includes(query);
         const matchesStatus = status === 'all' || (status === 'active' ? user.active : !user.active);
         const matchesRole = role === 'all' || user.role === role;
         return matchesQuery && matchesStatus && matchesRole;
       })
       .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
   }, [db, role, search, status]);
+  const paginated = paginateItems(users, page);
 
   if (isLoading || !db) return <Loading variant="list" />;
 
@@ -84,11 +93,10 @@ export function UsersPage() {
             <p className="text-sm text-slate-500 dark:text-slate-400">Usuários com acesso ao sistema desta entidade.</p>
           </div>
         </div>
-        {isAdmin && (
-          <button className="btn-primary self-start" onClick={() => setEditing('new')}>
-            <Plus size={16} /> Novo usuário
-          </button>
-        )}
+        {isAdmin && <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary self-start" onClick={() => setImporting(true)}><FileUp size={16} /> Importar CSV</button>
+          <button className="btn-primary self-start" onClick={() => setEditing('new')}><Plus size={16} /> Novo usuário</button>
+        </div>}
       </header>
 
       <section className="mb-5 space-y-3" aria-label="Busca e filtros de usuários">
@@ -98,9 +106,9 @@ export function UsersPage() {
             <Input
               aria-label="Buscar usuários"
               className="!mt-0 pl-9"
-              placeholder="Nome ou e-mail..."
+              placeholder="Nome, e-mail ou CPF..."
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }}
             />
           </label>
           <button type="button" className="btn-secondary self-start" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((current) => !current)}>
@@ -110,14 +118,14 @@ export function UsersPage() {
         {filtersOpen && (
           <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 dark:border-slate-700 dark:bg-slate-900/60">
             <Field label="Situação">
-              <Select aria-label="Filtrar usuários por situação" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+              <Select aria-label="Filtrar usuários por situação" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}>
                 <option value="all">Todos</option>
                 <option value="active">Ativos</option>
                 <option value="inactive">Inativos</option>
               </Select>
             </Field>
             <Field label="Perfil principal">
-              <Select aria-label="Filtrar usuários por perfil" value={role} onChange={(event) => setRole(event.target.value as typeof role)}>
+              <Select aria-label="Filtrar usuários por perfil" value={role} onChange={(event) => { setRole(event.target.value as typeof role); setPage(1); }}>
                 <option value="all">Todos os perfis</option>
                 <option value="ADMIN">Administrador</option>
                 <option value="GESTOR">Gestor</option>
@@ -131,7 +139,7 @@ export function UsersPage() {
 
       {users.length ? (
         <section className="space-y-2" aria-label="Lista de usuários">
-          {users.map((user) => {
+          {paginated.items.map((user) => {
             const units = membershipCount(db, user.id);
             return (
               <article className="flex min-h-[4.15rem] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-[color-mix(in_srgb,var(--ui-accent)_40%,#cbd5e1)] dark:border-slate-700 dark:bg-slate-900/70" key={user.id}>
@@ -142,6 +150,7 @@ export function UsersPage() {
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <h2 className="truncate text-sm font-bold">{user.name}</h2>
                     {!user.active && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">Inativo</span>}
+                    {!units && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-950 dark:text-amber-200">Sem unidade</span>}
                     <span className={'rounded-full border px-2 py-0.5 text-[10px] font-bold ' + roleStyles[user.role]}>{roleLabels[user.role]}</span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
@@ -170,15 +179,16 @@ export function UsersPage() {
       ) : (
         <Empty title="Nenhum usuário encontrado" detail="Ajuste a busca ou os filtros para localizar outros usuários." />
       )}
+      <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="usuários" />
 
       {editing && (
         <UserEditor
           user={editing === 'new' ? undefined : editing}
-          db={db}
           onClose={() => setEditing(null)}
           onSaved={() => setEditing(null)}
         />
       )}
+      {importing && <UserImportDialog db={db} onClose={() => setImporting(false)} />}
     </div>
   );
 }
@@ -309,9 +319,8 @@ export function UserAccessPage() {
   );
 }
 
-function UserEditor({ user, db, onClose, onSaved }: {
+function UserEditor({ user, onClose, onSaved }: {
   user?: AppUser;
-  db: Database;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -320,11 +329,12 @@ function UserEditor({ user, db, onClose, onSaved }: {
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [role, setRole] = useState<Role>(user?.role ?? 'OPERADOR');
-  const [unitId, setUnitId] = useState(user?.unitId ?? db.units.find((unit) => unit.active)?.id ?? '');
+  const [cpf, setCpf] = useState(user?.cpf ?? '');
+  const [createPerson, setCreatePerson] = useState(false);
   const [active, setActive] = useState(user?.active ?? true);
   const mutation = useMutation({
     mutationFn: () => {
-      const input = { name, email, role, unitId, active };
+      const input = { name, email, role, cpf, active, createPerson: !user && createPerson };
       return user ? api.updateUser(ctx, user.id, input) : api.createUser(ctx, input);
     },
     onSuccess: () => {
@@ -338,10 +348,10 @@ function UserEditor({ user, db, onClose, onSaved }: {
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nome *">
-            <Input aria-label="Nome do usuário" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
+            <Input aria-label="Nome do usuário" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Ex.: Maria da Silva" />
           </Field>
           <Field label="E-mail *">
-            <Input aria-label="E-mail do usuário" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+            <Input aria-label="E-mail do usuário" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="nome@exemplo.com.br" />
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -353,21 +363,73 @@ function UserEditor({ user, db, onClose, onSaved }: {
               <option value="LEITOR">Leitor</option>
             </Select>
           </Field>
-          <Field label="Unidade principal">
-            <Select aria-label="Unidade principal" value={unitId} onChange={(event) => setUnitId(event.target.value)}>
-              {sortUnitsByPath(db.units.filter((unit) => unit.active)).map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}
-            </Select>
+          <Field label="CPF (opcional)">
+            <CpfInput aria-label="CPF do usuário" defaultValue={cpf} onChange={(event) => setCpf(event.target.value)} placeholder="000.000.000-00" />
           </Field>
         </div>
+        {!user && <>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={createPerson} onCheckedChange={setCreatePerson} aria-label="Criar pessoa" /> Criar pessoa com o mesmo nome</label>
+          <p className="text-xs text-slate-500 dark:text-slate-400">A unidade será atribuída depois, pelo botão Unidades. Até lá, o usuário não terá acesso ao sistema.</p>
+        </>}
         {user && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onCheckedChange={setActive} /> Usuário ativo</label>}
         {mutation.error && <ErrorBox error={mutation.error} />}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-          <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim() || !unitId}>Salvar</button>
+          <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim()}>Salvar</button>
         </div>
       </form>
     </Dialog>
   );
+}
+
+function UserImportDialog({ db, onClose }: { db: Database; onClose: () => void }) {
+  const ctx = useSession();
+  const client = useQueryClient();
+  const [filename, setFilename] = useState('');
+  const [result, setResult] = useState<UserImportResult | null>(null);
+  const [fileError, setFileError] = useState('');
+  const mutation = useMutation({
+    mutationFn: () => api.importUsers(ctx, result?.rows ?? []),
+    onSuccess: () => { invalidateAll(client); onClose(); },
+  });
+
+  const readFile = async (file?: File) => {
+    setResult(null);
+    setFileError('');
+    setFilename(file?.name ?? '');
+    if (!file) return;
+    if (!file.name.toLocaleLowerCase().endsWith('.csv')) { setFileError('Selecione um arquivo .csv.'); return; }
+    if (file.size > 1024 * 1024) { setFileError('O arquivo deve ter no máximo 1 MB.'); return; }
+    try { setResult(parseUserCsv(await file.text(), db)); }
+    catch { setFileError('Não foi possível ler o arquivo CSV.'); }
+  };
+
+  return <Dialog title="Importar usuários por CSV" onClose={onClose} wide>
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600 dark:text-slate-300">Cadastre até 1000 usuários por vez. Use <strong>sim</strong> ou <strong>não</strong> em ativo e criar_pessoa. A unidade será atribuída depois no botão <strong>Unidades</strong>.</p>
+      <a className="btn-secondary inline-flex" href="/examples/usuarios.csv" download="usuarios.csv"><Download size={16} /> Baixar CSV de exemplo</a>
+      <Field label="Arquivo CSV *">
+        <Input aria-label="Arquivo CSV" type="file" accept=".csv,text/csv" onChange={(event) => { void readFile(event.target.files?.[0]); }} />
+      </Field>
+      {filename && <p className="text-xs text-slate-500 dark:text-slate-400">Arquivo: {filename}</p>}
+      {fileError && <ErrorBox error={new Error(fileError)} />}
+      {result && <>
+        <p className="text-sm font-semibold">{result.rows.length} usuário(s) encontrado(s) · {result.errors.length} erro(s)</p>
+        {result.errors.length > 0 && <div role="alert" className="max-h-40 overflow-auto rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <ul className="list-inside list-disc space-y-1">{result.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
+        </div>}
+        {result.rows.length > 0 && <div className="max-h-64 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+          <table className="w-full min-w-[650px] text-left text-xs">
+            <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800"><tr>{['Linha', 'Nome', 'E-mail', 'Perfil', 'CPF', 'Ativo', 'Criar pessoa'].map((heading) => <th className="px-3 py-2" key={heading}>{heading}</th>)}</tr></thead>
+            <tbody>{result.rows.slice(0, 20).map((row) => <tr key={row.line} className="border-t border-slate-200 dark:border-slate-700"><td className="px-3 py-2">{row.line}</td><td className="px-3 py-2">{row.name}</td><td className="px-3 py-2">{row.email}</td><td className="px-3 py-2">{row.role}</td><td className="px-3 py-2">{row.cpf || '—'}</td><td className="px-3 py-2">{row.active ? 'Sim' : 'Não'}</td><td className="px-3 py-2">{row.createPerson ? 'Sim' : 'Não'}</td></tr>)}</tbody>
+          </table>
+        </div>}
+        {result.rows.length > 20 && <p className="text-xs text-slate-500">Mostrando as primeiras 20 linhas. Todas serão validadas e importadas.</p>}
+      </>}
+      {mutation.error && <ErrorBox error={mutation.error} />}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button type="button" className="btn-primary" disabled={mutation.isPending || !result?.rows.length || Boolean(result.errors.length)} onClick={() => mutation.mutate()}>Importar usuários</button></div>
+    </div>
+  </Dialog>;
 }
 
 function AccessEditor({ user, membership, db, onClose, onSaved }: {

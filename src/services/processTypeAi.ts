@@ -140,6 +140,10 @@ REGRAS OBRIGATÓRIAS:
 - Mantenha fields.assunto habilitado quando houver fluxo.
 - Prefira fluxo REQUIRED quando a sequência não puder ser livre e SUGGESTED quando servir apenas como orientação.
 - Textos devem estar em português do Brasil e usar linguagem administrativa clara.
+- Retorne exclusivamente um objeto JSON válido, sem Markdown ou explicações fora do JSON, com todos os campos obrigatórios do esquema abaixo.
+
+ESQUEMA DA PROPOSTA:
+${JSON.stringify(objectSchema(catalog))}
 
 DESCRIÇÃO DO USUÁRIO:
 ${description.trim()}
@@ -190,7 +194,7 @@ export async function generateProtocolTypeProposal(description: string, catalog:
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: buildPrompt(description, catalog) }] }],
-      generationConfig: { temperature: 0.2, responseFormat: { text: { mimeType: 'application/json', schema: objectSchema(catalog) } } },
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
     }),
   })
 

@@ -122,7 +122,7 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   await expect(phaseTrack).toContainText('Triagem')
   await expect(phaseTrack).toContainText('Análise')
   await expect(phaseTrack).toContainText('Conclusão')
-  await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Abertura do protocolo$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ })).toBeVisible()
 
@@ -135,6 +135,9 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   const movementToggles = page.locator('button[aria-controls^="timeline-content-"]')
   const movementCount = await movementToggles.count()
   await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Assumir responsabilidade' }).click()
 
   await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
   await expect(movementToggles).toHaveCount(movementCount)
@@ -169,10 +172,10 @@ test('detalhe preserva rolagem vertical e alinha os indicadores de fase', async 
   expect(Math.max(...markerCenters.map((item) => item.y)) - Math.min(...markerCenters.map((item) => item.y))).toBeLessThan(1)
   connectorCenters.forEach((center) => expect(Math.abs(center - markerCenters[0].y)).toBeLessThan(1))
 
-  const hasVerticalOverflow = await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight)
+  const hasVerticalOverflow = await page.locator('.pgci-page-scroll').evaluate((area) => area.scrollHeight > area.clientHeight)
   expect(hasVerticalOverflow).toBe(true)
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  await page.locator('.pgci-page-scroll').evaluate((area) => { area.scrollTop = area.scrollHeight })
+  await expect.poll(() => page.locator('.pgci-page-scroll').evaluate((area) => area.scrollTop)).toBeGreaterThan(0)
 })
 test('permite trocar para a unidade do processo quando o usuário possui vínculo', async ({ page }) => {
   await page.addInitScript(() => {
@@ -278,11 +281,15 @@ test('andamento identifica fase, nome e situação configurada', async ({ page }
   })
   await page.goto('/processos/pr-1')
 
-  const phaseRow = page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ })
+  const phaseRow = page.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Abertura do protocolo$/ })
   await expect(phaseRow).toBeVisible()
-  await expect(phaseRow).toContainText('Fase')
-  await expect(phaseRow).toContainText('Triagem')
+  await expect(phaseRow).toContainText('Abertura do protocolo')
   await expect(phaseRow).toContainText('Cadastrado')
+  const openingCard = phaseRow.locator('xpath=ancestor::section[1]')
+  await expect(openingCard.getByText('Aberto por')).toBeVisible()
+  await expect(openingCard.getByText('Despacho')).toBeVisible()
+  await expect(openingCard.getByLabel('Unidade de destino')).toHaveCount(0)
+  await expect(openingCard.getByLabel('Responsável pela movimentação')).toHaveCount(0)
 })
 test('abre processo pela unidade secundária sem alterar a unidade principal', async ({ page }) => {
   await page.addInitScript(() => {
@@ -299,8 +306,8 @@ test('abre processo pela unidade secundária sem alterar a unidade principal', a
   await page.getByRole('combobox', { name: 'Interessado *' }).click()
   await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
   await page.getByRole('combobox', { name: 'Responsável *' }).click()
-  await expect(page.getByRole('option', { name: 'Marina Duarte' })).toBeVisible()
-  await page.getByRole('option', { name: 'Marina Duarte' }).click()
+  await expect(page.getByRole('option', { name: 'Ana Beatriz Costa' })).toBeVisible()
+  await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
   await page.getByLabel('Assunto *').fill('Operação E2E por unidade secundária')
   await page.getByLabel('Descrição *').fill('Validação da unidade ativa baseada no vínculo.')
   await page.getByRole('button', { name: 'Abrir processo' }).click()
@@ -313,6 +320,7 @@ test('abre processo pela unidade secundária sem alterar a unidade principal', a
       originUnitId: protocol.originUnitId,
       currentUnitId: protocol.currentUnitId,
       currentAssigneeId: protocol.currentAssigneeId,
+      responsiblePersonId: protocol.responsiblePersonId,
       primaryUnitId: database.users.find((user: { id: string }) => user.id === 'usr-admin').unitId,
     }
   })
@@ -320,6 +328,7 @@ test('abre processo pela unidade secundária sem alterar a unidade principal', a
     originUnitId: 'u-adm',
     currentUnitId: 'u-adm',
     currentAssigneeId: 'usr-admin',
+    responsiblePersonId: 'p-1',
     primaryUnitId: 'u-prot',
   })
 })
@@ -344,7 +353,7 @@ test('abertura revela e valida os campos configurados pelo tipo de processo', as
   await page.getByRole('combobox', { name: 'Interessado *' }).click()
   await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
   await page.getByRole('combobox', { name: 'Responsável *' }).click()
-  await page.getByRole('option', { name: 'Clara Nunes' }).click()
+  await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
   await page.getByLabel('Assunto *').fill('Pedido progressivo de teste')
   await page.getByLabel('Descrição *').fill('Descrição criada conforme a configuração do tipo.')
   await page.getByLabel('Observações').fill('Observação preservada na abertura.')
@@ -353,6 +362,31 @@ test('abertura revela e valida os campos configurados pelo tipo de processo', as
   await expect(page.getByRole('heading', { name: 'Pedido progressivo de teste' })).toBeVisible()
   await page.getByRole('button', { name: 'Resumo' }).click()
   await expect(page.getByText('Observação preservada na abertura.')).toBeVisible()
+})
+
+test('cadastra pessoa responsável na abertura e mostra seu nome no resumo', async ({ page }) => {
+  await page.goto('/processos/novo')
+  await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
+  await page.getByRole('option', { name: 'Pedido de informação' }).click()
+  await page.getByRole('combobox', { name: 'Interessado *' }).click()
+  await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
+
+  await page.getByRole('button', { name: 'Cadastrar novo responsável' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Cadastrar pessoa' })
+  await dialog.getByLabel('Nome completo *').fill('Responsável criado na abertura')
+  await expect(dialog.getByRole('checkbox', { name: 'Responsável' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Salvar pessoa' }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole('combobox', { name: 'Responsável *' }).click()
+  await expect(page.getByRole('option', { name: 'Responsável criado na abertura · Responsável' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByLabel('Assunto *').fill('Processo com pessoa responsável')
+  await page.getByLabel('Descrição *').fill('Responsável cadastrado durante a abertura.')
+  await page.getByRole('button', { name: 'Abrir processo' }).click()
+  await expect(page.getByRole('heading', { name: 'Processo com pessoa responsável' })).toBeVisible()
+  await page.getByRole('button', { name: 'Resumo' }).click()
+  await expect(page.getByText('Responsável criado na abertura')).toBeVisible()
 })
 
 test('formata e persiste valores monetários em reais na abertura', async ({ page }) => {
@@ -473,6 +507,7 @@ test('cria a primeira etapa reaproveitando um fluxo órfão existente', async ({
   }, typeName)
 
   await page.goto('/tipos-processo')
+  await page.getByRole('textbox', { name: 'Buscar tipo de processo' }).fill(typeName)
   await page.getByRole('button', { name: `Configurar fluxo de ${typeName}: 0 etapa(s)` }).click()
   await expect(page.getByText('Nenhuma etapa configurada. Crie a primeira etapa deste fluxo.')).toBeVisible()
   await page.getByRole('button', { name: 'Nova etapa' }).click()

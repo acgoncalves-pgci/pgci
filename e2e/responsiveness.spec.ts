@@ -234,9 +234,45 @@ test('oferece e aplica configurações de aparência', async ({ page }) => {
       if (!sidebar || !footer) throw new Error('Shell não encontrado.')
       const sidebarBox = sidebar.getBoundingClientRect()
       const footerBox = footer.getBoundingClientRect()
-      return { sidebarBottom: sidebarBox.bottom, footerTop: footerBox.top, footerBottom: footerBox.bottom, viewportHeight: window.innerHeight }
+      return { sidebarRight: sidebarBox.right, sidebarBottom: sidebarBox.bottom, footerLeft: footerBox.left, footerBottom: footerBox.bottom, viewportHeight: window.innerHeight }
     })
-    expect(Math.abs(shellGeometry.sidebarBottom - shellGeometry.footerTop)).toBeLessThan(1.5)
-    expect(shellGeometry.footerBottom).toBeGreaterThanOrEqual(shellGeometry.viewportHeight - 1.5)
+    expect(Math.abs(shellGeometry.sidebarRight - shellGeometry.footerLeft)).toBeLessThan(1.5)
+    expect(Math.abs(shellGeometry.sidebarBottom - shellGeometry.footerBottom)).toBeLessThan(1.5)
+    expect(Math.abs(shellGeometry.footerBottom - shellGeometry.viewportHeight)).toBeLessThan(1.5)
   }
+})
+
+test('rola apenas o conteúdo entre header e footer', async ({ page }) => {
+  await page.goto('/processos')
+  await expect(page.getByRole('heading', { name: 'Processos' })).toBeVisible()
+  const scrollArea = page.locator('.pgci-page-scroll')
+  await scrollArea.locator('[data-route-transition]').evaluate((content) => { (content as HTMLElement).style.minHeight = '1800px' })
+  await expect.poll(() => scrollArea.evaluate((area) => area.scrollHeight > area.clientHeight)).toBe(true)
+
+  const before = await page.evaluate(() => ({
+    header: document.querySelector('.pgci-header')!.getBoundingClientRect().top,
+    footer: document.querySelector('.pgci-footer')!.getBoundingClientRect().top,
+    sidebar: document.querySelector('.pgci-sidebar')!.getBoundingClientRect().top,
+  }))
+  await scrollArea.evaluate((area) => { area.scrollTop = area.scrollHeight })
+  await expect.poll(() => scrollArea.evaluate((area) => area.scrollTop)).toBeGreaterThan(0)
+  const after = await page.evaluate(() => ({
+    header: document.querySelector('.pgci-header')!.getBoundingClientRect().top,
+    footer: document.querySelector('.pgci-footer')!.getBoundingClientRect().top,
+    sidebar: document.querySelector('.pgci-sidebar')!.getBoundingClientRect().top,
+    pageScroll: document.scrollingElement?.scrollTop ?? 0,
+  }))
+
+  expect(after.header).toBeCloseTo(before.header, 1)
+  expect(after.footer).toBeCloseTo(before.footer, 1)
+  expect(after.sidebar).toBeCloseTo(before.sidebar, 1)
+  expect(after.pageScroll).toBe(0)
+})
+
+test('separa o divisor da paginação dos itens da lista', async ({ page }) => {
+  await page.goto('/pessoas')
+  await expect(page.getByRole('navigation', { name: 'Paginação de pessoas' })).toHaveCSS('margin-top', '16px')
+
+  await page.goto('/processos')
+  await expect(page.locator('.process-list > div.mt-4').last()).toHaveCSS('margin-top', '16px')
 })

@@ -24,12 +24,14 @@ import {
   PageTitle,
 } from "../../components/ui/Feedback";
 import { IconGlyph, IconSelect } from "../../components/ui/IconSelect";
+import { ListPagination, paginateItems } from "../../components/ui/ListPagination";
 
 export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
   const ctx = useSession();
   const client = useQueryClient();
   const { data: db, isLoading } = useDb();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<SituationType | "new" | null>(null);
   const [deleting, setDeleting] = useState<SituationType | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -56,6 +58,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
       (category === "ALL" || situation.category === category) &&
       (!activeOnly || situation.active),
   );
+  const paginated = paginateItems(visible, page);
 
   return (
     <>
@@ -103,7 +106,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             <Input
               aria-label="Buscar situação"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }}
               placeholder="Buscar por nome..."
               className="w-72 pl-9"
             />
@@ -130,7 +133,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       <div className="space-y-2">
-        {visible.map((situation) => (
+        {paginated.items.map((situation) => (
           <article
             key={situation.id}
             className="flex min-h-[60px] items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm"
@@ -200,6 +203,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
           </p>
         )}
       </div>
+      <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="situações" />
 
       {editing && (
         <SituationEditor
@@ -217,9 +221,10 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             <Field label="Categoria">
               <Select
                 value={category}
-                onChange={(event) =>
-                  setCategory(event.target.value as SituationCategory | "ALL")
-                }
+                onChange={(event) => {
+                  setCategory(event.target.value as SituationCategory | "ALL");
+                  setPage(1);
+                }}
               >
                 <option value="ALL">Todas as categorias</option>
                 {Object.entries(situationCategoryLabel).map(
@@ -234,7 +239,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             <label className="flex items-center gap-2 text-sm">
               <Switch
                 checked={activeOnly}
-                onChange={(event) => setActiveOnly(event.target.checked)}
+                onChange={(event) => { setActiveOnly(event.target.checked); setPage(1); }}
               />{" "}
               Mostrar somente situações ativas
             </label>
@@ -245,6 +250,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
                 onClick={() => {
                   setCategory("ALL");
                   setActiveOnly(true);
+                  setPage(1);
                 }}
               >
                 Limpar
@@ -355,6 +361,7 @@ export function SituationEditor({
           <Input
             autoFocus
             className="field"
+            placeholder="Ex.: Aguardando parecer"
             value={name}
             onChange={(event) => setName(event.target.value)}
             maxLength={120}
@@ -388,6 +395,7 @@ export function SituationEditor({
             <Input
               aria-label="Cor hexadecimal"
               className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none"
+              placeholder="#2563EB"
               value={color}
               onChange={(event) => setColor(event.target.value.toUpperCase())}
               maxLength={7}
@@ -403,6 +411,7 @@ export function SituationEditor({
         <Field label="Observação">
           <textarea
             className="field min-h-24"
+            placeholder="Descreva quando esta situação deve ser usada..."
             maxLength={500}
             value={observation}
             onChange={(event) => setObservation(event.target.value)}

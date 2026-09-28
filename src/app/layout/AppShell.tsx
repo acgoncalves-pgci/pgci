@@ -204,7 +204,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           PGCI
         </strong>
       </Link>
-      <nav className="sidebar-navigation px-6 py-7">
+      <nav className="sidebar-navigation min-h-0 flex-1 overflow-y-auto px-6 py-7">
         {nav.map((group, index) => (
           <section
             key={group.group ?? `principal-${index}`}
@@ -236,7 +236,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </section>
         ))}
       </nav>
-      <div className="mt-auto border-t border-slate-300 px-6 py-5 dark:border-slate-700">
+      <div className="mt-auto shrink-0 border-t border-slate-300 px-6 py-5 dark:border-slate-700">
         <button
           className="pgci-nav-link w-full text-left"
           onClick={async () => {
@@ -258,12 +258,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const isDashboard = location.pathname === "/dashboard";
   return (
-    <div className="pgci-app-shell flex flex-col">
+    <div className="pgci-app-shell flex flex-col overflow-hidden">
       <div
-        className={`pgci-app-content lg:grid ${compactSidebar ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}
+        className={`pgci-app-content min-h-0 overflow-hidden lg:grid lg:grid-rows-[minmax(0,1fr)] ${compactSidebar ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[240px_minmax(0,1fr)]"}`}
         onClickCapture={handleInternalNavigation}
       >
-        <div className={`hidden lg:block ${compactSidebar ? "w-[72px]" : "w-[240px]"}`}>{sidebar}</div>
+        <div className={`no-print hidden min-h-0 lg:block ${compactSidebar ? "w-[72px]" : "w-[240px]"}`}>{sidebar}</div>
         {mobile && (
           <div id="mobile-navigation" className="fixed inset-0 z-40 lg:hidden">
             <div
@@ -279,9 +279,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main
           id="main-content"
           tabIndex={-1}
-          className="min-w-0 bg-white dark:bg-slate-950"
+          className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-slate-950"
         >
-          <header className="pgci-header no-print sticky top-0 z-30 flex h-[72px] items-center justify-between border-b px-4 sm:px-7">
+          <header className="pgci-header no-print z-30 flex h-[72px] shrink-0 items-center justify-between border-b px-4 sm:px-7">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 aria-label="Abrir menu"
@@ -356,21 +356,23 @@ export function AppShell({ children }: { children: ReactNode }) {
               <ProfileMenu />
             </div>
           </header>
-          <div className="relative min-h-[calc(100dvh-8rem)]">
+          <div className="relative min-h-0 flex-1">
             <RouteLoadingIndicator visible={routeLoading} />
-            <div data-route-transition={routeTransition} className={`route-transition-content ${isDashboard ? "" : "mx-auto max-w-7xl p-4 sm:p-7"}`}>
-              {children}
+            <div className="pgci-page-scroll h-full overflow-y-auto overscroll-contain">
+              <div data-route-transition={routeTransition} className={`route-transition-content ${isDashboard ? "" : "mx-auto max-w-7xl p-4 sm:p-7"}`}>
+                {children}
+              </div>
             </div>
           </div>
+          <footer className="pgci-footer no-print shrink-0">
+            <span>
+              Programa de Governança, Compliance
+              <br />e Integridade - PGCI
+            </span>
+            <span>v. 16.9.26</span>
+          </footer>
         </main>
       </div>
-      <footer className="pgci-footer no-print">
-        <span>
-          Programa de Governança, Compliance
-          <br />e Integridade - PGCI
-        </span>
-        <span>v. 16.9.26</span>
-      </footer>
     </div>
   );
 }

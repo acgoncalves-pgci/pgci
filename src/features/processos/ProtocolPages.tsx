@@ -39,6 +39,7 @@ import {
   RefreshCcw,
   Search,
   Trash2,
+  TriangleAlert,
   UserRound,
   UserRoundCog,
   UsersRound,
@@ -77,8 +78,11 @@ import { documentText } from "../../lib/richText";
 import {
   participantName,
   participantOptions,
+  participantOptionLabel,
   type ParticipantOption,
 } from "../../domain/participants";
+import { ParticipantOptionContent } from "../../components/ui/ParticipantOptionContent";
+import { forwardPendingIssues } from "../../domain/protocolPending";
 import { currencyToCents, dateTime, money } from "../../lib/format";
 import {
   api,
@@ -125,6 +129,7 @@ export function Protocols() {
     typeId: params.get("typeId") || "",
     interestedId: params.get("interestedId") || "",
     creditorId: params.get("creditorId") || "",
+    responsiblePersonId: params.get("responsiblePersonId") || "",
     unitId: params.get("unitId") || "",
     assigneeId: params.get("assigneeId") || "",
     createdFrom: params.get("createdFrom") || "",
@@ -197,7 +202,7 @@ export function Protocols() {
   ] as const;
   const shortcuts = [
     ["", "Todos"],
-    ["unassigned", "Sem responsável"],
+    ["unassigned", "Sem destinatário"],
     ["unacknowledged", "Sem ciência"],
     ["overdue", "Vencidos"],
     ["soon", "Vencem em 24h"],
@@ -206,6 +211,7 @@ export function Protocols() {
     filters.typeId,
     filters.interestedId,
     filters.creditorId,
+    filters.responsiblePersonId,
     filters.unitId,
     filters.assigneeId,
     filters.createdFrom,
@@ -293,12 +299,15 @@ export function Protocols() {
               const assignment = db.assignments.find(
                 (item) => item.id === protocol.currentAssignmentId,
               );
-              if (
-                !isActive(protocol) ||
-                protocol.currentAssigneeId !== ctx.userId ||
-                !canActProtocol(db, protocol, ctx) ||
-                !assignment
-              )
+              if (!isActive(protocol) || !ctx.user?.active || !assignment)
+                return undefined;
+              if (!protocol.currentAssigneeId) {
+                return protocol.currentUnitId === ctx.activeUnitId &&
+                  canReceiveWorkInUnit(db, ctx.userId, ctx.activeUnitId)
+                  ? "assume"
+                  : undefined;
+              }
+              if (protocol.currentAssigneeId !== ctx.userId || !canActProtocol(db, protocol, ctx))
                 return undefined;
               return assignment.receivedAt ? "acknowledged" : "pending";
             }}
@@ -333,7 +342,23 @@ export function Protocols() {
           }}
         />
       )}
-      {acknowledging && (
+      {acknowledging && !acknowledging.currentAssigneeId && (
+        <ConfirmDialog
+          title="Assumir e marcar como visualizado?"
+          body={<AssumeConfirmationContent
+            number={acknowledging.number}
+            unitName={db.units.find((unit) => unit.id === acknowledging.currentUnitId)?.name}
+          />}
+          confirm="Assumir responsabilidade"
+          onClose={() => setAcknowledging(null)}
+          onConfirm={async () => {
+            await api.assume(ctx, acknowledging.id, acknowledging.version);
+            setAcknowledging(null);
+            await invalidateAll(queryClient);
+          }}
+        />
+      )}
+      {acknowledging && acknowledging.currentAssigneeId && (
         <ConfirmDialog
           title="Confirmar visualização da tramitação?"
           body={`Ao confirmar, a ciência do processo ${acknowledging.number} será registrada em seu nome sem abrir o processo.`}
@@ -358,6 +383,7 @@ type AdvancedFilterDraft = {
   typeId: string;
   interestedId: string;
   creditorId: string;
+  responsiblePersonId: string;
   unitId: string;
   assigneeId: string;
   situationIds: string[];
@@ -385,6 +411,7 @@ function AdvancedProcessFilterDialog({
     typeId: filters.typeId ?? "",
     interestedId: filters.interestedId ?? "",
     creditorId: filters.creditorId ?? "",
+    responsiblePersonId: filters.responsiblePersonId ?? "",
     unitId: filters.unitId ?? "",
     assigneeId: filters.assigneeId ?? "",
     situationIds: filters.situationIds?.length
@@ -413,6 +440,7 @@ function AdvancedProcessFilterDialog({
       typeId: "",
       interestedId: "",
       creditorId: "",
+      responsiblePersonId: "",
       unitId: "",
       assigneeId: "",
       situationIds: [],
@@ -427,6 +455,7 @@ function AdvancedProcessFilterDialog({
       typeId: draft.typeId,
       interestedId: draft.interestedId,
       creditorId: draft.creditorId,
+      responsiblePersonId: draft.responsiblePersonId,
       unitId: draft.unitId,
       assigneeId: draft.assigneeId,
       situation: draft.situationIds.join(","),
@@ -467,8 +496,8 @@ function AdvancedProcessFilterDialog({
             >
               <option value="">Todos</option>
               {participantOptions(db, "INTERESSADO").map((participant) => (
-                  <option key={`${participant.source}-${participant.id}`} value={participant.id}>
-                    {participant.name}
+                  <option key={`${participant.source}-${participant.id}`} value={participant.id} aria-label={participantOptionLabel(participant)}>
+                    <ParticipantOptionContent participant={participant} />
                   </option>
                 ))}
             </Select>
@@ -480,23 +509,21 @@ function AdvancedProcessFilterDialog({
             >
               <option value="">Todos</option>
               {participantOptions(db, "CREDOR").map((participant) => (
-                  <option key={`${participant.source}-${participant.id}`} value={participant.id}>
-                    {participant.name}
+                  <option key={`${participant.source}-${participant.id}`} value={participant.id} aria-label={participantOptionLabel(participant)}>
+                    <ParticipantOptionContent participant={participant} />
                   </option>
                 ))}
             </Select>
           </Field>
           <Field label="Responsável">
             <Select
-              value={draft.assigneeId}
-              onChange={(e) => update("assigneeId", e.target.value)}
+              value={draft.responsiblePersonId}
+              onChange={(e) => update("responsiblePersonId", e.target.value)}
             >
               <option value="">Todos</option>
-              {db.users
-                .filter((user) => user.active)
-                .map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
+              {participantOptions(db, "RESPONSAVEL").map((participant) => (
+                  <option key={participant.id} value={participant.id} aria-label={participantOptionLabel(participant)}>
+                    <ParticipantOptionContent participant={participant} />
                   </option>
                 ))}
             </Select>
@@ -634,7 +661,7 @@ function Pagination({
 }) {
   const pages = Math.max(1, Math.ceil(total / size));
   return (
-    <div className="flex items-center justify-between border-t px-3 py-2 text-sm">
+    <div className="mt-4 flex items-center justify-between border-t px-3 py-2 text-sm">
       <span className="text-slate-500 dark:text-slate-400">
         {total} registro{total === 1 ? "" : "s"}
       </span>
@@ -674,7 +701,7 @@ const protocolSchema = z.object({
     .max(4000, "As observações devem ter até 4.000 caracteres."),
   interestedPersonId: z.string().optional(),
   creditorPersonId: z.string().optional(),
-  assigneeId: z.string().optional(),
+  responsiblePersonId: z.string().optional(),
   amount: z.string().optional(),
   contractNumber: z
     .string()
@@ -710,7 +737,7 @@ export function NewProtocol() {
   const sourceDocument = sourceDocumentId ? db?.documents.find((item) => item.id === sourceDocumentId) : undefined;
   const sourceApplied = useRef("");
   const [personDialog, setPersonDialog] = useState<
-    "interestedPersonId" | "creditorPersonId" | null
+    "interestedPersonId" | "creditorPersonId" | "responsiblePersonId" | null
   >(null);
   const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState("");
@@ -725,7 +752,7 @@ export function NewProtocol() {
       observations: "",
       interestedPersonId: "",
       creditorPersonId: "",
-      assigneeId: "",
+      responsiblePersonId: "",
       amount: "",
       contractNumber: "",
       biddingNumber: "",
@@ -775,7 +802,7 @@ export function NewProtocol() {
       form.setValue("legalProcessNumber", "");
     if (!nextFields.referenceNumber?.enabled)
       form.setValue("referenceNumber", "");
-    if (!nextFields.responsavel?.enabled) form.setValue("assigneeId", "");
+    if (!nextFields.responsavel?.enabled) form.setValue("responsiblePersonId", "");
     if (nextFields.assunto?.enabled === false) form.setValue("subject", "");
     if (!nextFields.arquivos?.enabled)
       setFiles((current) => (current.length ? [] : current));
@@ -826,6 +853,7 @@ export function NewProtocol() {
 
   const interestedOptions = participantOptions(db, "INTERESSADO");
   const creditorOptions = participantOptions(db, "CREDOR");
+  const responsibleOptions = participantOptions(db, "RESPONSAVEL");
   const availableTypes = db.protocolTypes.filter(
     (item) => item.active && canOpenProtocolType(db, item, ctx) && (!sourceDocumentId || item.fieldsConfig.arquivos?.enabled),
   );
@@ -844,10 +872,6 @@ export function NewProtocol() {
   const showPeople = hasInterested || hasCreditor || hasResponsible;
   const responsibleRequired = Boolean(
     fields?.responsavel?.enabled && fields.responsavel.required !== false,
-  );
-  const responsibleUsers = db.users.filter(
-    (user) =>
-      user.active && canReceiveWorkInUnit(db, user.id, ctx.activeUnitId),
   );
   const flowMode = type?.flowMode ?? (type?.flowId ? "REQUIRED" : "NONE");
   const configuredFlow = type?.flowId
@@ -876,7 +900,7 @@ export function NewProtocol() {
       field:
         | "interestedPersonId"
         | "creditorPersonId"
-        | "assigneeId"
+        | "responsiblePersonId"
         | "amount"
         | "contractNumber"
         | "biddingNumber"
@@ -900,7 +924,7 @@ export function NewProtocol() {
       Boolean(fields?.creditor.required),
       "Selecione o credor.",
     );
-    requireValue("assigneeId", responsibleRequired, "Selecione o responsável.");
+    requireValue("responsiblePersonId", responsibleRequired, "Selecione o responsável.");
     requireValue(
       "amount",
       Boolean(fields?.amount.required),
@@ -1119,28 +1143,14 @@ export function NewProtocol() {
                     />
                   )}
                   {hasResponsible && (
-                    <Field
+                    <PersonSelect
                       label={"Responsável" + (responsibleRequired ? " *" : "")}
-                      error={form.formState.errors.assigneeId?.message}
-                    >
-                      <Select
-                        className="field"
-                        {...form.register("assigneeId")}
-                        value={form.watch("assigneeId") ?? ""}
-                        onChange={(event) =>
-                          form.setValue("assigneeId", event.target.value, {
-                            shouldValidate: true,
-                          })
-                        }
-                      >
-                        <option value="">Selecione o responsável</option>
-                        {responsibleUsers.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
+                      field="responsiblePersonId"
+                      participants={responsibleOptions}
+                      form={form}
+                      error={form.formState.errors.responsiblePersonId?.message}
+                      onNew={() => setPersonDialog("responsiblePersonId")}
+                    />
                   )}
                 </div>
               </section>
@@ -1272,6 +1282,7 @@ export function NewProtocol() {
                   <textarea
                     className="field min-h-20"
                     maxLength={4000}
+                    placeholder="Inclua informações adicionais sobre este processo..."
                     {...form.register("observations")}
                   />
                 </Field>
@@ -1334,6 +1345,7 @@ export function NewProtocol() {
       </form>
       {personDialog && (
         <PersonQuickDialog
+          role={personDialog === "interestedPersonId" ? "INTERESSADO" : personDialog === "creditorPersonId" ? "CREDOR" : "RESPONSAVEL"}
           onClose={() => setPersonDialog(null)}
           onCreated={(person) => {
             form.setValue(personDialog, person.id);
@@ -1354,15 +1366,16 @@ function PersonSelect({
   onNew,
 }: {
   label: string;
-  field: "interestedPersonId" | "creditorPersonId";
+  field: "interestedPersonId" | "creditorPersonId" | "responsiblePersonId";
   participants: ParticipantOption[];
   form: ReturnType<typeof useForm<ProtocolFormData>>;
   error?: string;
   onNew: () => void;
 }) {
+  const personKind = field === "interestedPersonId" ? "interessado" : field === "creditorPersonId" ? "credor" : "responsável";
   return (
     <Field label={label} error={error}>
-      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] gap-2">
         <Select
           aria-label={label}
           className="field min-w-0"
@@ -1372,29 +1385,32 @@ function PersonSelect({
             form.setValue(field, event.target.value, { shouldValidate: true })
           }
         >
-          <option value="">Selecione</option>
+          <option value="">Selecione o {personKind}</option>
           {participants.map((participant) => (
-              <option key={`${participant.source}-${participant.id}`} value={participant.id}>
-                {participant.name}
+              <option key={`${participant.source}-${participant.id}`} value={participant.id} aria-label={participantOptionLabel(participant)}>
+                <ParticipantOptionContent participant={participant} />
               </option>
             ))}
         </Select>
         <button
           type="button"
-          className="btn-secondary min-h-10 shrink-0"
+          className="btn-secondary size-10 shrink-0 !p-0"
+          aria-label={`Cadastrar novo ${personKind}`}
+          title={`Cadastrar novo ${personKind}`}
           onClick={onNew}
         >
-          <Plus size={15} />
-          <span>Cadastrar</span>
+          <Plus size={17} aria-hidden="true" />
         </button>
       </div>
     </Field>
   );
 }
 function PersonQuickDialog({
+  role,
   onClose,
   onCreated,
 }: {
+  role: "INTERESSADO" | "CREDOR" | "RESPONSAVEL";
   onClose: () => void;
   onCreated: (person: Database["people"][number]) => void;
 }) {
@@ -1402,16 +1418,17 @@ function PersonQuickDialog({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"PF" | "PJ">("PF");
-  const [interested, setInterested] = useState(true);
-  const [creditor, setCreditor] = useState(false);
+  const [interested, setInterested] = useState(role === "INTERESSADO");
+  const [creditor, setCreditor] = useState(role === "CREDOR");
+  const [responsible, setResponsible] = useState(role === "RESPONSAVEL");
   const create = useMutation({
     mutationFn: () =>
       api.createPerson(ctx, {
         name,
         kind,
-        roles: [interested && "INTERESSADO", creditor && "CREDOR"].filter(
+        roles: [interested && "INTERESSADO", creditor && "CREDOR", responsible && "RESPONSAVEL"].filter(
           Boolean,
-        ) as ("INTERESSADO" | "CREDOR")[],
+        ) as ("INTERESSADO" | "CREDOR" | "RESPONSAVEL")[],
         active: true,
       }),
     onSuccess: (p) => {
@@ -1444,6 +1461,7 @@ function PersonQuickDialog({
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
+            placeholder={kind === "PF" ? "Ex.: Maria da Silva" : "Ex.: Empresa Exemplo Ltda."}
           />
         </Field>
         <div className="flex gap-4 text-sm">
@@ -1460,6 +1478,13 @@ function PersonQuickDialog({
               onChange={(e) => setCreditor(e.target.checked)}
             />{" "}
             Credor
+          </label>
+          <label className="flex items-center gap-2">
+            <Checkbox
+              checked={responsible}
+              onChange={(e) => setResponsible(e.target.checked)}
+            />{" "}
+            Responsável
           </label>
         </div>
         {create.error && <ErrorBox error={create.error} />}
@@ -1492,6 +1517,8 @@ export function ProtocolDetail() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmAcknowledge, setConfirmAcknowledge] = useState(false);
+  const [confirmAssume, setConfirmAssume] = useState(false);
+  const [showForwardPending, setShowForwardPending] = useState(false);
   const [dossierMovementId, setDossierMovementId] = useState<string>();
   const [pdfBusy, setPdfBusy] = useState(false);
   const [timelineUploading, setTimelineUploading] = useState(false);
@@ -1509,7 +1536,10 @@ export function ProtocolDetail() {
   });
   const doAssume = useMutation({
     mutationFn: () => api.assume(ctx, id, data!.protocol.version),
-    onSuccess: refresh,
+    onSuccess: () => {
+      setConfirmAssume(false);
+      refresh();
+    },
   });
   const updateMovementChecklist = useMutation({
     mutationFn: ({
@@ -1566,6 +1596,13 @@ export function ProtocolDetail() {
     flowPhaseByEventId,
   );
   const latestMovement = movementEvents[0];
+  const forwardIssues = latestMovement
+    ? forwardPendingIssues(db, p, latestMovement)
+    : [];
+  if (updateMovementChecklist.isPending)
+    forwardIssues.push("Aguarde o salvamento do checklist.");
+  if (timelineUploading)
+    forwardIssues.push("Aguarde o envio do anexo.");
   const attachmentIds = new Set(data.attachments.map((item) => item.id));
   const documentIds = new Set(data.documents.map((item) => item.id));
   const auditEvents = db.auditEvents.filter(
@@ -1630,8 +1667,10 @@ export function ProtocolDetail() {
     primary = (
       <button
         className="btn-primary"
-        onClick={() => doAssume.mutate()}
-        disabled={doAssume.isPending}
+        onClick={() => {
+          doAssume.reset();
+          setConfirmAssume(true);
+        }}
       >
         <Check size={16} />
         Assumir e dar ciência
@@ -1639,7 +1678,12 @@ export function ProtocolDetail() {
     );
   else if (canAct && !unacknowledged)
     primary = (
-      <button className="btn-primary" onClick={() => setAction("forward")}>
+      <button
+        className={`btn-primary ${forwardIssues.length ? "cursor-not-allowed opacity-55" : ""}`}
+        aria-disabled={forwardIssues.length > 0}
+        title={forwardIssues.length ? "Existem pendências. Clique para ver o que falta." : undefined}
+        onClick={() => forwardIssues.length ? setShowForwardPending(true) : setAction("forward")}
+      >
         <ArrowRight size={16} />
         Tramitar
       </button>
@@ -2088,6 +2132,28 @@ export function ProtocolDetail() {
           }}
         />
       )}{" "}
+      {confirmAssume && (
+        <ConfirmDialog
+          title="Assumir e marcar como visualizado?"
+          body={<AssumeConfirmationContent number={p.number} unitName={processUnit?.name} />}
+          confirm="Assumir responsabilidade"
+          onClose={() => setConfirmAssume(false)}
+          onConfirm={async () => { await doAssume.mutateAsync(); }}
+        />
+      )}{" "}
+      {showForwardPending && (
+        <Dialog title="Pendências para tramitar" onClose={() => setShowForwardPending(false)}>
+          <p className="text-sm text-muted-foreground">
+            Resolva os itens abaixo na movimentação atual antes de tramitar o processo.
+          </p>
+          <ul className="mt-4 list-disc space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 pl-8 text-sm text-amber-900 marker:text-amber-600 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            {forwardIssues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
+          <div className="mt-5 flex justify-end">
+            <button type="button" className="btn-primary" onClick={() => { setShowForwardPending(false); setTab("progress"); }}>Voltar ao processo</button>
+          </div>
+        </Dialog>
+      )}{" "}
       {confirmAcknowledge && (
         <ConfirmDialog
           title="Confirmar visualização da tramitação?"
@@ -2175,7 +2241,7 @@ function ProcessDetailOverview({
   const processType =
     db.protocolTypes.find((item) => item.id === protocol.typeId)?.name ??
     "Tipo não encontrado";
-  const responsible = protocol.currentAssigneeId
+  const currentRecipient = protocol.currentAssigneeId
     ? db.users.find((item) => item.id === protocol.currentAssigneeId)?.name
     : db.units.find((item) => item.id === protocol.currentUnitId)?.name;
   const situation = currentProtocolSituation(db, protocol)?.name ?? statusLabel[protocol.status];
@@ -2217,7 +2283,7 @@ function ProcessDetailOverview({
         <ProcessMetaItem
           icon={<UsersRound size={15} />}
           label="Está com"
-          value={responsible ?? "Sem responsável"}
+          value={currentRecipient ?? "Sem destinatário"}
         />
       </div>
       {visiblePhases.length > 0 && (
@@ -2369,6 +2435,7 @@ function ProcessSummary({
     : undefined;
   const interested = participantName(db, protocol.interestedPersonId);
   const creditor = participantName(db, protocol.creditorPersonId);
+  const responsible = participantName(db, protocol.responsiblePersonId);
   const originUnit = db.units.find(
     (item) => item.id === protocol.originUnitId,
   )?.name;
@@ -2382,6 +2449,7 @@ function ProcessSummary({
         <SummaryField label="Assunto" value={protocol.subject} />
         <SummaryField label="Credor" value={creditor} />
         <SummaryField label="Interessado" value={interested} />
+        {protocol.typeConfigSnapshot.responsavel?.enabled && <SummaryField label="Responsável" value={responsible} />}
         <SummaryField label="Origem" value={originUnit} />
         <SummaryField
           label="Aberto por"
@@ -2537,6 +2605,7 @@ function EditProtocolDialog({
             maxLength={160}
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
+            placeholder="Ex.: Solicitação de compra de materiais"
           />
         </Field>
         <Field label="Descrição *">
@@ -2545,6 +2614,7 @@ function EditProtocolDialog({
             maxLength={4000}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
+            placeholder="Descreva o objetivo e os detalhes do processo..."
           />
         </Field>
         <Field label="Prazo">
@@ -2642,7 +2712,12 @@ function mapChecklistEvents(
 ) {
   const result = new Set<string>();
   let phaseId: string | undefined;
-  let checklistAssigned = false;
+  let phaseEvents: ProtocolEvent[] = [];
+  const addPhaseChecklist = () => {
+    if (phaseEvents.length) {
+      result.add((phaseEvents.find((event) => event.checklist?.length) ?? phaseEvents[0]).id);
+    }
+  };
   const orderedEvents = events
     .slice()
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
@@ -2654,14 +2729,13 @@ function mapChecklistEvents(
       return;
     }
     if (eventPhaseId !== phaseId) {
+      addPhaseChecklist();
       phaseId = eventPhaseId;
-      checklistAssigned = false;
+      phaseEvents = [];
     }
-    if (!checklistAssigned && event.checklist?.length) {
-      result.add(event.id);
-      checklistAssigned = true;
-    }
+    phaseEvents.push(event);
   });
+  addPhaseChecklist();
   return result;
 }
 
@@ -2734,10 +2808,11 @@ function TimelineRow({
       : undefined;
   const phaseName =
     effectiveFlowPhase?.name ?? manualPhase?.name ?? latestManualPhase?.name;
-  const heading = phaseName
-    ? `Fase ${phaseName}`
-    : e.kind === "ABERTURA"
-      ? "Abertura do processo"
+  const isOpening = e.kind === "ABERTURA";
+  const heading = isOpening
+    ? "Abertura do protocolo"
+    : phaseName
+      ? `Fase ${phaseName}`
       : eventLabel[e.kind];
   const statusKey =
     effectiveFlowPhase?.situation ??
@@ -2813,9 +2888,28 @@ function TimelineRow({
   const contentId = `timeline-content-${e.id}`;
   const canShowRoute =
     Boolean(e.fromUnitId || destinationUnit || destinationUserId) &&
-    e.kind !== "RECEBIMENTO";
+    e.kind !== "RECEBIMENTO" &&
+    !isOpening;
   const acknowledged = Boolean(assignment.receivedAt);
-  const checklistAnswers = showChecklist ? (e.checklist ?? []) : [];
+  const checklistPhase = effectiveFlowPhase ?? manualPhase ?? latestManualPhase;
+  const checklistQuestions = checklistPhase?.checklistQuestions?.length
+    ? checklistPhase.checklistQuestions
+    : (checklistPhase?.checklistItems ?? []).map((text, order) => ({
+        id: `legacy-${order}`,
+        text,
+        order: order + 1,
+        required: true,
+        requiresAttachment: false,
+        requiresDate: false,
+        requiresObservation: false,
+      }));
+  const checklistAnswers = showChecklist
+    ? (e.checklist?.length ? e.checklist : checklistQuestions.map((question) => ({
+        questionId: question.id,
+        text: question.text,
+        checked: false,
+      })))
+    : [];
   const canEditChecklist =
     canEdit &&
     isLatest &&
@@ -2854,7 +2948,7 @@ function TimelineRow({
             onClick={() => setCollapsed((value) => !value)}
           >
             <span className="flex min-w-0 flex-wrap items-center gap-2">
-              {phaseName ? (
+              {!isOpening && phaseName ? (
                 <>
                   <strong className="text-sm text-slate-800 dark:text-slate-100">
                     Fase
@@ -2953,6 +3047,20 @@ function TimelineRow({
             id={contentId}
             className="border-t border-slate-100 dark:border-slate-800"
           >
+            {isOpening ? (
+              <div className="px-4 py-3">
+                <p className="label">Aberto por</p>
+                <div className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                    <FilePlus2 size={14} aria-hidden="true" />
+                  </span>
+                  <Name db={db} userId={e.actorUserId} />
+                </div>
+                <time dateTime={e.createdAt} className="mt-2 block text-xs text-slate-500 dark:text-slate-400 sm:hidden">
+                  {dateTime(e.createdAt)}
+                </time>
+              </div>
+            ) : (
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm">
                 <span className="inline-flex min-w-0 items-center gap-2 font-medium text-slate-700 dark:text-slate-200">
@@ -3001,11 +3109,10 @@ function TimelineRow({
                 {dateTime(e.createdAt)}
               </time>
             </div>
+            )}
             <div className="border-t border-slate-100 px-3 py-2 dark:border-slate-800">
               <p className="label">
-                {e.kind === "ABERTURA"
-                  ? "Aberto por"
-                  : e.kind === "TRAMITACAO" || e.kind === "REABERTURA"
+                {isOpening || e.kind === "TRAMITACAO" || e.kind === "REABERTURA"
                     ? "Despacho"
                     : "Registro"}
               </p>
@@ -3019,7 +3126,7 @@ function TimelineRow({
             {checklistAnswers.length ? (
               <ChecklistTimeline
                 answers={checklistAnswers}
-                questions={effectiveFlowPhase?.checklistQuestions ?? []}
+                questions={checklistQuestions}
                 attachmentCount={attachments.length}
                 canAttach={allowFiles && canEditChecklist}
                 editable={canEditChecklist}
@@ -3705,6 +3812,7 @@ function MoveDialog({
                 maxLength={4000}
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
+                placeholder={reopen ? "Explique o motivo da reabertura..." : "Descreva o encaminhamento desta tramitação..."}
               />
             </Field>
           </section>
@@ -3931,6 +4039,7 @@ function CompleteDialog({
             className="field min-h-28"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            placeholder="Descreva o resultado alcançado com o processo..."
           />
         </Field>
         {mutation.error && <ErrorBox error={mutation.error} />}
@@ -3944,6 +4053,35 @@ function CompleteDialog({
     </Dialog>
   );
 }
+function AssumeConfirmationContent({ number, unitName }: { number: string; unitName?: string }) {
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300">
+          <TriangleAlert size={18} aria-hidden="true" />
+        </span>
+        <p className="pt-1 text-sm text-muted-foreground">
+          {unitName
+            ? `Esta movimentação está na fila da unidade ${unitName}, sem destinatário definido.`
+            : "Esta movimentação está sem destinatário definido."}
+        </p>
+      </div>
+      <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+        <div className="flex justify-between gap-3 border-b border-border pb-2">
+          <span className="text-muted-foreground">Protocolo</span>
+          <strong>{number}</strong>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">Ao confirmar:</p>
+        <ul className="mt-1 list-disc space-y-1 pl-5 marker:text-primary">
+          <li>Você passa a ser o destinatário desta movimentação.</li>
+          <li>Assume a responsabilidade pelo andamento do protocolo.</li>
+          <li>O protocolo fica marcado como visualizado por você.</li>
+        </ul>
+      </div>
+    </>
+  );
+}
+
 function ConfirmDialog({
   title,
   body,
@@ -3953,7 +4091,7 @@ function ConfirmDialog({
   onConfirm,
 }: {
   title: string;
-  body: string;
+  body: ReactNode;
   confirm: string;
   danger?: boolean;
   onClose: () => void;
@@ -3963,7 +4101,7 @@ function ConfirmDialog({
   const [pending, setPending] = useState(false);
   return (
     <Dialog title={title} onClose={onClose}>
-      <p className="text-sm text-slate-600 dark:text-slate-300">{body}</p>
+      <div className="text-sm text-slate-600 dark:text-slate-300">{body}</div>
       {Boolean(error) && (
         <div className="mt-3">
           <ErrorBox error={error} />

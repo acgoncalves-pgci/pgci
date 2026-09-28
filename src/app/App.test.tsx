@@ -22,7 +22,8 @@ const choose = async (label: string | RegExp, option: string, scope: Pick<typeof
     fireEvent.click(trigger)
     await Promise.resolve()
   })
-  const optionElement = screen.getByRole('option', { name: option })
+  const optionElement = screen.getAllByRole('option').find((item) => item.textContent === option || item.textContent?.startsWith(`${option} ·`))
+  if (!optionElement) throw new Error(`Opção não encontrada: ${option}`)
   await act(async () => {
     fireEvent.click(optionElement)
     await Promise.resolve()
@@ -163,7 +164,7 @@ describe('jornada principal da interface', () => {
 
     expect(screen.getAllByRole('checkbox', { name: 'Registrar despacho ou resultado' })).toHaveLength(1)
   })
-  it('anexa o arquivo obrigatório no modal e avança a fase pela tramitação', async () => {
+  it('mostra o anexo pendente e libera a tramitação após anexá-lo', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowSnapshot!.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)!.requiredAttachmentTypes = ['application/pdf']
@@ -178,12 +179,20 @@ describe('jornada principal da interface', () => {
 
     await screen.findByRole('heading', { name: 'Processo 2026.000001' })
     expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
+    expect(forwardButton.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(forwardButton)
+    const pendingDialog = await screen.findByRole('dialog', { name: 'Pendências para tramitar' })
+    expect(within(pendingDialog).getByText(/Anexe um arquivo PDF/)).not.toBeNull()
+    fireEvent.click(within(pendingDialog).getByRole('button', { name: 'Voltar ao processo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Anexar arquivo' }))
+    fireEvent.change(document.querySelector<HTMLInputElement>('input[type="file"]')!, {
+      target: { files: [new File(['parecer'], 'parecer.pdf', { type: 'application/pdf' })] },
+    })
+    await waitFor(() => expect(forwardButton.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(forwardButton)
     const dialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(dialog).getByRole('combobox', { name: 'Fase *' }).textContent).toContain('Análise')
-    expect(within(dialog).getByText('Anexo obrigatório da fase atual')).not.toBeNull()
-    fireEvent.change(within(dialog).getByLabelText('Selecionar anexos obrigatórios'), { target: { files: [new File(['parecer'], 'parecer.pdf', { type: 'application/pdf' })] } })
-    expect(within(dialog).getByText('parecer.pdf')).not.toBeNull()
     fireEvent.change(within(dialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhar para a próxima fase.' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Tramitar' }))
     const confirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
@@ -296,8 +305,8 @@ describe('jornada principal da interface', () => {
 
     const responsible = screen.getByRole('combobox', { name: 'Responsável *' })
     fireEvent.click(responsible)
-    expect(screen.getByRole('option', { name: 'Marina Duarte' })).not.toBeNull()
-    fireEvent.click(screen.getByRole('option', { name: 'Marina Duarte' }))
+    expect(screen.getByRole('option', { name: /Ana Beatriz Costa/ })).not.toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: /Ana Beatriz Costa/ }))
 
     fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Operação por unidade secundária' } })
     fireEvent.change(screen.getByLabelText('Descrição *'), { target: { value: 'Processo criado sem alterar a unidade principal.' } })
@@ -404,6 +413,7 @@ describe('jornada principal da interface', () => {
     protocol.flowModeSnapshot = 'SUGGESTED'
     protocol.currentPhaseId = 'phase-triage'
     protocol.flowSnapshot!.phases[1].destinationUnitId = 'u-adm'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-triage-data', text: 'Conferir dados de abertura', checked: true }]
     saveDb(db)
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
@@ -535,6 +545,8 @@ describe('jornada principal da interface', () => {
     fireEvent.click(within(completionActivityConfirmation).getByRole('button', { name: 'Não, apenas continuar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     fireEvent.click(await screen.findByRole('button', { name: 'Assumir e dar ciência' }))
+    const assumeDialog = await screen.findByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
+    fireEvent.click(within(assumeDialog).getByRole('button', { name: 'Assumir responsabilidade' }))
     const concludeButton = await screen.findByRole('button', { name: 'Concluir' })
 
     fireEvent.click(concludeButton)
@@ -547,8 +559,8 @@ describe('jornada principal da interface', () => {
     renderApp()
     await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
     const phaseRows = screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase / })
-    expect(phaseRows).toHaveLength(4)
-    expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Triagem$/ }).some((row) => within(row).queryByText('Cadastrado'))).toBe(true)
+    expect(phaseRows).toHaveLength(3)
+    expect(screen.getByRole('button', { name: /^(Expandir|Recolher) conteúdo de Abertura do protocolo$/ }).textContent).toContain('Cadastrado')
     expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Análise$/ }).some((row) => within(row).queryByText('Em tramitação'))).toBe(true)
     expect(screen.getAllByRole('button', { name: /^(Expandir|Recolher) conteúdo de Fase Conclusão$/ }).some((row) => within(row).queryByText('Concluído'))).toBe(true)
     expect(screen.getAllByText('Concluído').length).toBeGreaterThan(0)

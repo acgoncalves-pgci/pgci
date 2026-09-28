@@ -85,10 +85,10 @@ function DocumentTemplateForm({ typeId, typeName, template }: { typeId: string; 
       <section className="panel space-y-4 p-5">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Identificação</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nome do modelo *"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={160}/></Field>
-          <Field label="Assunto padrão"><Input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={300}/></Field>
+          <Field label="Nome do modelo *"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={160} placeholder="Ex.: Ofício de encaminhamento"/></Field>
+          <Field label="Assunto padrão"><Input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={300} placeholder="Ex.: Encaminhamento para análise"/></Field>
         </div>
-        <Field label="Descrição"><textarea className="field min-h-20" value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000}/></Field>
+        <Field label="Descrição"><textarea className="field min-h-20" value={description} onChange={(event) => setDescription(event.target.value)} maxLength={2000} placeholder="Descreva quando este modelo deve ser utilizado..."/></Field>
         <div className="divide-y rounded-lg border">
           <div className="flex items-center justify-between gap-4 p-3"><div><p className="text-sm font-medium">Modelo padrão deste tipo</p><p className="text-xs text-muted-foreground">Ao selecionar este tipo em um novo documento, o texto já vem preenchido com este modelo.</p></div><Switch aria-label="Modelo padrão deste tipo" checked={isDefault} onCheckedChange={(checked) => { setIsDefault(checked); if (checked) setActive(true) }}/></div>
           <div className="flex items-center justify-between gap-4 p-3"><div><p className="text-sm font-medium">Ativo</p><p className="text-xs text-muted-foreground">Modelos inativos continuam cadastrados, mas não aparecem na seleção ao redigir documentos.</p></div><Switch aria-label="Modelo ativo" checked={active} onCheckedChange={(checked) => { setActive(checked); if (!checked) setIsDefault(false) }}/></div>

@@ -9,6 +9,7 @@ import { Dialog } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
+import { ListPagination, paginateItems } from '../../components/ui/ListPagination'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 
 const codeFor = (name: string) => {
@@ -26,6 +27,7 @@ export function PhasesPage() {
   const client = useQueryClient()
   const { data: db, isLoading } = useDb()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<ProtocolPhase | 'new' | null>(null)
   const [deleting, setDeleting] = useState<ProtocolPhase | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -46,6 +48,7 @@ export function PhasesPage() {
     (!query || (phase.name + ' ' + phase.code + ' ' + (phase.description ?? '')).toLocaleLowerCase().includes(query)) &&
     (!activeOnly || phase.active),
   )
+  const paginated = paginateItems(visible, page)
 
   return <>
     <PageTitle
@@ -55,12 +58,12 @@ export function PhasesPage() {
     <p className="-mt-3 mb-5 text-sm text-muted-foreground">Cadastre as fases reutilizadas na montagem dos fluxos de processo.</p>
 
     <div className="mb-5 flex flex-wrap items-center gap-2">
-      <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar fase" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome..." className="w-72 pl-9"/></label>
+      <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar fase" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-72 pl-9"/></label>
       <button type="button" className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16}/>Mais filtros</button>
     </div>
 
     <div className="space-y-2" role="region" aria-label="Lista de fases">
-      {visible.map((phase) => {
+      {paginated.items.map((phase) => {
         const color = phase.color ?? '#3498DB'
         return <article key={phase.id} className="flex min-h-[66px] items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-sm">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: color + '22', color }}><IconGlyph name={phase.icon}/></span>
@@ -76,11 +79,12 @@ export function PhasesPage() {
       })}
       {visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">Nenhuma fase encontrada.</p>}
     </div>
+    <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="fases"/>
 
     {editing && <PhaseEditor phase={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>}
     {filtersOpen && <Dialog title="Filtros de fases" onClose={() => setFiltersOpen(false)}><div className="space-y-4">
-      <label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)}/> Mostrar somente fases ativas</label>
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setActiveOnly(true)}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
+      <label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => { setActiveOnly(event.target.checked); setPage(1) }}/> Mostrar somente fases ativas</label>
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => { setActiveOnly(true); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
     </div></Dialog>}
     {deleting && <Dialog title="Excluir tipo de fase" onClose={() => setDeleting(null)}>
       <p className="text-sm text-muted-foreground">Deseja excluir a fase <strong>{deleting.name}</strong>? Ela só poderá ser removida se não estiver sendo usada em um fluxo.</p>
@@ -127,10 +131,10 @@ function PhaseEditor({ phase, onClose, onSaved }: {
 
   return <Dialog title={phase ? 'Editar Tipo de Fase' : 'Novo Tipo de Fase'} onClose={onClose}>
     <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
-      <Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120}/></Field>
-      <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7}/></div></Field>
+      <Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} placeholder="Ex.: Análise técnica"/></Field>
+      <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7} placeholder="#2563EB"/></div></Field>
       <Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field>
-      <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)}/></Field>
+      <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Descreva o objetivo desta fase..."/></Field>
       {phase && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Fase ativa</label>}
       {mutation.error && <ErrorBox error={mutation.error}/>}
       <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>

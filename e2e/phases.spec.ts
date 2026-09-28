@@ -11,7 +11,8 @@ test('cadastra uma fase e a utiliza em uma etapa de fluxo', async ({ page }) => 
   await page.goto('/fases')
 
   await expect(page.getByRole('heading', { name: 'Tipos de Fases' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Lista de fases' }).locator('article')).toHaveCount(14)
+  await expect(page.getByRole('region', { name: 'Lista de fases' }).locator('article')).toHaveCount(10)
+  await expect(page.getByRole('navigation', { name: 'Paginação de fases' })).toContainText('14 registros')
 
   await page.getByRole('button', { name: 'Novo', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: 'Novo Tipo de Fase' })
@@ -23,6 +24,7 @@ test('cadastra uma fase e a utiliza em uma etapa de fluxo', async ({ page }) => 
   await createDialog.getByRole('button', { name: 'Salvar', exact: true }).click()
 
   await expect(createDialog).toBeHidden()
+  await page.getByRole('textbox', { name: 'Buscar fase' }).fill('Parecer técnico')
   const phaseCard = page.getByRole('region', { name: 'Lista de fases' }).locator('article').filter({ hasText: 'Parecer técnico' })
   await expect(phaseCard).toBeVisible()
 
@@ -31,6 +33,7 @@ test('cadastra uma fase e a utiliza em uma etapa de fluxo', async ({ page }) => 
   await editDialog.getByLabel('Descrição *').fill('Parecer jurídico')
   await editDialog.getByRole('button', { name: 'Salvar', exact: true }).click()
   await expect(editDialog).toBeHidden()
+  await page.getByRole('textbox', { name: 'Buscar fase' }).fill('Parecer jurídico')
   await expect(page.getByText('Parecer jurídico', { exact: true })).toBeVisible()
 
   await page.goto('/tipos-processo')

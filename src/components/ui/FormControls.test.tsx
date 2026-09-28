@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Checkbox } from './Checkbox'
 import { CurrencyInput } from './CurrencyInput'
+import { CpfInput } from './CpfInput'
+import { CnpjInput } from './CnpjInput'
+import { BrazilianPhoneInput } from './BrazilianPhoneInput'
+import { MaskedInput } from './MaskedInput'
 import { Dialog } from './Dialog'
 import { Input } from './Input'
 import { AdvancedSelect, SearchableSelect, Select } from './Select'
@@ -35,6 +40,46 @@ describe('controles de formulário', () => {
     await waitFor(() => expect(input.value).toBe('1.234,56'))
     expect(input.inputMode).toBe('decimal')
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: input }))
+  })
+
+  it('aplica a máscara de CPF ao digitar e ao carregar um CPF existente', async () => {
+    const onChange = vi.fn()
+    render(<><CpfInput aria-label="CPF novo" onChange={onChange} /><CpfInput aria-label="CPF existente" defaultValue="52998224725" /></>)
+    const newCpf = screen.getByRole('textbox', { name: 'CPF novo' }) as HTMLInputElement
+    const existingCpf = screen.getByRole('textbox', { name: 'CPF existente' }) as HTMLInputElement
+    expect(existingCpf.value).toBe('529.982.247-25')
+    fireEvent.input(newCpf, { target: { value: '52998224725' } })
+    await waitFor(() => expect(newCpf.value).toBe('529.982.247-25'))
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ target: newCpf }))
+  })
+
+  it('formata CNPJ controlado e sincroniza o mesmo valor em dois campos', async () => {
+    function LinkedCnpj() {
+      const [value, setValue] = useState('')
+      return <><CnpjInput aria-label="CNPJ geral" value={value} onChange={(event) => setValue(event.target.value)}/><CnpjInput aria-label="CNPJ timbre" value={value} onChange={(event) => setValue(event.target.value)}/></>
+    }
+    render(<LinkedCnpj />)
+    fireEvent.input(screen.getByRole('textbox', { name: 'CNPJ geral' }), { target: { value: '11222333000181' } })
+    await waitFor(() => expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'CNPJ geral' }).value).toBe('11.222.333/0001-81'))
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'CNPJ timbre' }).value).toBe('11.222.333/0001-81')
+  })
+
+  it('apresenta dados antigos sem pontuação já mascarados ao abrir o formulário', () => {
+    render(<><CnpjInput aria-label="CNPJ salvo" defaultValue="11222333000181"/><BrazilianPhoneInput aria-label="Telefone salvo" defaultValue="7932221000"/></>)
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'CNPJ salvo' }).value).toBe('11.222.333/0001-81')
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Telefone salvo' }).value).toBe('(79) 3222-1000')
+  })
+
+  it('alterna a máscara entre telefone fixo e celular e restringe a UF a letras', () => {
+    render(<><BrazilianPhoneInput aria-label="Telefone"/><MaskedInput aria-label="UF" mask="AA" tokens={{ A: { pattern: /[a-z]/i, transform: (char: string) => char.toUpperCase() } }}/></>)
+    const phone = screen.getByRole<HTMLInputElement>('textbox', { name: 'Telefone' })
+    fireEvent.input(phone, { target: { value: '7932221000' } })
+    expect(phone.value).toBe('(79) 3222-1000')
+    fireEvent.input(phone, { target: { value: '79999999999' } })
+    expect(phone.value).toBe('(79) 99999-9999')
+    const state = screen.getByRole<HTMLInputElement>('textbox', { name: 'UF' })
+    fireEvent.input(state, { target: { value: 's3e' } })
+    expect(state.value).toBe('SE')
   })
 
   it('oferece busca por padrão em todo Select e permite desativação explícita', () => {

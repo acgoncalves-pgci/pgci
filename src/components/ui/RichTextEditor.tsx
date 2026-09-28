@@ -293,7 +293,7 @@ export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documen
         <CommandButton label="Título 3" onRun={() => run('formatBlock', 'h3')}><span className="text-xs font-semibold">H3</span></CommandButton>
       </span>
       <span ref={fontSizeControlRef} className="rich-editor-group rich-editor-font-size" onKeyDown={(event) => { if (event.key === 'Escape') setShowFontSizes(false) }}>
-        <input ref={fontInputRef} type="text" inputMode="decimal" className="rich-editor-font-size-input" aria-label="Tamanho da fonte (px)" title="Tamanho da fonte em px (6 a 144)" value={fontSizeInput} onChange={(event) => { fontInputDirtyRef.current = true; setFontSizeInput(event.target.value) }} onKeyDown={(event) => {
+        <input ref={fontInputRef} type="text" inputMode="decimal" className="rich-editor-font-size-input" aria-label="Tamanho da fonte (px)" title="Tamanho da fonte em px (6 a 144)" placeholder="Ex.: 14" value={fontSizeInput} onChange={(event) => { fontInputDirtyRef.current = true; setFontSizeInput(event.target.value) }} onKeyDown={(event) => {
           if (event.key === 'Enter') { event.preventDefault(); applyFontSize(fontSizeInput) }
           if (event.key === 'Escape') { fontInputDirtyRef.current = false; setFontSizeInput(String(DEFAULT_FONT_SIZE)); setShowFontSizes(false) }
         }} onBlur={() => { if (fontInputDirtyRef.current) applyFontSize(fontSizeInput) }}/>

@@ -42,6 +42,7 @@ describe('regras do MVP', () => {
       subject: 'Processo criado em unidade secundária',
       description: 'Validação do vínculo operacional sem troca da unidade principal.',
       interestedPersonId: 'p-1',
+      responsiblePersonId: 'p-1',
       assigneeId: 'usr-clara',
     })
     expect(created).toMatchObject({
@@ -70,7 +71,7 @@ describe('regras do MVP', () => {
     expect(persisted.users.find((user) => user.id === 'usr-clara')?.unitId).toBe('u-prot')
     expect(persisted.users.find((user) => user.id === 'usr-admin')?.unitId).toBe('u-prot')
   })
-  it('usa o responsável configurado na abertura e preserva as observações', async () => {
+  it('usa uma pessoa como responsável na abertura sem alterar a atribuição interna', async () => {
     const db = seedDatabase()
     const type = db.protocolTypes.find((item) => item.id === 'pt-admin')!
     type.fieldsConfig = { ...type.fieldsConfig, responsavel: { enabled: true, required: true } }
@@ -90,16 +91,17 @@ describe('regras do MVP', () => {
       description: 'Descrição do processo.',
       observations: 'Observação registrada na abertura.',
       interestedPersonId: 'p-1',
-      assigneeId: 'usr-admin',
+      responsiblePersonId: 'p-1',
     })
     const persisted = loadDb()
     const assignment = persisted.assignments.find((item) => item.id === protocol.currentAssignmentId)
 
     expect(protocol).toMatchObject({
-      currentAssigneeId: 'usr-admin',
+      currentAssigneeId: 'usr-clara',
+      responsiblePersonId: 'p-1',
       observations: 'Observação registrada na abertura.',
     })
-    expect(assignment?.receivedAt).toBeUndefined()
+    expect(assignment?.receivedById).toBe('usr-clara')
   })
   it('gera números sequenciais mesmo após uma nova leitura do armazenamento', async () => {
     const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
@@ -321,33 +323,49 @@ describe('usuários de demonstração', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
   it('permite que admin crie operador sem vínculo com pessoa', async () => {
     const peopleBefore = loadDb().people.length
-    const user = await api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Servidor Independente', email: 'servidor.independente@example.com', role: 'OPERADOR', unitId: 'u-edu', active: true })
-    expect(user.unitId).toBe('u-edu')
+    const user = await api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Servidor Independente', email: 'servidor.independente@example.com', role: 'OPERADOR', active: true })
+    expect(user.unitId).toBe('')
+    expect(loadDb().memberships.some((membership) => membership.userId === user.id)).toBe(false)
     expect(user.role).toBe('OPERADOR')
     expect(user).toMatchObject({ name: 'Servidor Independente', email: 'servidor.independente@example.com' })
     expect(user).not.toHaveProperty('personId')
     expect(loadDb().people).toHaveLength(peopleBefore)
-    await expect(api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Outro servidor', email: 'servidor.independente@example.com', role: 'LEITOR', unitId: 'u-prot', active: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.createUser({ userId: 'usr-admin', activeUnitId: 'u-prot' }, { name: 'Outro servidor', email: 'servidor.independente@example.com', role: 'LEITOR', active: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await api.saveUserMembership({ userId: 'usr-admin', activeUnitId: 'u-prot' }, user.id, undefined, { unitId: 'u-edu', role: 'OPERADOR' })
+    expect(loadDb().users.find((item) => item.id === user.id)?.unitId).toBe('u-edu')
   })
 
-  it('oferece e aceita usuários ativos como interessado e credor sem criar pessoas artificiais', async () => {
+  it('oferece somente pessoas com o papel certo ou sem papel e recusa usuários', async () => {
     const db = loadDb()
-    expect(participantOptions(db, 'INTERESSADO')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'usr-admin', name: 'Marina Duarte', source: 'user' }),
-    ]))
-    expect(participantOptions(db, 'CREDOR')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'usr-clara', name: 'Clara Nunes', source: 'user' }),
-    ]))
-    expect(db.people.some((person) => person.id === 'person-usr-admin')).toBe(false)
-    const protocol = await api.createProtocol({ userId: 'usr-admin', activeUnitId: 'u-prot' }, {
+    db.people.push({ id: 'p-general', kind: 'PF', name: 'Pessoa sem papel', roles: [], active: true })
+    saveDb(db)
+    for (const role of ['INTERESSADO', 'CREDOR', 'RESPONSAVEL'] as const) {
+      expect(participantOptions(db, role)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'p-general', roles: [] }),
+      ]))
+      expect(participantOptions(db, role).some((option) => option.id === 'usr-admin')).toBe(false)
+    }
+    expect(participantOptions(db, 'RESPONSAVEL').some((option) => option.id === 'p-7')).toBe(false)
+    const input = {
       typeId: 'pt-pay',
-      subject: 'Pagamento entre usuários cadastrados',
-      description: 'Valida usuário como participante sem cadastro de pessoa.',
-      interestedPersonId: 'usr-admin',
-      creditorPersonId: 'usr-clara',
+      subject: 'Pagamento com pessoa sem papel',
+      description: 'Valida pessoa em todos os papéis.',
+      interestedPersonId: 'p-general',
+      creditorPersonId: 'p-general',
       amountCents: 100,
-    })
-    expect(protocol).toMatchObject({ interestedPersonId: 'usr-admin', creditorPersonId: 'usr-clara' })
+    }
+    const context = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const createdPerson = await api.createPerson(context, { kind: 'PF', name: 'Outra pessoa sem papel', roles: [], active: true })
+    expect(participantOptions(loadDb(), 'RESPONSAVEL').some((option) => option.id === createdPerson.id)).toBe(true)
+    const protocol = await api.createProtocol(context, input)
+    expect(protocol).toMatchObject({ interestedPersonId: 'p-general', creditorPersonId: 'p-general' })
+    await expect(api.createProtocol(context, { ...input, interestedPersonId: 'usr-admin' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.createProtocol(context, { ...input, creditorPersonId: 'p-1' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    const responsibleInput = { typeId: 'pt-info', subject: 'Pessoa responsável sem papel', description: 'Confirma o filtro de responsável.', interestedPersonId: 'p-general', responsiblePersonId: 'p-general' }
+    const responsibleProtocol = await api.createProtocol(context, responsibleInput)
+    expect((await api.listProtocols(context, { tab: 'all', responsiblePersonId: 'p-general' })).items.map((item) => item.id)).toContain(responsibleProtocol.id)
+    await expect(api.createProtocol(context, { ...responsibleInput, responsiblePersonId: 'usr-admin' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.createProtocol(context, { ...responsibleInput, responsiblePersonId: 'p-7' })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
 
   it('permite administrar acessos por unidade e preserva ao menos um vínculo ativo', async () => {
@@ -925,6 +943,7 @@ describe('execução das fases do processo', () => {
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.status = 'EM_ANDAMENTO'
     protocol.currentPhaseId = 'phase-completion'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-completion-result', text: 'Registrar resultado final', checked: true, date: '2026-09-28', observation: 'Resultado conferido.' }]
     saveDb(db)
 
     await api.forward(ctx, protocol.id, protocol.version, {
@@ -934,6 +953,15 @@ describe('execução das fases do processo', () => {
     const movement = loadDb().events.filter((event) => event.protocolId === protocol.id && event.kind === 'TRAMITACAO').at(-1)
     expect(movement).toMatchObject({ phaseId: 'phase-completion' })
     expect(movement).not.toHaveProperty('checklist')
+  })
+  it('impede a tramitação pela API quando o checklist atual está pendente', async () => {
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+    const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
+
+    await expect(api.forward(ctx, protocol.id, protocol.version, {
+      unitId: 'u-adm', assigneeId: 'usr-bruno', message: 'Encaminhamento antes do checklist.',
+    })).rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringContaining('Conferir dados de abertura') })
+    expect(loadDb().protocols.find((item) => item.id === protocol.id)!.version).toBe(protocol.version)
   })
   it('impede a conclusão antes da última fase do fluxo', async () => {
     const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }

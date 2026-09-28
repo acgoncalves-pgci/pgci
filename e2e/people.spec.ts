@@ -11,7 +11,8 @@ test('cadastra pessoa responsável e exibe os períodos somente para esse papel'
   await page.goto('/pessoas')
 
   await expect(page.getByRole('heading', { name: 'Pessoas (Física/Jurídica)' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Lista de pessoas' }).locator('article')).toHaveCount(18)
+  await expect(page.getByRole('region', { name: 'Lista de pessoas' }).locator('article')).toHaveCount(10)
+  await expect(page.getByRole('navigation', { name: 'Paginação de pessoas' })).toContainText('12 registros')
 
   await page.getByRole('button', { name: 'Nova Pessoa' }).click()
   const createDialog = page.getByRole('dialog', { name: 'Nova Pessoa' })
@@ -24,6 +25,7 @@ test('cadastra pessoa responsável e exibe os períodos somente para esse papel'
   await createDialog.getByRole('button', { name: 'Salvar', exact: true }).click()
 
   await expect(createDialog).toBeHidden()
+  await page.getByRole('textbox', { name: 'Buscar pessoas' }).fill('Responsável de integração')
   const personCard = page.getByRole('region', { name: 'Lista de pessoas' }).locator('article').filter({ hasText: 'Responsável de integração' })
   await expect(personCard).toContainText('Responsável')
 

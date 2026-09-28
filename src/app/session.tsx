@@ -93,7 +93,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     const [scopeUnitId, setScopeUnitId] = useState(() => localStorage.getItem('fluxo-publico:scope-unit') ?? 'ALL');
     const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('fluxo-publico:theme') as 'light' | 'dark' ?? 'light');
     const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearance);
-    useEffect(() => { const refresh = () => { api.listData().then((db) => setUsers(db.users.filter((u) => u.active))).catch(() => setUsers([])); }; refresh(); window.addEventListener('fluxo-publico:changed', refresh); return () => window.removeEventListener('fluxo-publico:changed', refresh); }, []);
+    useEffect(() => { const refresh = () => { api.listData().then((db) => setUsers(db.users.filter((u) => u.active && db.units.some((unit) => unit.id === u.unitId && unit.active) && db.memberships.some((membership) => membership.userId === u.id && membership.unitId === u.unitId && membership.active)))).catch(() => setUsers([])); }; refresh(); window.addEventListener('fluxo-publico:changed', refresh); return () => window.removeEventListener('fluxo-publico:changed', refresh); }, []);
     const setUserId = useCallback((id: string) => { setUserIdState(id); const selected = users.find((u) => u.id === id); if (selected) { setActiveUnitId(selected.unitId); setScopeUnitId('ALL'); } }, [users]);
     useEffect(() => { localStorage.setItem('fluxo-publico:user', userId); }, [userId]);
     useEffect(() => { localStorage.setItem('fluxo-publico:unit', activeUnitId); }, [activeUnitId]);

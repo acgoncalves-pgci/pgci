@@ -8,6 +8,10 @@ import { currentProtocolSituation } from '../domain/situations';
 import { formatConfiguredNumber, numberingCounterKey, readNumberingSettings } from '../lib/numbering';
 import { documentText, sanitizeDocumentHtml } from '../lib/richText';
 import { isActiveParticipant, participantName } from '../domain/participants';
+import { forwardPendingIssues, phaseChecklistMovement } from '../domain/protocolPending';
+import { cpfDigits, validCpf } from '../lib/cpf';
+import { validateUserImportRows } from '../lib/userCsv';
+import type { UserImportRow } from '../lib/userCsv';
 const sleep = () => new Promise((resolve) => window.setTimeout(resolve, 110));
 const id = () => crypto.randomUUID();
 const event = (db: Database, data: Omit<ProtocolEvent, 'id' | 'createdAt'>) => {
@@ -119,8 +123,8 @@ const attachmentPreviewKind = (mimeType: string): 'pdf' | 'image' | 'text' | und
     return 'image'; if (mimeType === 'text/plain')
     return 'text'; return undefined; };
 const validatePerson = (input: PersonInput) => {
-    if (!input.name.trim() || !input.roles.length)
-        throw new DomainError('VALIDATION', 'Informe nome e ao menos um papel.');
+    if (!input.name.trim())
+        throw new DomainError('VALIDATION', 'Informe o nome da pessoa.');
     if (input.document && !documentIsValid(input.document))
         throw new DomainError('VALIDATION', 'CPF ou CNPJ inválido.');
     if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email))
@@ -216,17 +220,35 @@ const validateFlow = (db: Database, input: ProtocolFlowInput, ignoreId?: string)
     if (stages.some((stage) => stage.situationTypeId && !db.situations.some((situation) => situation.id === stage.situationTypeId && situation.active)))
         throw new DomainError('VALIDATION', 'Selecione uma situação ativa para cada etapa.');
 };
-type UserInput = Pick<AppUser, 'name' | 'email' | 'role' | 'unitId' | 'active'>;
+type UserInput = Pick<AppUser, 'name' | 'email' | 'role' | 'active'> & { cpf?: string; createPerson?: boolean };
 export type MembershipInput = { unitId: string; role: Role; title?: string };
 const validateUser = (db: Database, input: UserInput, ignoreId?: string) => {
     if (!input.name.trim())
         throw new DomainError('VALIDATION', 'Informe o nome do usuário.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim()))
         throw new DomainError('VALIDATION', 'Informe um e-mail válido.');
-    if (!db.units.some((unit) => unit.id === input.unitId && unit.active))
-        throw new DomainError('VALIDATION', 'Selecione uma unidade ativa.');
+    if (!['ADMIN', 'GESTOR', 'OPERADOR', 'LEITOR'].includes(input.role))
+        throw new DomainError('VALIDATION', 'Selecione um perfil válido.');
+    if (input.cpf && !validCpf(input.cpf))
+        throw new DomainError('VALIDATION', 'CPF inválido.');
+    if (input.cpf && db.users.some((user) => user.id !== ignoreId && cpfDigits(user.cpf ?? '') === cpfDigits(input.cpf ?? '')))
+        throw new DomainError('VALIDATION', 'Já existe um usuário com este CPF.');
+    if (input.createPerson && input.cpf && db.people.some((person) => cpfDigits(person.document ?? '') === cpfDigits(input.cpf ?? '')))
+        throw new DomainError('VALIDATION', 'Já existe uma pessoa com este CPF.');
     if (db.users.some((user) => user.id !== ignoreId && user.email.toLocaleLowerCase() === input.email.trim().toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um usuário com este e-mail.');
+};
+const addUser = (db: Database, ctx: Context, input: UserInput) => {
+    validateUser(db, input);
+    const user: AppUser = { id: id(), name: input.name.trim(), email: input.email.trim().toLocaleLowerCase(), role: input.role, cpf: input.cpf ? cpfDigits(input.cpf) : undefined, unitId: '', active: input.active };
+    db.users.push(user);
+    audit(db, { action: 'USER_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Usuário criado. A unidade deve ser atribuída em Unidades / Permissões.' });
+    if (input.createPerson) {
+        const person: Person = { id: id(), kind: 'PF', name: user.name, email: user.email, document: user.cpf, roles: ['INTERESSADO'], active: user.active };
+        db.people.push(person);
+        audit(db, { action: 'PERSON_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PERSON', targetId: person.id, details: 'Pessoa criada junto com o usuário “' + user.name + '”.' });
+    }
+    return user;
 };
 export interface ProtocolFilters {
     tab?: 'mine' | 'unit' | 'created' | 'participated' | 'all';
@@ -236,6 +258,7 @@ export interface ProtocolFilters {
     typeId?: string;
     interestedId?: string;
     creditorId?: string;
+    responsiblePersonId?: string;
     number?: string;
     description?: string;
     attachments?: '' | 'with' | 'without';
@@ -293,6 +316,8 @@ export const api = {
             items = items.filter((p) => p.interestedPersonId === filters.interestedId);
         if (filters.creditorId)
             items = items.filter((p) => p.creditorPersonId === filters.creditorId);
+        if (filters.responsiblePersonId)
+            items = items.filter((p) => p.responsiblePersonId === filters.responsiblePersonId);
         if (filters.number) {
             const number = filters.number.toLocaleLowerCase();
             items = items.filter((p) => p.number.toLocaleLowerCase().includes(number));
@@ -345,6 +370,7 @@ export const api = {
         observations?: string;
         interestedPersonId?: string;
         creditorPersonId?: string;
+        responsiblePersonId?: string;
         amountCents?: number;
         contractNumber?: string;
         biddingNumber?: string;
@@ -424,9 +450,13 @@ export const api = {
                     throw new DomainError('VALIDATION', 'Selecione um credor ativo.');
 
                 const responsibleSetting = type.fieldsConfig.responsavel;
-                const assigneeId = responsibleSetting?.enabled ? input.assigneeId : user.id;
-                if (responsibleSetting?.enabled && responsibleSetting.required !== false && !assigneeId)
+                if (responsibleSetting?.enabled && responsibleSetting.required !== false && !input.responsiblePersonId)
                     throw new DomainError('VALIDATION', 'Selecione o responsável.');
+                if (!responsibleSetting?.enabled && input.responsiblePersonId)
+                    throw new DomainError('VALIDATION', 'O campo responsável não está habilitado para este tipo de processo.');
+                if (input.responsiblePersonId && !isActiveParticipant(db, input.responsiblePersonId, 'RESPONSAVEL'))
+                    throw new DomainError('VALIDATION', 'Selecione uma pessoa responsável ativa.');
+                const assigneeId = input.assigneeId ?? user.id;
                 if (assigneeId) {
                     const assignee = getUser(db, assigneeId);
                     if (!assignee.active || !canReceiveWorkInUnit(db, assignee.id, ctx.activeUnitId))
@@ -457,6 +487,7 @@ export const api = {
                     observations: input.observations?.trim() || undefined,
                     interestedPersonId: input.interestedPersonId,
                     creditorPersonId: input.creditorPersonId,
+                    responsiblePersonId: input.responsiblePersonId,
                     amountCents: input.amountCents,
                     contractNumber: input.contractNumber?.trim() || undefined,
                     biddingNumber: input.biddingNumber?.trim() || undefined,
@@ -611,6 +642,9 @@ export const api = {
             if (!canAct(db, protocol, ctx))
                 throw new DomainError('FORBIDDEN', 'Somente o responsável ou admin no contexto atual pode tramitar.');
             requireAssignmentReceived(db, protocol);
+            const pendingIssues = forwardPendingIssues(db, protocol, resolveMovement(db, protocol));
+            if (pendingIssues.length)
+                throw new DomainError('VALIDATION', `Resolva as pendências antes de tramitar: ${pendingIssues.join(' ')}`);
 
             const unit = db.units.find((item) => item.id === input.unitId && item.active);
             if (!unit)
@@ -647,7 +681,7 @@ export const api = {
 
             const phaseChanges = Boolean(configuredPhase && configuredPhase.phaseId !== protocol.currentPhaseId);
             if (phaseChanges) {
-                const currentMovement = resolveMovement(db, protocol);
+                const currentMovement = phaseChecklistMovement(db, protocol, resolveMovement(db, protocol));
                 const { answers } = validatePhaseExit(db, protocol, currentMovement.checklist ?? []);
                 currentMovement.checklist = answers;
             }
@@ -1250,12 +1284,14 @@ export const api = {
     }); },
     async createUser(ctx: Context, input: UserInput) { return mutate((db) => {
         requireAdmin(db, ctx);
-        validateUser(db, input);
-        const user: AppUser = { ...input, id: id(), name: input.name.trim(), email: input.email.trim().toLocaleLowerCase() };
-        db.users.push(user);
-        db.memberships.push({ id: id(), userId: user.id, unitId: user.unitId, role: user.role, title: user.role === 'ADMIN' ? 'Administrador geral' : 'Operador', startsAt: new Date().toISOString(), active: user.active });
-        audit(db, { action: 'USER_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Usuário criado com acesso inicial à unidade principal.' });
-        return user;
+        return addUser(db, ctx, input);
+    }); },
+    async importUsers(ctx: Context, rows: UserImportRow[]) { return mutate((db) => {
+        requireAdmin(db, ctx);
+        if (!rows.length || rows.length > 1000) throw new DomainError('VALIDATION', 'Importe entre 1 e 1000 usuários por arquivo.');
+        const errors = validateUserImportRows(rows, db);
+        if (errors.length) throw new DomainError('VALIDATION', errors.join(' '));
+        return rows.map((row) => addUser(db, ctx, row));
     }); },
     async updateUser(ctx: Context, userId: string, input: UserInput) { return mutate((db) => {
         requireAdmin(db, ctx);
@@ -1267,16 +1303,10 @@ export const api = {
             if (user.role === 'ADMIN' && db.users.filter((item) => item.active && item.role === 'ADMIN').length === 1) throw new DomainError('VALIDATION', 'Não é possível inativar o último administrador ativo.');
             if (db.protocols.some((protocol) => isActive(protocol) && protocol.currentAssigneeId === user.id)) throw new DomainError('VALIDATION', 'Redistribua os processos ativos antes de inativar este usuário.');
         }
-        Object.assign(user, { ...input, name: input.name.trim(), email: input.email.trim().toLocaleLowerCase() });
-        let primary = db.memberships.find((membership) => membership.userId === user.id && membership.unitId === input.unitId && membership.active);
-        if (!primary) {
-            primary = { id: id(), userId: user.id, unitId: input.unitId, role: input.role, title: input.role === 'ADMIN' ? 'Administrador geral' : 'Operador', startsAt: new Date().toISOString(), active: true };
-            db.memberships.push(primary);
-        } else {
-            primary.role = input.role;
-            primary.title = input.role === 'ADMIN' ? 'Administrador geral' : primary.title || 'Operador';
-        }
-        audit(db, { action: 'USER_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Dados cadastrais e unidade principal do usuário atualizados.' });
+        Object.assign(user, { name: input.name.trim(), email: input.email.trim().toLocaleLowerCase(), role: input.role, cpf: input.cpf ? cpfDigits(input.cpf) : undefined, active: input.active });
+        const primary = db.memberships.find((membership) => membership.userId === user.id && membership.unitId === user.unitId && membership.active);
+        if (primary) primary.role = input.role;
+        audit(db, { action: 'USER_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Dados cadastrais do usuário atualizados.' });
         return user;
     }); },
     async saveUserMembership(ctx: Context, userId: string, membershipId: string | undefined, input: MembershipInput) { return mutate((db) => {
@@ -1305,6 +1335,10 @@ export const api = {
             } else {
                 membership = { id: id(), userId, unitId: input.unitId, role: input.role, title, startsAt: new Date().toISOString(), active: true };
                 db.memberships.push(membership);
+            }
+            if (!user.unitId) {
+                user.unitId = input.unitId;
+                user.role = input.role;
             }
         }
         audit(db, { action: membershipId ? 'USER_MEMBERSHIP_UPDATED' : 'USER_MEMBERSHIP_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Acesso à unidade ' + unit.name + ' salvo com o perfil ' + title + '.' });

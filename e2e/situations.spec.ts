@@ -11,7 +11,8 @@ test('cadastra uma situação e a usa em uma etapa do fluxo', async ({ page }) =
   await page.goto('/situacoes')
 
   await expect(page.getByRole('heading', { name: 'Tipos de Situação' })).toBeVisible()
-  await expect(page.locator('article')).toHaveCount(15)
+  await expect(page.locator('article')).toHaveCount(10)
+  await expect(page.getByRole('navigation', { name: 'Paginação de situações' })).toContainText('15 registros')
   await expect(page.getByText('Em tramitação', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Novo', exact: true }).click()
@@ -26,6 +27,7 @@ test('cadastra uma situação e a usa em uma etapa do fluxo', async ({ page }) =
   await dialog.getByRole('button', { name: 'Salvar', exact: true }).click()
 
   await expect(dialog).toBeHidden()
+  await page.getByRole('textbox', { name: 'Buscar situação' }).fill('Aguardando parecer')
   const customCard = page.locator('article').filter({ hasText: 'Aguardando parecer' })
   await expect(customCard).toBeVisible()
   await expect(customCard).toContainText('Em tramitação')

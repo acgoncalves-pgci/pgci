@@ -95,6 +95,7 @@ test('cadastra categoria e a vincula a um tipo de processo', async ({ page, isMo
   await page.mouse.click(saveBox!.x + saveBox!.width / 2, saveBox!.y + saveBox!.height / 2)
 
   await expect(typeDialog).toBeHidden()
+  await page.getByRole('textbox', { name: 'Buscar tipo de processo' }).fill('Ouvidoria municipal')
   await expect(page.locator('article').filter({ hasText: 'Ouvidoria municipal' })).toContainText('07 · Atendimento ao cidadão')
 })
 

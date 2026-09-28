@@ -41,6 +41,42 @@ test('responsável atual dá ciência pela lista sem abrir o processo', async ({
   await expect(page).toHaveURL(/\/processos\?/)
 })
 
+test('usuário da unidade assume e dá ciência pela lista após confirmar', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-rafael')
+    localStorage.setItem('fluxo-publico:unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-fin')
+  })
+  await page.goto('/processos?tab=all&search=2026.000018')
+
+  const card = page.locator('.process-card').filter({ hasText: '2026.000018' })
+  const assume = card.getByRole('button', { name: 'Assumir e dar ciência do processo 2026.000018' })
+  await expect(assume).toBeVisible()
+  await assume.click()
+
+  const confirmation = page.getByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
+  await expect(confirmation).toContainText('Financeiro')
+  await expect(confirmation).toContainText('Você passa a ser o destinatário')
+  await expect(confirmation).toContainText('Assume a responsabilidade')
+  await expect(confirmation).toContainText('marcado como visualizado')
+  await confirmation.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(assume).toBeVisible()
+
+  await assume.click()
+  await confirmation.getByRole('button', { name: 'Assumir responsabilidade' }).click()
+  await expect(confirmation).toBeHidden()
+  const registered = card.getByRole('button', { name: 'Ciência registrada no processo 2026.000018' })
+  await expect(registered).toBeDisabled()
+  const saved = await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const protocol = db.protocols.find((item: { id: string }) => item.id === 'pr-18')
+    const assignment = db.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
+    return { assigneeId: protocol.currentAssigneeId, receivedById: assignment.receivedById, receivedAt: assignment.receivedAt }
+  })
+  expect(saved).toMatchObject({ assigneeId: 'usr-rafael', receivedById: 'usr-rafael', receivedAt: expect.any(String) })
+  await expect(page).toHaveURL(/\/processos\?/)
+})
+
 test('lista compacta mostra anexos e menu de impressão completo', async ({ page }) => {
   await page.goto('/processos?tab=all')
 
@@ -229,7 +265,15 @@ test('avança a fase configurada somente pela tramitação', async ({ page }, te
   await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Avançar fase' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
+  const forward = page.getByRole('button', { name: 'Tramitar', exact: true })
+  await expect(forward).toHaveAttribute('aria-disabled', 'true')
+  await forward.click({ force: true })
+  const pending = page.getByRole('dialog', { name: 'Pendências para tramitar' })
+  await expect(pending).toContainText('Conferir dados de abertura')
+  await pending.getByRole('button', { name: 'Voltar ao processo' }).click()
+  await page.getByRole('checkbox', { name: 'Conferir dados de abertura' }).click()
+  await expect(forward).toHaveAttribute('aria-disabled', 'false')
+  await forward.click()
   const dialog = page.getByRole('dialog', { name: 'Tramitar processo' })
   const phase = dialog.getByRole('combobox', { name: 'Fase *' })
   await expect(phase).toBeDisabled()
@@ -319,6 +363,12 @@ test('abre os requisitos do checklist ao marcar e identifica data, anexo e obser
   await page.goto('/processos/pr-9')
   await expect(page.getByRole('heading', { name: 'Processo 2026.000009' })).toBeVisible()
   await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
+  const assumeConfirmation = page.getByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
+  await expect(assumeConfirmation).toContainText('2026.000009')
+  await assumeConfirmation.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(page.getByRole('button', { name: 'Assumir e dar ciência' })).toBeVisible()
+  await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
+  await assumeConfirmation.getByRole('button', { name: 'Assumir responsabilidade' }).click()
 
   const checklistItem = page.getByRole('checkbox', { name: 'Registrar pesquisa de preços compatível com o objeto' })
   await expect(checklistItem).toBeEnabled()
@@ -482,7 +532,7 @@ test('documento formatado da movimentação mantém HTML renderizado na prévia 
   await documentButton.click()
   const dialog = page.getByRole('dialog', { name: `${number}.pdf` })
   await expect(dialog).toBeVisible()
-  await expect(page.locator('article.document-page[aria-hidden="true"] strong')).toHaveText('formatado')
+  await expect(page.locator('article.document-page[aria-hidden="true"] strong').first()).toHaveText('formatado')
   const viewer = dialog.getByTitle(`Pré-visualização de ${number}.pdf`)
   await expect(viewer).toBeVisible({ timeout: 15_000 })
   const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {

@@ -41,7 +41,7 @@ function ProcessCard({
 }: {
   db: Database;
   process: Protocol;
-  acknowledgementState?: "pending" | "acknowledged";
+  acknowledgementState?: "assume" | "pending" | "acknowledged";
   onAcknowledge?: (process: Protocol) => void;
 }) {
   const [printOpen, setPrintOpen] = useState(false);
@@ -192,11 +192,15 @@ function ProcessCard({
             aria-label={
               acknowledgementState === "acknowledged"
                 ? `Ciência registrada no processo ${process.number}`
+                : acknowledgementState === "assume"
+                  ? `Assumir e dar ciência do processo ${process.number}`
                 : `Dar ciência do processo ${process.number}`
             }
             title={
               acknowledgementState === "acknowledged"
                 ? "Ciência registrada"
+                : acknowledgementState === "assume"
+                  ? "Assumir e dar ciência sem abrir o processo"
                 : "Dar ciência sem abrir o processo"
             }
             disabled={acknowledgementState === "acknowledged"}
@@ -226,7 +230,7 @@ export function ProtocolTable({
   protocols: Protocol[];
   acknowledgementState?: (
     process: Protocol,
-  ) => "pending" | "acknowledged" | undefined;
+  ) => "assume" | "pending" | "acknowledged" | undefined;
   onAcknowledge?: (process: Protocol) => void;
 }) {
   return (

@@ -1,0 +1,3 @@
+nome;email;perfil;cpf;ativo;criar_pessoa
+Maria da Silva;maria.silva@example.com;OPERADOR;;sim;sim
+João Pereira;joao.pereira@example.com;LEITOR;;sim;não

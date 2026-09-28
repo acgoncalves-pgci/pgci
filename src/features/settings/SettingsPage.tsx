@@ -15,6 +15,9 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { Input } from "../../components/ui/Input";
+import { CnpjInput } from "../../components/ui/CnpjInput";
+import { BrazilianPhoneInput } from "../../components/ui/BrazilianPhoneInput";
+import { MaskedInput } from "../../components/ui/MaskedInput";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
 import { Loading, PageTitle } from "../../components/ui/Feedback";
@@ -23,6 +26,7 @@ import type { AppearancePalette } from "../../app/session";
 import { useDb } from "../../app/queries";
 import { formatConfiguredNumber, GENERAL_SETTINGS_KEY } from "../../lib/numbering";
 type Tab = "general" | "portal" | "appearance";
+const stateTokens = { A: { pattern: /[a-z]/i, transform: (char: string) => char.toUpperCase() } };
 type GeneralSettings = {
   organizationName: string;
   shortName: string;
@@ -234,6 +238,7 @@ export function SettingsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <SettingField label="Nome da organização">
                 <Input
+                  placeholder="Ex.: Prefeitura Municipal de Aracaju"
                   value={general.organizationName}
                   onChange={(event) =>
                     update("organizationName", event.target.value)
@@ -248,20 +253,25 @@ export function SettingsPage() {
                 />
               </SettingField>
               <SettingField label="CNPJ">
-                <Input
+                <CnpjInput
+                  placeholder="00.000.000/0000-00"
                   value={general.cnpj}
                   onChange={(event) => update("cnpj", event.target.value)}
                 />
               </SettingField>
               <SettingField label="Cidade">
                 <Input
+                  placeholder="Ex.: Aracaju"
                   value={general.city}
                   onChange={(event) => update("city", event.target.value)}
                 />
               </SettingField>
               <SettingField label="UF">
-                <Input
-                  maxLength={2}
+                <MaskedInput
+                  mask="AA"
+                  tokens={stateTokens}
+                  inputMode="text"
+                  placeholder="Ex.: SE"
                   value={general.state}
                   onChange={(event) =>
                     update("state", event.target.value.toUpperCase())
@@ -273,18 +283,21 @@ export function SettingsPage() {
               <SettingField label="E-mail de contato">
                 <Input
                   type="email"
+                  placeholder="contato@municipio.gov.br"
                   value={general.email}
                   onChange={(event) => update("email", event.target.value)}
                 />
               </SettingField>
               <SettingField label="Telefone">
-                <Input
+                <BrazilianPhoneInput
+                  placeholder="(00) 0000-0000"
                   value={general.phone}
                   onChange={(event) => update("phone", event.target.value)}
                 />
               </SettingField>
               <SettingField label="Endereço">
                 <Input
+                  placeholder="Ex.: Praça Central, 100 - Centro"
                   value={general.address}
                   onChange={(event) => update("address", event.target.value)}
                 />
@@ -310,6 +323,7 @@ export function SettingsPage() {
                 </SettingField>
                 <SettingField label="Padding do sequencial">
                   <Input
+                    placeholder="Ex.: 4"
                     inputMode="numeric"
                     value={general.sequencePadding}
                     onChange={(event) =>
@@ -384,6 +398,7 @@ export function SettingsPage() {
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <SettingField label="Linha 1 do timbre">
                   <Input
+                    placeholder="Ex.: Prefeitura Municipal de Aracaju"
                     value={general.organizationName}
                     onChange={(event) =>
                       update("organizationName", event.target.value)
@@ -391,7 +406,8 @@ export function SettingsPage() {
                   />
                 </SettingField>
                 <SettingField label="Linha 2 do timbre">
-                  <Input
+                  <CnpjInput
+                    placeholder="00.000.000/0000-00"
                     value={general.cnpj}
                     onChange={(event) => update("cnpj", event.target.value)}
                   />
@@ -400,6 +416,7 @@ export function SettingsPage() {
               <div className="mt-5 grid gap-4 border-t pt-5 md:grid-cols-2">
                 <SettingField label="Largura da etiqueta (pt)">
                   <Input
+                    placeholder="Ex.: 425"
                     inputMode="numeric"
                     value={general.labelWidth}
                     onChange={(event) =>
@@ -412,6 +429,7 @@ export function SettingsPage() {
                 </SettingField>
                 <SettingField label="Altura da etiqueta (pt)">
                   <Input
+                    placeholder="Ex.: 283"
                     inputMode="numeric"
                     value={general.labelHeight}
                     onChange={(event) =>
@@ -439,7 +457,7 @@ export function SettingsPage() {
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <SettingField label="Nome exibido no portal">
-                  <Input value={general.portalName || db.organization.name} onChange={(event) => update("portalName", event.target.value)} />
+                  <Input placeholder="Ex.: Portal do Cidadão" value={general.portalName || db.organization.name} onChange={(event) => update("portalName", event.target.value)} />
                 </SettingField>
                 <SettingField label="Endereço público">
                   <Input placeholder="https://portal.entidade.gov.br/consulta" value={general.publicUrl} onChange={(event) => update("publicUrl", event.target.value)} />
@@ -624,7 +642,7 @@ export function SettingsPage() {
 }
 function AppearanceColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const update = (next: string) => { if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next.toLowerCase()); };
-  return <SettingField label={label}><div className="flex items-center gap-3"><Input aria-label={label} className="h-11 w-16 cursor-pointer p-1" type="color" value={value} onChange={(event) => onChange(event.target.value)}/><Input aria-label={`${label} hexadecimal`} className="w-32 font-mono uppercase" value={value.toUpperCase()} onChange={(event) => update(event.target.value)}/><span className="h-9 flex-1 rounded-md border" style={{ backgroundColor: value }} aria-hidden="true"/></div></SettingField>;
+  return <SettingField label={label}><div className="flex items-center gap-3"><Input aria-label={label} className="h-11 w-16 cursor-pointer p-1" type="color" value={value} onChange={(event) => onChange(event.target.value)}/><Input aria-label={`${label} hexadecimal`} className="w-32 font-mono uppercase" value={value.toUpperCase()} onChange={(event) => update(event.target.value)} placeholder="#17628B"/><span className="h-9 flex-1 rounded-md border" style={{ backgroundColor: value }} aria-hidden="true"/></div></SettingField>;
 }
 function SettingField({
   label,
