@@ -78,7 +78,7 @@ function DocumentRow({ document, db, ctx, onDelete }: { document: AppDocument; d
       <Link className="btn-secondary icon-button" to={`/documentos/${document.id}`} aria-label={`Visualizar ${document.number}`} title="Visualizar"><Eye size={16}/></Link>
       {canStartProtocol && <Link className="btn-secondary icon-button" to={`/processos/novo?documentId=${document.id}`} aria-label={`Abrir processo a partir de ${document.number}`} title="Abrir processo a partir"><FilePlus2 size={16}/></Link>}
       {editable ? <Link className="btn-secondary icon-button" to={`/documentos/${document.id}/editar`} aria-label={`Editar ${document.number}`} title="Editar"><Pencil size={16}/></Link> : <button type="button" className="btn-secondary icon-button" disabled aria-label={`Editar ${document.number}`} title="Sem permissão para editar"><Pencil size={16}/></button>}
-      <button type="button" className="btn-secondary icon-button" disabled={Boolean(document.protocolId) || !editable} onClick={onDelete} aria-label={`Excluir ${document.number}`} title={document.protocolId ? 'Documento anexado a um processo' : 'Excluir'}><Trash2 size={16}/></button>
+      <button type="button" className="btn-secondary icon-button" disabled={!editable} onClick={onDelete} aria-label={`Excluir ${document.number}`} title={editable ? 'Excluir' : 'Sem permissão para excluir'}><Trash2 size={16}/></button>
     </div>
   </article>
 }

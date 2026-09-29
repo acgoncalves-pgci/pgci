@@ -574,7 +574,7 @@ export const api = {
             const latestMovement = resolveMovement(db, protocol);
             if (movement.id !== latestMovement.id || movement.assignmentId !== protocol.currentAssignmentId)
                 throw new DomainError('INVALID_STATE', 'Somente o checklist da movimentação atual pode ser alterado.');
-            const phase = phaseForChecklist(db, protocol);
+            const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
             if (!phase)
                 throw new DomainError('INVALID_STATE', 'A movimentação atual não possui uma fase com checklist.');
             const questions = phaseQuestions(phase);
@@ -642,6 +642,9 @@ export const api = {
             if (!canAct(db, protocol, ctx))
                 throw new DomainError('FORBIDDEN', 'Somente o responsável ou admin no contexto atual pode tramitar.');
             requireAssignmentReceived(db, protocol);
+            const finalPhase = orderedPhases(protocol).at(-1);
+            if (protocol.flowModeSnapshot === 'REQUIRED' && finalPhase && finalPhase.phaseId === protocol.currentPhaseId)
+                throw new DomainError('INVALID_STATE', 'Esta é a última fase do fluxo obrigatório. Conclua o processo.');
             const pendingIssues = forwardPendingIssues(db, protocol, resolveMovement(db, protocol));
             if (pendingIssues.length)
                 throw new DomainError('VALIDATION', `Resolva as pendências antes de tramitar: ${pendingIssues.join(' ')}`);
@@ -674,10 +677,8 @@ export const api = {
                 throw new DomainError('VALIDATION', 'A fase da tramitação é definida pelo fluxo do processo.');
             if (configuredPhase?.destinationUnitId && input.unitId !== configuredPhase.destinationUnitId)
                 throw new DomainError('VALIDATION', 'O destino da tramitação é definido pela próxima etapa do fluxo.');
-            const eligibleUnitIds = configuredPhase?.eligibleUnitIds
-                ?? db.phases.find((phase) => phase.id === selectedPhaseId)?.eligibleUnitIds
-                ?? [];
-            validatePhaseDestination(eligibleUnitIds, input.unitId);
+            if (configuredPhase)
+                validatePhaseDestination(configuredPhase.eligibleUnitIds, input.unitId);
 
             const phaseChanges = Boolean(configuredPhase && configuredPhase.phaseId !== protocol.currentPhaseId);
             if (phaseChanges) {
@@ -895,6 +896,37 @@ export const api = {
             throw error;
         }
     }, async addAttachment(ctx: Context, protocolId: string, expectedVersion: number, file: File, movementEventId?: string) { const [attachment] = await this.addAttachments(ctx, protocolId, expectedVersion, [file], movementEventId); return attachment; },
+    async removeAttachment(ctx: Context, protocolId: string, expectedVersion: number, attachmentId: string) {
+        const blobKey = await mutate((db) => {
+            const protocol = getProtocol(db, protocolId);
+            requireVersion(protocol, expectedVersion);
+            requireActive(protocol);
+            requireActor(db, ctx);
+            if (!canAct(db, protocol, ctx))
+                throw new DomainError('FORBIDDEN', 'Você não pode excluir arquivos deste processo.');
+            const attachment = db.attachments.find((item) => item.id === attachmentId && item.protocolId === protocolId);
+            if (!attachment)
+                throw new DomainError('NOT_FOUND', 'Arquivo do processo não encontrado.');
+            db.attachments = db.attachments.filter((item) => item.id !== attachmentId);
+            db.events.forEach((item) => {
+                if (item.relatedAttachmentId === attachmentId) item.relatedAttachmentId = undefined;
+            });
+            bump(protocol);
+            audit(db, { action: 'ATTACHMENT_DELETED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Arquivo “${attachment.filename}” excluído do processo ${protocol.number}.` });
+            return attachment.blobKey;
+        });
+        await deleteBlob(blobKey).catch(() => undefined);
+        return true;
+    },
+    async recordDossierGeneration(ctx: Context, protocolId: string) {
+        return mutate((db) => {
+            const protocol = getProtocol(db, protocolId);
+            requireActor(db, ctx);
+            if (!canView(db, protocol, ctx))
+                throw new DomainError('FORBIDDEN', 'Você não pode gerar o dossiê deste processo.');
+            return audit(db, { action: 'PROTOCOL_DOSSIER_GENERATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Dossiê do processo ${protocol.number} gerado para visualização.` });
+        });
+    },
     async addProtocolTypeAttachments(ctx: Context, typeId: string, files: File[]) {
         if (!files.length || files.length > 5) throw new DomainError('VALIDATION', 'Selecione de 1 a 5 arquivos por operação.');
         for (const file of files) if (!['application/pdf', 'image/png', 'image/jpeg', 'text/plain'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new DomainError('VALIDATION', 'Envie PDF, PNG, JPEG ou TXT de até 5 MB.');
@@ -956,11 +988,15 @@ export const api = {
         const actor = requireActor(db, ctx);
         const document = db.documents.find((item) => item.id === documentId);
         if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
-        if (document.protocolId || db.events.some((event) => event.relatedDocumentId === documentId))
-            throw new DomainError('VALIDATION', 'Documentos anexados a um processo não podem ser excluídos.');
+        if (!document.protocolId && db.events.some((event) => event.relatedDocumentId === documentId))
+            throw new DomainError('VALIDATION', 'Este documento ainda está vinculado a uma movimentação.');
         if (!canManageDocument(db, document, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode excluir este documento.');
         db.documents = db.documents.filter((item) => item.id !== documentId);
-        audit(db, { action: 'DOCUMENT_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento ${document.number} excluído.` });
+        db.events.forEach((item) => {
+            if (item.relatedDocumentId === documentId) item.relatedDocumentId = undefined;
+        });
+        const protocol = document.protocolId ? getProtocol(db, document.protocolId) : undefined;
+        audit(db, { action: 'DOCUMENT_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: protocol ? 'PROTOCOL' : 'DOCUMENT', targetId: protocol?.id ?? document.id, details: protocol ? `Documento ${document.number} excluído do processo ${protocol.number}.` : `Documento ${document.number} excluído.` });
         return true;
     }); },
     async listData() { await sleep(); return loadDb(); },

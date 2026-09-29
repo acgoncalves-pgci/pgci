@@ -27,9 +27,11 @@ export function forwardPendingIssues(
   protocol: Protocol,
   movement: ProtocolEvent,
 ): string[] {
-  const phase =
-    protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId) ??
-    db.phases.find((item) => item.id === protocol.currentPhaseId);
+  // A fase escolhida em fluxo livre só identifica a movimentação. Suas regras
+  // de checklist e anexos valem apenas quando um fluxo foi aplicado ao processo.
+  const phase = protocol.flowSnapshot?.phases.find(
+    (item) => item.phaseId === protocol.currentPhaseId,
+  );
   if (!phase) return [];
 
   const questions: ChecklistQuestion[] = phase.checklistQuestions?.length

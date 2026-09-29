@@ -164,6 +164,31 @@ describe('jornada principal da interface', () => {
 
     expect(screen.getAllByRole('checkbox', { name: 'Registrar despacho ou resultado' })).toHaveLength(1)
   })
+  it('exclui documento e arquivo do processo com confirmação e atualiza a auditoria', async () => {
+    localStorage.setItem('fluxo-publico:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir documento DOC-2026.000001' }))
+    const documentConfirmation = await screen.findByRole('dialog', { name: 'Excluir documento?' })
+    fireEvent.click(within(documentConfirmation).getByRole('button', { name: 'Excluir documento' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Visualizar documento DOC-2026.000001' })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir arquivo comprovante-demo.txt' }))
+    const attachmentConfirmation = await screen.findByRole('dialog', { name: 'Excluir arquivo?' })
+    fireEvent.click(within(attachmentConfirmation).getByRole('button', { name: 'Excluir arquivo' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Visualizar anexo comprovante-demo.txt' })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /^Auditoria\b/ }))
+    expect(screen.getByText('Documento excluído')).not.toBeNull()
+    expect(screen.getByText('Arquivo excluído')).not.toBeNull()
+    const persisted = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+    expect(persisted.documents.some((item: { protocolId?: string }) => item.protocolId === 'pr-1')).toBe(false)
+    expect(persisted.attachments.some((item: { protocolId?: string }) => item.protocolId === 'pr-1')).toBe(false)
+  })
   it('mostra o anexo pendente e libera a tramitação após anexá-lo', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
@@ -407,6 +432,39 @@ describe('jornada principal da interface', () => {
     expect(movement).toMatchObject({ phaseId: 'phase-analysis', activity: 'Conferência documental', result: 'Documentação conferida e encaminhada' })
   })
 
+  it('não mostra nem cobra checklist do fluxo sugerido dispensado ao tramitar para outra unidade', async () => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.flowModeSnapshot = 'SUGGESTED'
+    protocol.flowSnapshot = undefined
+    protocol.currentPhaseId = 'phase-payment-review'
+    const opening = db.events.find((event) => event.id === 'ev-open-1')!
+    opening.phaseId = protocol.currentPhaseId
+    opening.checklist = undefined
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    expect(screen.queryByRole('checkbox', { name: 'Conferir nota fiscal e dados bancários do credor' })).toBeNull()
+    const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
+    expect(forwardButton.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(forwardButton)
+    const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(forwardDialog).getByText('Fluxo livre')).not.toBeNull()
+    expect(within(forwardDialog).getByText('O fluxo sugerido não foi aplicado a este processo — escolha livremente a fase de destino.')).not.toBeNull()
+    await choose('Fase *', 'Admissibilidade', within(forwardDialog))
+    await choose('Unidade organizacional de destino *', 'Administração', within(forwardDialog))
+    fireEvent.change(within(forwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para Administração.' } })
+    fireEvent.click(within(forwardDialog).getByRole('button', { name: 'Tramitar' }))
+    const confirmation = await screen.findByRole('dialog', { name: 'Registrar atividade?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Não, apenas continuar' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const persisted = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+    expect(persisted.protocols.find((item: { id: string }) => item.id === protocol.id)).toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-citizen-screening' })
+  })
+
   it('bloqueia fase e destino previamente definidos pelo fluxo sugerido', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
@@ -428,6 +486,42 @@ describe('jornada principal da interface', () => {
     expect(destinationSelect.hasAttribute('disabled')).toBe(true)
     expect(phaseSelect.textContent).toContain('Análise')
     expect(destinationSelect.textContent).toContain('Administração')
+  })
+  it('desabilita Tramitar na última fase obrigatória e mantém Concluir disponível', async () => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.status = 'EM_ANDAMENTO'
+    protocol.currentPhaseId = 'phase-completion'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-completion-result', text: 'Registrar resultado final', checked: true, date: '2026-09-28', observation: 'Resultado conferido.' }]
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
+    expect(forwardButton.disabled).toBe(true)
+    expect(forwardButton.getAttribute('title')).toBe('Esta é a última fase do fluxo obrigatório. Conclua o processo.')
+    fireEvent.click(forwardButton)
+    expect(screen.queryByRole('dialog', { name: 'Tramitar processo' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Concluir' })).not.toBeNull()
+  })
+  it('mantém Tramitar disponível na última fase do fluxo sugerido', async () => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.status = 'EM_ANDAMENTO'
+    protocol.flowModeSnapshot = 'SUGGESTED'
+    protocol.currentPhaseId = 'phase-completion'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-completion-result', text: 'Registrar resultado final', checked: true, date: '2026-09-28', observation: 'Resultado conferido.' }]
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
+    expect(forwardButton.disabled).toBe(false)
+    fireEvent.click(forwardButton)
+    const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
+    expect(within(forwardDialog).getByText('Esta é a etapa final sugerida. Você pode tramitar novamente ou concluir o processo.')).not.toBeNull()
   })
   it('revela somente os campos pedidos pelo tipo de processo selecionado', async () => {
     renderApp()

@@ -658,6 +658,64 @@ describe('cenários de aceite dos dados de demonstração', () => {
 describe('regras avançadas de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
 
+  it('exclui arquivo e documento vinculados sem deixar referências, com auditoria do processo', async () => {
+    const db = loadDb()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    const attachment = db.attachments.find((item) => item.protocolId === protocol.id)!
+    const document = db.documents.find((item) => item.protocolId === protocol.id)!
+    const opening = db.events.find((item) => item.id === 'ev-open-1')!
+    opening.relatedAttachmentId = attachment.id
+    opening.relatedDocumentId = document.id
+    saveDb(db)
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+
+    await api.deleteDocument(ctx, document.id)
+    await api.removeAttachment(ctx, protocol.id, protocol.version, attachment.id)
+    const after = loadDb()
+
+    expect(after.documents.some((item) => item.id === document.id)).toBe(false)
+    expect(after.attachments.some((item) => item.id === attachment.id)).toBe(false)
+    expect(after.events.find((item) => item.id === opening.id)?.relatedDocumentId).toBeUndefined()
+    expect(after.events.find((item) => item.id === opening.id)?.relatedAttachmentId).toBeUndefined()
+    expect(after.protocols.find((item) => item.id === protocol.id)?.version).toBe(protocol.version + 1)
+    expect(after.auditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'DOCUMENT_DELETED', targetType: 'PROTOCOL', targetId: protocol.id }),
+      expect.objectContaining({ action: 'ATTACHMENT_DELETED', targetType: 'PROTOCOL', targetId: protocol.id }),
+    ]))
+  })
+
+  it('não permite excluir anexos de processo fora da unidade ou concluído', async () => {
+    const db = loadDb()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    const attachment = db.attachments.find((item) => item.protocolId === protocol.id)!
+    const document = db.documents.find((item) => item.protocolId === protocol.id)!
+
+    await expect(api.removeAttachment({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, protocol.id, protocol.version, attachment.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(api.deleteDocument({ userId: 'usr-bruno', activeUnitId: 'u-adm' }, document.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    protocol.status = 'CONCLUIDO'
+    saveDb(db)
+    await expect(api.removeAttachment({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, attachment.id)).rejects.toMatchObject({ code: 'INVALID_STATE' })
+    await expect(api.deleteDocument({ userId: 'usr-clara', activeUnitId: 'u-prot' }, document.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(loadDb().attachments.some((item) => item.id === attachment.id)).toBe(true)
+    expect(loadDb().documents.some((item) => item.id === document.id)).toBe(true)
+  })
+
+  it('registra a geração do dossiê somente na auditoria', async () => {
+    const before = loadDb()
+    const protocol = before.protocols.find((item) => item.id === 'pr-1')!
+    const attachmentCount = before.attachments.filter((item) => item.protocolId === protocol.id).length
+    const eventCount = before.events.filter((item) => item.protocolId === protocol.id).length
+
+    const recorded = await api.recordDossierGeneration({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id)
+    const after = loadDb()
+
+    expect(recorded).toMatchObject({ action: 'PROTOCOL_DOSSIER_GENERATED', targetType: 'PROTOCOL', targetId: protocol.id, actorUserId: 'usr-clara' })
+    expect(after.attachments.filter((item) => item.protocolId === protocol.id)).toHaveLength(attachmentCount)
+    expect(after.events.filter((item) => item.protocolId === protocol.id)).toHaveLength(eventCount)
+    expect(after.protocols.find((item) => item.id === protocol.id)?.version).toBe(protocol.version)
+  })
+
   it('recusa encaminhamento que não altera unidade nem responsável', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-1')!
     await expect(api.forward({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, {
@@ -942,6 +1000,7 @@ describe('execução das fases do processo', () => {
     const db = loadDb()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.status = 'EM_ANDAMENTO'
+    protocol.flowModeSnapshot = 'SUGGESTED'
     protocol.currentPhaseId = 'phase-completion'
     db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-completion-result', text: 'Registrar resultado final', checked: true, date: '2026-09-28', observation: 'Resultado conferido.' }]
     saveDb(db)
@@ -953,6 +1012,21 @@ describe('execução das fases do processo', () => {
     const movement = loadDb().events.filter((event) => event.protocolId === protocol.id && event.kind === 'TRAMITACAO').at(-1)
     expect(movement).toMatchObject({ phaseId: 'phase-completion' })
     expect(movement).not.toHaveProperty('checklist')
+  })
+  it('impede tramitar na fase final do fluxo obrigatório mesmo com o checklist concluído', async () => {
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+    const db = loadDb()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.status = 'EM_ANDAMENTO'
+    protocol.currentPhaseId = 'phase-completion'
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-completion-result', text: 'Registrar resultado final', checked: true, date: '2026-09-28', observation: 'Resultado conferido.' }]
+    saveDb(db)
+
+    await expect(api.forward(ctx, protocol.id, protocol.version, {
+      unitId: 'u-adm', assigneeId: 'usr-bruno', phaseId: 'phase-completion', message: 'Tentativa de tramitar após a última fase.',
+    })).rejects.toMatchObject({ code: 'INVALID_STATE', message: 'Esta é a última fase do fluxo obrigatório. Conclua o processo.' })
+    expect(loadDb().protocols.find((item) => item.id === protocol.id)?.version).toBe(protocol.version)
+    expect(loadDb().events.some((event) => event.protocolId === protocol.id && event.kind === 'TRAMITACAO')).toBe(false)
   })
   it('impede a tramitação pela API quando o checklist atual está pendente', async () => {
     const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
@@ -1021,6 +1095,26 @@ describe('modos do fluxo no tipo de processo', () => {
     await expect(api.complete(context, withoutFlow.id, withoutFlow.version, 'Concluído sem fluxo sugerido.')).resolves.toMatchObject({
       status: 'CONCLUIDO',
     })
+  })
+
+  it('tramita em fluxo livre após dispensar o sugerido sem cobrar checklist nem restringir a unidade', async () => {
+    const db = loadDb()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.flowModeSnapshot = 'SUGGESTED'
+    protocol.flowSnapshot = undefined
+    protocol.currentPhaseId = 'phase-payment-review'
+    const opening = db.events.find((event) => event.id === 'ev-open-1')!
+    opening.phaseId = protocol.currentPhaseId
+    opening.checklist = undefined
+    saveDb(db)
+
+    const forwarded = await api.forward({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, {
+      unitId: 'u-adm', assigneeId: 'usr-bruno', phaseId: 'phase-payment-review', message: 'Encaminhado livremente para Administração.',
+    })
+
+    expect(forwarded).toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-payment-review' })
+    expect(forwarded.flowSnapshot).toBeUndefined()
+    expect(loadDb().events.filter((event) => event.protocolId === protocol.id && event.kind === 'TRAMITACAO').at(-1)?.checklist).toBeUndefined()
   })
 
   it('bloqueia tipo obrigatório sem fases e aceita tipo sugerido ainda não configurado', async () => {
