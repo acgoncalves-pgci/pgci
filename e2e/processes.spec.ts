@@ -1,5 +1,49 @@
 import { expect, test } from '@playwright/test'
 
+test('lista compacta mantém textos legíveis e colunas dentro dos cartões', async ({ page }) => {
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/processos?tab=all')
+    const card = page.locator('.process-card').first()
+    await expect(card).toBeVisible()
+
+    const layout = await card.evaluate((element) => {
+      const bounds = (selector: string) => element.querySelector(selector)!.getBoundingClientRect()
+      const size = (selector: string) => parseFloat(getComputedStyle(element.querySelector(selector)!).fontSize)
+      const box = element.getBoundingClientRect()
+      return {
+        box: { left: box.left, right: box.right },
+        reference: bounds('.process-card-reference'),
+        summary: bounds('.process-card-summary'),
+        movement: bounds('.process-card-movement'),
+        actions: bounds('.process-card-actions'),
+        sizes: ['.process-card-number', '.process-status-badge', '.process-card-type', '.process-card-summary h2', '.process-card-description', '.process-card-movement']
+          .map(size),
+        hasOverflow: element.scrollWidth > element.clientWidth + 1,
+        labelsFit: [...element.querySelectorAll<HTMLElement>('.process-card-movement dt')]
+          .every((label) => label.scrollWidth <= label.clientWidth + 1),
+      }
+    })
+
+    expect(layout.sizes.every((size) => size >= 10.5), `${width}px: fontes da lista`).toBe(true)
+    expect(layout.hasOverflow, `${width}px: conteúdo fora do cartão`).toBe(false)
+    expect(layout.labelsFit, `${width}px: rótulos da movimentação`).toBe(true)
+    expect(layout.reference.left).toBeGreaterThanOrEqual(layout.box.left)
+    expect(layout.actions.right).toBeLessThanOrEqual(layout.box.right + 1)
+    if (width > 1050) {
+      expect(layout.summary.left).toBeGreaterThanOrEqual(layout.reference.right)
+      expect(layout.movement.left).toBeGreaterThanOrEqual(layout.summary.right)
+      expect(layout.actions.left).toBeGreaterThanOrEqual(layout.movement.right)
+      const movementPositions = await page.locator('.process-card-movement').evaluateAll((items) =>
+        items.map((item) => item.getBoundingClientRect().left),
+      )
+      expect(Math.max(...movementPositions) - Math.min(...movementPositions)).toBeLessThan(1)
+    } else {
+      expect(layout.actions.left).toBeGreaterThanOrEqual(layout.summary.right)
+    }
+  }
+})
+
 test('lista, filtros rápidos e filtro avançado de processos', async ({ page }) => {
   await page.goto('/processos?tab=all')
 

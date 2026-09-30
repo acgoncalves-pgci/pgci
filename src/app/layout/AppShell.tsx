@@ -229,7 +229,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   `pgci-nav-link ${isActive ? "pgci-nav-link-active" : ""}`
                 }
               >
-                <Icon size={16} />
+                <Icon size={18} />
                 <span className="sidebar-label">{label as string}</span>
               </NavLink>
             ))}

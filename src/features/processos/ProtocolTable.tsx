@@ -125,23 +125,23 @@ function ProcessCard({
             style={{ backgroundColor: type?.color ?? "var(--ui-accent)" }}
           />
           <div className="min-w-0">
-            <p className="process-card-type">{type?.name ?? "Processo"}</p>
-            <h2>{process.subject}</h2>
+            <p className="process-card-type" title={type?.name ?? "Processo"}>{type?.name ?? "Processo"}</p>
+            <h2 title={process.subject}>{process.subject}</h2>
             <Tooltip content={process.description} className="process-card-description">{process.description}</Tooltip>
           </div>
         </div>
         <dl className="process-card-movement">
           <div>
             <dt>Última movimentação em:</dt>
-            <dd>{dateTime(latest?.createdAt ?? process.updatedAt)}</dd>
+            <dd title={dateTime(latest?.createdAt ?? process.updatedAt)}>{dateTime(latest?.createdAt ?? process.updatedAt)}</dd>
           </div>
           <div>
             <dt>Está em:</dt>
-            <dd>{unit?.name ?? "—"}</dd>
+            <dd title={unit?.name ?? "—"}>{unit?.name ?? "—"}</dd>
           </div>
           <div>
             <dt>Assunto do andamento:</dt>
-            <dd>
+            <dd title={latest?.message || (latest ? eventLabel[latest.kind] : "Processo cadastrado")}>
               {latest?.message ||
                 (latest ? eventLabel[latest.kind] : "Processo cadastrado")}
             </dd>
