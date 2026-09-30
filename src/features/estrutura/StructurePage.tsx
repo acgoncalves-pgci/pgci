@@ -11,7 +11,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Switch } from '../../components/ui/Switch';
-import { ErrorBox, Field, Loading } from '../../components/ui/Feedback';
+import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback';
 
 const unitSorter = (left: Unit, right: Unit) =>
   (left.position ?? 0) - (right.position ?? 0) || left.name.localeCompare(right.name, 'pt-BR');
@@ -105,17 +105,7 @@ export function StructurePage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <header className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 grid size-9 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--ui-accent)_14%,transparent)] text-[var(--ui-accent)]">
-            <Building2 size={18} />
-          </span>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Estrutura Organizacional</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{db.organization.name}</p>
-          </div>
-        </div>
-        {admin && (
+      <PageTitle title="Estrutura Organizacional" detail={db.organization.name} icon={Building2} action={admin && (
           <div className="flex items-center justify-end gap-2">
             <div className="relative">
               <button type="button" className="btn-secondary !p-2" aria-label="Mais ações" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)}>
@@ -131,8 +121,7 @@ export function StructurePage() {
             </div>
             <button className="btn-primary" onClick={() => setEditing({})}><Plus size={16} />Nova unidade organizacional</button>
           </div>
-        )}
-      </header>
+        )} />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <label className="relative block w-full sm:w-[18rem]">

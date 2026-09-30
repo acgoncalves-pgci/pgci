@@ -29,8 +29,7 @@ export function ProtocolTypesPage() {
   if (flowManaging) { const currentType = db.protocolTypes.find((type) => type.id === flowManaging.id) ?? flowManaging; return <TypeFlowPage type={currentType} flows={db.flows} flowPhases={db.flowPhases} phases={db.phases} situations={db.situations} units={db.units} editable={admin} onBack={() => setFlowManaging(null)} /> }
 
   return <>
-    <PageTitle title="Tipos de processo" />
-    <p className="-mt-3 mb-5 text-sm text-slate-600 dark:text-slate-300">Configure os tipos e suas etapas de fluxo. Fases, categorias e situações são administradas pelos itens próprios da barra lateral.</p>
+    <PageTitle title="Tipos de processo" detail="Configure os tipos e suas etapas de fluxo. Fases, categorias e situações são administradas pelos itens próprios da barra lateral." icon={ListChecks} />
     <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />
     {aiCreating && <AiProtocolTypeDialog categories={db.processCategories} phases={db.phases} situations={db.situations} units={db.units} onClose={() => setAiCreating(false)} onCreated={() => setAiCreating(false)} />}
     {typeEditing && <ProtocolTypeEditor categories={db.processCategories} users={db.users} units={db.units} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
@@ -244,14 +243,7 @@ function TypeFlowPage({ type, flows, flowPhases, phases, situations, units, edit
   const defaultSituationId = situations.find((situation) => situation.id === 'situation-processing' && situation.active)?.id ?? situations.find((situation) => situation.active)?.id
 
   return <>
-    <div className="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <p className="label mb-1">Tipos de processo · {type.name}</p>
-        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight"><span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary"><GitBranch size={19} /></span>Fluxo — {type.name}</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Configure a sequência de etapas e a situação exibida em cada uma.</p>
-      </div>
-      <button type="button" className="btn-secondary" onClick={onBack} aria-label="Voltar para tipos de processo"><ChevronRight className="rotate-180" size={17} /></button>
-    </div>
+    <PageTitle eyebrow={`Tipos de processo · ${type.name}`} title={`Fluxo — ${type.name}`} detail="Configure a sequência de etapas e a situação exibida em cada uma." icon={GitBranch} action={<button type="button" className="btn-secondary" onClick={onBack} aria-label="Voltar para tipos de processo"><ChevronRight className="rotate-180" size={17} /></button>} />
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar etapa" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por fase, situação, unidade..." className="w-72 pl-9" /></div>

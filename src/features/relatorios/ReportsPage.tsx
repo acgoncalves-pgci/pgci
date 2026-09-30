@@ -72,8 +72,7 @@ export function ReportsPage() {
     finally { setBusy(false); }
   };
   return <div className="reports-page">
-    <PageTitle title="Relatórios" action={<span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">Escopo: {ctx.user.role === 'ADMIN' ? db.organization.name : db.units.find((u) => u.id === ctx.activeUnitId)?.name}</span>} />
-    <p className="-mt-4 mb-7 text-sm text-muted-foreground">Gere relatórios em PDF a partir dos processos da entidade.</p>
+    <PageTitle title="Relatórios" detail="Gere relatórios em PDF a partir dos processos da entidade." icon={BarChart3} action={<span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">Escopo: {ctx.user.role === 'ADMIN' ? db.organization.name : db.units.find((u) => u.id === ctx.activeUnitId)?.name}</span>} />
     <div className="reports-tabs" role="tablist" aria-label="Tipos de relatório">{tabs.map(([id, label], index) => <button key={id} id={`report-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`report-panel-${id}`} tabIndex={tab === id ? 0 : -1} onKeyDown={(event) => navigateTabs(event, index)} onClick={() => changeTab(id)} className="reports-tab">{label}</button>)}</div>
     <section id={`report-panel-${tab}`} role="tabpanel" aria-labelledby={`report-tab-${tab}`} className="reports-panel">
       <form onSubmit={(event) => { event.preventDefault(); void generate(); }}>

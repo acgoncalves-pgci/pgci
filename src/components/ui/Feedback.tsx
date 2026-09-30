@@ -1,11 +1,26 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Inbox } from 'lucide-react';
-export function PageTitle({ eyebrow, title, action }: {
+import { Inbox, LayoutGrid } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+export function PageTitle({ eyebrow, title, detail, icon: Icon = LayoutGrid, action }: {
     eyebrow?: string;
     title: string;
+    detail?: ReactNode;
+    icon?: LucideIcon;
     action?: ReactNode;
-}) { return <div className="no-print mb-6 flex flex-wrap items-end justify-between gap-3"><div>{eyebrow && <p className="label mb-1">{eyebrow}</p>}<h1 className="text-3xl font-bold tracking-tight">{title}</h1></div>{action}</div>; }
+}) {
+    return <header className="page-title no-print mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 flex-1 basis-64 items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--ui-accent)_12%,transparent)] text-[var(--ui-accent)]"><Icon size={20} aria-hidden="true" /></span>
+            <div className="min-w-0">
+                {eyebrow && <p className="label mb-1">{eyebrow}</p>}
+                <h1 className="break-words text-xl font-bold tracking-tight sm:text-2xl">{title}</h1>
+                {detail && <p className="text-sm text-muted-foreground -mt-1">{detail}</p>}
+            </div>
+        </div>
+        {action && <div className="page-title-action ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">{action}</div>}
+    </header>;
+}
 export function Empty({ title, detail, action }: {
     title: string;
     detail: string;

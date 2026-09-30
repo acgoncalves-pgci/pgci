@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { FolderTree, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { ProcessCategory } from '../../domain/model'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
@@ -40,9 +40,10 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
     {!embedded && <>
       <PageTitle
         title="Categorias de Processo"
+        detail="Organize os tipos de processo em categorias reutilizáveis."
+        icon={FolderTree}
         action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova</button></div> : undefined}
       />
-      <p className="-mt-3 mb-5 text-sm text-muted-foreground">Organize os tipos de processo em categorias reutilizáveis.</p>
     </>}
 
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">

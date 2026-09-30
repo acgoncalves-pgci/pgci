@@ -4,7 +4,7 @@ import { ArrowLeft, Check, ChevronRight, Copy, FileText, Sparkles } from 'lucide
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
-import { ErrorBox, Field, Loading } from '../../components/ui/Feedback'
+import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { Input } from '../../components/ui/Input'
 import { RichTextEditor } from '../../components/ui/RichTextEditor'
 import { Switch } from '../../components/ui/Switch'
@@ -71,10 +71,7 @@ function DocumentTemplateForm({ typeId, typeName, template }: { typeId: string; 
   }
 
   return <div className="mx-auto max-w-7xl space-y-5 pb-8">
-    <div className="flex items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-bold tracking-tight">{template ? 'Editar Modelo' : 'Novo Modelo'}</h1><p className="text-sm text-muted-foreground">Tipo: {typeName}</p></div>
-      <Link to={back} className="btn-secondary icon-button" aria-label="Voltar aos modelos"><ArrowLeft size={17}/></Link>
-    </div>
+    <PageTitle title={template ? 'Editar Modelo' : 'Novo Modelo'} detail={`Tipo: ${typeName}`} icon={FileText} action={<Link to={back} className="btn-secondary icon-button" aria-label="Voltar aos modelos"><ArrowLeft size={17}/></Link>} />
     <nav aria-label="Caminho" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <Link className="hover:underline" to="/tipos-documento"><FileText size={14} className="mr-1 inline"/>Tipos de Documento</Link><ChevronRight size={13}/>
       <Link className="hover:underline" to={back}>{typeName}</Link><ChevronRight size={13}/>

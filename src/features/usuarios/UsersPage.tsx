@@ -27,7 +27,7 @@ import { Input } from '../../components/ui/Input';
 import { CpfInput } from '../../components/ui/CpfInput';
 import { Select } from '../../components/ui/Select';
 import { Switch } from '../../components/ui/Switch';
-import { Empty, ErrorBox, Field, Loading } from '../../components/ui/Feedback';
+import { Empty, ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback';
 import { ListPagination, paginateItems } from '../../components/ui/ListPagination';
 import { parseUserCsv } from '../../lib/userCsv';
 import type { UserImportResult } from '../../lib/userCsv';
@@ -83,21 +83,10 @@ export function UsersPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <header className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 grid size-9 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--ui-accent)_14%,transparent)] text-[var(--ui-accent)]">
-            <Users size={18} />
-          </span>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Usuários</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Usuários com acesso ao sistema desta entidade.</p>
-          </div>
-        </div>
-        {isAdmin && <div className="flex flex-wrap gap-2">
+      <PageTitle title="Usuários" detail="Usuários com acesso ao sistema desta entidade." icon={Users} action={isAdmin && <div className="flex flex-wrap items-center gap-2">
           <button className="btn-secondary self-start" onClick={() => setImporting(true)}><FileUp size={16} /> Importar CSV</button>
           <button className="btn-primary self-start" onClick={() => setEditing('new')}><Plus size={16} /> Novo usuário</button>
-        </div>}
-      </header>
+        </div>} />
 
       <section className="mb-5 space-y-3" aria-label="Busca e filtros de usuários">
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -222,19 +211,8 @@ export function UserAccessPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <header className="mb-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 grid size-9 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--ui-accent)_14%,transparent)] text-[var(--ui-accent)]">
-              <ShieldCheck size={18} />
-            </span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Unidades / Permissões — {user.name}</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Unidades organizacionais em que este usuário atua e o papel definido em cada uma.</p>
-            </div>
-          </div>
-          <Link className="btn-secondary !p-2" aria-label="Voltar para usuários" to="/usuarios"><ArrowLeft size={17} /></Link>
-        </div>
+      <div className="mb-5">
+        <PageTitle title={`Unidades / Permissões — ${user.name}`} detail="Unidades organizacionais em que este usuário atua e o papel definido em cada uma." icon={ShieldCheck} action={<Link className="btn-secondary !p-2" aria-label="Voltar para usuários" to="/usuarios"><ArrowLeft size={17} /></Link>} />
         <nav className="mt-5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400" aria-label="Navegação estrutural">
           <Link className="hover:text-[var(--ui-accent)]" to="/usuarios">Usuários</Link>
           <ChevronRight size={13} />
@@ -242,7 +220,7 @@ export function UserAccessPage() {
           <ChevronRight size={13} />
           <strong className="text-slate-700 dark:text-slate-200">Unidades / Permissões</strong>
         </nav>
-      </header>
+      </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70" aria-label="Unidades e permissões">
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">

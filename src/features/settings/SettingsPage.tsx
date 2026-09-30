@@ -191,8 +191,9 @@ export function SettingsPage() {
   return (
     <div className="mx-auto max-w-7xl pb-10">
       <PageTitle
-        eyebrow="Administração"
         title="Configurações"
+        detail="Personalize dados institucionais, portal e aparência do sistema."
+        icon={SlidersHorizontal}
         action={
           <button className="btn-primary" onClick={saveGeneral} disabled={uploadingLogo}>
             <Save size={16} />
@@ -200,9 +201,6 @@ export function SettingsPage() {
           </button>
         }
       />
-      <p className="-mt-3 mb-6 text-sm text-slate-600 dark:text-slate-300">
-        Personalize dados institucionais, portal e aparência do sistema.
-      </p>
       <section className="panel overflow-hidden">
         <div
           role="tablist"
@@ -218,7 +216,7 @@ export function SettingsPage() {
               aria-selected={tab === id}
               aria-controls={`settings-${id}`}
               onClick={() => setTab(id)}
-              className={`flex min-h-9 items-center justify-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${tab === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
+              className={`flex min-h-8 items-center justify-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${tab === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
             >
               <Icon size={15} />
               <span className="hidden sm:inline">{label}</span>
@@ -488,7 +486,7 @@ export function SettingsPage() {
                 <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
                   <h3 className="mb-3 text-sm font-bold">Fonte do sistema</h3>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {(['inter', 'roboto', 'poppins', 'montserrat', 'sora'] as const).map((font) => <button key={font} type="button" aria-pressed={appearance.font === font} onClick={() => setAppearance({ ...appearance, font })} className={`flex min-h-12 items-center justify-between gap-1 rounded-md border bg-white px-2 text-left text-sm font-semibold dark:bg-slate-900 ${appearance.font === font ? 'border-public-600 ring-1 ring-public-600' : 'hover:border-public-600'}`}><span className="capitalize">{font}</span><span className="shrink-0 whitespace-nowrap text-[10px] text-slate-500" style={{ fontFamily: font }}>Aa Bb 123</span></button>)}
+                    {(['inter', 'roboto', 'poppins', 'montserrat', 'sora'] as const).map((font) => <button key={font} type="button" aria-pressed={appearance.font === font} onClick={() => setAppearance({ ...appearance, font })} className={`flex min-h-12 items-center justify-between gap-1 rounded-md border bg-white px-2 text-left text-sm font-semibold dark:bg-slate-900 ${appearance.font === font ? 'border-public-600 ring-1 ring-public-600' : 'hover:border-public-600'}`}><span className="capitalize">{font}</span><span className="shrink-0 whitespace-nowrap text-[10px] text-slate-500" style={{ fontFamily: font, fontWeight: 500 }}>Aa Bb 123</span></button>)}
                   </div>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">

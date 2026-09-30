@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  CircleDot,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -66,6 +67,8 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
         <>
           <PageTitle
             title="Tipos de Situação"
+            detail="Cadastre as situações disponíveis para uso nas etapas dos fluxos de processo."
+            icon={CircleDot}
             action={
               admin ? (
                 <div className="flex items-center gap-2">
@@ -89,10 +92,6 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
               ) : undefined
             }
           />
-          <p className="-mt-3 mb-5 text-sm text-muted-foreground">
-            Cadastre as situações disponíveis para uso nas etapas dos fluxos de
-            processo.
-          </p>
         </>
       )}
 

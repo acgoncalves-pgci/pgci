@@ -32,8 +32,7 @@ export function DocumentTypesPage() {
   const paginated = paginateItems(visible, page)
 
   return <>
-    <PageTitle title="Tipos de documento" action={admin ? <button className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Novo</button> : undefined} />
-    <p className="-mt-3 mb-5 text-sm text-muted-foreground">Configure os documentos disponíveis e seus modelos associados.</p>
+    <PageTitle title="Tipos de documento" detail="Configure os documentos disponíveis e seus modelos associados." icon={FileText} action={admin ? <button className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Novo</button> : undefined} />
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de documento" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
     </div>

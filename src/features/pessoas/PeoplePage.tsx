@@ -69,9 +69,10 @@ export function PeoplePage() {
   return <>
     <PageTitle
       title="Pessoas (Física/Jurídica)"
+      detail="Interessados, credores e responsáveis do município."
+      icon={UserRound}
       action={<div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova Pessoa</button></div>}
     />
-    <p className="-mt-3 mb-5 text-sm text-muted-foreground">Interessados, credores e responsáveis do município.</p>
 
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar pessoas" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Nome, documento ou e-mail..." className="w-72 pl-9"/></label>

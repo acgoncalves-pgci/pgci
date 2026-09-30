@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { GitBranch, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { ProtocolPhase } from '../../domain/model'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
@@ -53,9 +53,10 @@ export function PhasesPage() {
   return <>
     <PageTitle
       title="Tipos de Fases"
+      detail="Cadastre as fases reutilizadas na montagem dos fluxos de processo."
+      icon={GitBranch}
       action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Novo</button></div> : undefined}
     />
-    <p className="-mt-3 mb-5 text-sm text-muted-foreground">Cadastre as fases reutilizadas na montagem dos fluxos de processo.</p>
 
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar fase" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-72 pl-9"/></label>

@@ -225,6 +225,8 @@ export function Protocols() {
     <>
       <PageTitle
         title="Processos"
+        detail="Processos e protocolos"
+        icon={ClipboardList}
         action={
           <Link to="/processos/novo" className="btn-primary">
             <Plus size={16} />
@@ -825,7 +827,7 @@ export function NewProtocol() {
   if (!activeMembership)
     return (
       <>
-        <PageTitle title="Abrir processo" />
+        <PageTitle title="Abrir processo" icon={FilePlus2} />
         <ErrorBox
           error={
             new Error(
@@ -838,7 +840,7 @@ export function NewProtocol() {
   if (activeMembership.role === "LEITOR")
     return (
       <>
-        <PageTitle title="Abrir processo" />
+        <PageTitle title="Abrir processo" icon={FilePlus2} />
         <ErrorBox
           error={
             new Error(
@@ -849,7 +851,7 @@ export function NewProtocol() {
       </>
     );
   if (sourceDocumentId && (!sourceDocument || sourceDocument.protocolId || !db.documentTypes.some((documentType) => documentType.id === sourceDocument.typeId && documentType.active)))
-    return <><PageTitle title="Abrir processo" /><ErrorBox error={new Error("O documento de origem não está disponível para abrir um processo.")}/></>;
+    return <><PageTitle title="Abrir processo" icon={FilePlus2} /><ErrorBox error={new Error("O documento de origem não está disponível para abrir um processo.")}/></>;
 
   const interestedOptions = participantOptions(db, "INTERESSADO");
   const creditorOptions = participantOptions(db, "CREDOR");
@@ -977,21 +979,13 @@ export function NewProtocol() {
 
   return (
     <>
-      <div className="no-print mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Abrir processo</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Preencha os dados conforme o tipo selecionado.
-          </p>
-        </div>
-        <Link
+      <PageTitle title="Abrir processo" detail="Preencha os dados conforme o tipo selecionado." icon={FilePlus2} action={<Link
           className="btn-secondary icon-button"
           to="/processos"
           aria-label="Voltar à lista de processos"
         >
           <ArrowLeft size={17} />
-        </Link>
-      </div>
+        </Link>} />
       <form
         onSubmit={form.handleSubmit(submit)}
         className="mx-auto max-w-7xl space-y-5"
@@ -1582,7 +1576,7 @@ export function ProtocolDetail() {
   if (error)
     return (
       <>
-        <PageTitle title="Registro não encontrado" />
+        <PageTitle title="Registro não encontrado" icon={ClipboardList} />
         <ErrorBox error={error} />
         <Link className="btn-secondary mt-4" to="/processos">
           Voltar à listagem
@@ -1791,6 +1785,7 @@ export function ProtocolDetail() {
         <PageTitle
           eyebrow={`Processos / ${p.number}`}
           title={`Processo ${p.number}`}
+          icon={ClipboardList}
           action={
             <div className="no-print flex flex-wrap items-center justify-end gap-2">
               {primary}
@@ -2579,7 +2574,7 @@ function SummaryField({
   return (
     <div className={`min-w-0 border-b border-border/70 py-3 ${className}`}>
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="mt-1 whitespace-pre-wrap text-sm font-normal">
+      <dd className="mt-1 whitespace-pre-wrap text-sm font-medium">
         {value ?? "—"}
       </dd>
     </div>

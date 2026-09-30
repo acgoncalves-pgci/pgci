@@ -50,10 +50,7 @@ export function Documents() {
   const sorted = data.items.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   const paginated = paginateItems(sorted, page)
   return <>
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-      <div className="flex items-start gap-3"><span className="rounded-lg bg-[color-mix(in_srgb,var(--ui-accent)_12%,transparent)] p-2 text-[var(--ui-accent)]"><FileText size={18}/></span><div><h1 className="text-2xl font-bold tracking-tight">Documentos</h1><p className="text-sm text-muted-foreground">Ofícios, memorandos e demais documentos da entidade.</p></div></div>
-      <Link className="btn-primary" to="/documentos/novo"><Plus size={16}/>Novo</Link>
-    </div>
+    <PageTitle title="Documentos" detail="Ofícios, memorandos e demais documentos da entidade." icon={FileText} action={<Link className="btn-primary" to="/documentos/novo"><Plus size={16}/>Novo</Link>} />
     <div className="mb-5 flex flex-wrap gap-2">
       <label className="relative min-w-0 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 text-slate-400" size={17}/><Input aria-label="Buscar documentos" className="field !mt-0 pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por número ou assunto..."/></label>
       <button type="button" className="btn-secondary" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}><ListFilter size={16}/>Mais filtros</button>
@@ -133,7 +130,7 @@ export function NewDocument({ editing = false }: { editing?: boolean }) {
     form.setValue('body', replaceTemplateVariables(draft.body, available, true), { shouldValidate: true })
   }
   return <>
-    <div className="mb-5 flex items-start justify-between gap-4"><div><h1 className="text-2xl font-bold tracking-tight">{editing ? 'Editar Documento' : 'Novo Documento'}</h1><p className="text-sm text-muted-foreground">{editing ? `Atualizar ${document?.number}` : 'Redigir novo documento'}</p></div><Link className="btn-secondary icon-button" aria-label="Voltar aos documentos" to={editing ? `/documentos/${documentId}` : '/documentos'}><ArrowLeft size={17}/></Link></div>
+    <PageTitle title={editing ? 'Editar Documento' : 'Novo Documento'} detail={editing ? `Atualizar ${document?.number}` : 'Redigir novo documento'} icon={FilePlus2} action={<Link className="btn-secondary icon-button" aria-label="Voltar aos documentos" to={editing ? `/documentos/${documentId}` : '/documentos'}><ArrowLeft size={17}/></Link>} />
     <form className="mx-auto max-w-7xl space-y-5" onSubmit={form.handleSubmit((value) => create.mutate(value))}>
       <section className="panel p-5"><div className="grid gap-4 sm:grid-cols-2">
         <Field label="Tipo de documento *" error={form.formState.errors.typeId?.message}><Select className="field" value={typeId} onChange={(event) => { const nextTypeId = event.target.value; form.setValue('typeId', nextTypeId, { shouldValidate: true }); const defaultTemplate = !editing && db.documentTemplates.find((template) => template.typeId === nextTypeId && template.active && template.isDefault); if (defaultTemplate) applyTemplate(defaultTemplate.id, nextTypeId); else setTemplateId('') }}><option value="">Selecione</option>{db.documentTypes.filter((type) => type.active || type.id === document?.typeId).map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</Select></Field>
@@ -180,7 +177,7 @@ export function DocumentDetail() {
     }
   }
   return <>
-    <PageTitle eyebrow={document.number} title={document.subject} action={<div className="flex gap-2">{canManageDocument(data.db, document, ctx) && <Link className="btn-secondary no-print" to={`/documentos/${document.id}/editar`}><Pencil size={16}/>Editar</Link>}<button className="btn-secondary no-print" disabled={generatingPreview} onClick={() => void openPreview()}><Printer size={16}/>{generatingPreview ? 'Gerando prévia…' : 'Prévia de impressão'}</button></div>}/>
+    <PageTitle eyebrow={document.number} title={document.subject} icon={FileText} action={<div className="flex flex-wrap items-center justify-end gap-2">{canManageDocument(data.db, document, ctx) && <Link className="btn-secondary no-print" to={`/documentos/${document.id}/editar`}><Pencil size={16}/>Editar</Link>}<button className="btn-secondary no-print" disabled={generatingPreview} onClick={() => void openPreview()}><Printer size={16}/>{generatingPreview ? 'Gerando prévia…' : 'Prévia de impressão'}</button></div>}/>
     {previewError && <ErrorBox error={previewError}/>}
     <div className="mb-4 text-sm text-muted-foreground">{metadata}</div>
     {document.signerName && <p className="mb-4 text-sm text-muted-foreground">Assinante cadastrado: {document.signerName}{document.signerTitle && ` · ${document.signerTitle}`}</p>}

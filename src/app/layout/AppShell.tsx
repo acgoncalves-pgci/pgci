@@ -192,15 +192,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     >
       <Link
         to="/dashboard"
-        className="sidebar-brand flex h-[72px] items-center gap-3 border-b border-slate-300 px-6 dark:border-slate-700"
+        className="sidebar-brand flex h-[62px] items-center gap-3 border-b border-slate-300 px-6 dark:border-slate-700"
       >
-        <span className="grid h-[43px] w-[35px]">
+        <span className="grid h-[33px] w-[35px]">
           <span
             className="pgci-logo block h-full w-full"
             aria-hidden="true"
           />
         </span>
-        <strong className="sidebar-brand-label text-[2.5rem] font-black tracking-[-.1em] text-black dark:text-white">
+        <strong className="sidebar-brand-label text-[2rem] font-black tracking-[-.1em] text-black dark:text-white">
           PGCI
         </strong>
       </Link>
@@ -281,7 +281,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           tabIndex={-1}
           className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-slate-950"
         >
-          <header className="pgci-header no-print z-30 flex h-[72px] shrink-0 items-center justify-between border-b px-4 sm:px-7">
+          <header className="pgci-header no-print z-30 flex h-[62px] shrink-0 items-center justify-between border-b px-4 sm:px-7">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 aria-label="Abrir menu"
@@ -307,7 +307,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {organizationDetails.organizationName || sessionDb?.organization.name || "Prefeitura Municipal"}
                 </strong>
                 {Boolean(organizationDetails.city || organizationDetails.cnpj) && (
-                  <small className="mt-1 block truncate text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:text-[11px]">
+                  <small className="block truncate text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:text-[11px]">
                     {[
                       organizationDetails.city && [organizationDetails.city, organizationDetails.state].filter(Boolean).join(" - "),
                       organizationDetails.cnpj && `CNPJ ${organizationDetails.cnpj}`,

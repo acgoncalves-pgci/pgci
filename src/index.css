@@ -4,21 +4,24 @@
 
 @font-face {
   font-family: 'Roboto';
-  src: url('/fonts/Roboto-Regular.ttf') format('truetype');
-  font-weight: 400;
+  src: url('/fonts/Roboto-Variable.ttf') format('truetype');
+  font-weight: 600 900;
 }
 @font-face {
   font-family: 'Inter';
   src: url('/fonts/Inter/Inter_24pt-Regular.ttf') format('truetype');
   font-weight: 400;
 }
+@font-face { font-family: 'Inter'; src: url('/fonts/Inter/Inter_18pt-SemiBold.ttf') format('truetype'); font-weight: 500 600; }
 @font-face { font-family: 'Inter'; src: url('/fonts/Inter/Inter_18pt-Bold.ttf') format('truetype'); font-weight: 700; }
-@font-face { font-family: 'Roboto'; src: url('/fonts/Roboto-Bold.ttf') format('truetype'); font-weight: 700; }
 @font-face { font-family: 'Poppins'; src: url('/fonts/Poppins-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Poppins'; src: url('/fonts/Poppins/Poppins-Medium.ttf') format('truetype'); font-weight: 500; }
 @font-face { font-family: 'Poppins'; src: url('/fonts/Poppins-Bold.ttf') format('truetype'); font-weight: 700; }
 @font-face { font-family: 'Montserrat'; src: url('/fonts/Montserrat/Montserrat-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Montserrat'; src: url('/fonts/Montserrat/Montserrat-Medium.ttf') format('truetype'); font-weight: 500; }
 @font-face { font-family: 'Montserrat'; src: url('/fonts/Montserrat/Montserrat-Bold.ttf') format('truetype'); font-weight: 700; }
 @font-face { font-family: 'Sora'; src: url('/fonts/Sora/Sora-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Sora'; src: url('/fonts/Sora/Sora-Medium.ttf') format('truetype'); font-weight: 500; }
 @font-face { font-family: 'Sora'; src: url('/fonts/Sora/Sora-Bold.ttf') format('truetype'); font-weight: 700; }
 
 html { --ui-accent: #17628b; --ui-accent-fg: #fff; --ui-accent-text: #17628b; --ui-sidebar-bg: #dce8ee; --ui-header-bg: #dce8ee; --ui-page-bg: #ffffff; --ui-sidebar-fg: #000; --ui-header-fg: #000; --ui-page-fg: #000; --ui-footer-bg: #303030; --ui-footer-fg: #fff; --ui-font: 'Inter', ui-sans-serif, system-ui, sans-serif; --ui-font-scale: 1; --ui-card-radius: .75rem; --ui-zoom: 1; font-size: calc(16px * var(--ui-font-scale)); }
@@ -27,8 +30,8 @@ html[data-theme='dark'] { color-scheme: dark; }
 
 @layer base {
   * { @apply border-slate-200 dark:border-slate-700; font-family: var(--ui-font); }
-  body { @apply bg-[#f5f7f8] text-ink antialiased dark:bg-slate-950 dark:text-slate-100; background-color: var(--ui-page-bg); color: var(--ui-page-fg); font-family: var(--ui-font); zoom: var(--ui-zoom); }
-  button, input, select, textarea { font-family: var(--ui-font); }
+  body { @apply bg-[#f5f7f8] text-ink antialiased dark:bg-slate-950 dark:text-slate-100; background-color: var(--ui-page-bg); color: var(--ui-page-fg); font-family: var(--ui-font); font-weight: 500; zoom: var(--ui-zoom); }
+  button, input, select, textarea { font-family: var(--ui-font); font-weight: inherit; }
   button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { @apply outline-none ring-2 ring-public-600 ring-offset-2 ring-offset-white dark:ring-offset-slate-950; }
 }
 @layer components {
@@ -669,14 +672,15 @@ html.dark .timeline-action-button { border-color: #475569; background: #111827; 
 .a4-editor-viewport { max-height: 72vh; overflow: auto; padding: 1.25rem; }
 .a4-page { width: min(210mm, 100%); min-height: 297mm; margin-inline: auto; background: white; color: #0f172a; box-shadow: 0 12px 30px rgb(15 23 42 / .14); }
 .rich-editor-content, .document-page { padding: 20mm; font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; font-weight: 400; overflow-wrap: anywhere; }
-.rich-editor-content *, .document-page * { font-family: inherit; }
+.document-rich-content { font-family: Arial, Helvetica, sans-serif; font-weight: 400; }
+.rich-editor-content *, .document-page *, .document-rich-content * { font-family: inherit; }
 .rich-editor-content { width: 210mm; max-width: none; min-height: 0; overflow: auto; border: 0; outline: 0; }
 .rich-editor-content:empty::before { color: #94a3b8; content: attr(data-placeholder); pointer-events: none; }
 .rich-editor-content h1, .document-rich-content h1 { margin: .7em 0 .4em; font-size: 1.6em; font-weight: 700; line-height: 1.25; }
 .rich-editor-content h2, .document-rich-content h2 { margin: .7em 0 .4em; font-size: 1.35em; font-weight: 700; line-height: 1.3; }
 .rich-editor-content h3, .document-rich-content h3 { margin: .7em 0 .4em; font-size: 1.15em; font-weight: 700; line-height: 1.35; }
 .rich-editor-content p, .document-rich-content p { margin: 0; }
-.document-rich-content ul, .document-rich-content ol, .rich-editor-content ul, .rich-editor-content ol { margin: .65em 0 .65em 1.5rem; }
+.document-rich-content ul, .document-rich-content ol, .rich-editor-content ul, .rich-editor-content ol { margin: .65em 0 .65em 24px; }
 .document-rich-content ul, .rich-editor-content ul { list-style: disc; }
 .document-rich-content ol, .rich-editor-content ol { list-style: decimal; }
 .document-rich-content a, .rich-editor-content a { color: var(--ui-accent); text-decoration: underline; }
@@ -693,6 +697,7 @@ html.dark .rich-editor-font-size-menu button:hover, html.dark .rich-editor-font-
 @page { size: A4 portrait; margin: 0; }
 @media print {
   html, body { width: 210mm; min-height: 297mm; }
+  html { font-size: 16px; }
   .a4-page { width: 210mm !important; min-height: 297mm !important; margin: 0 !important; box-shadow: none !important; }
   .document-page { padding: 20mm !important; }
 }
