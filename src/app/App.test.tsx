@@ -50,6 +50,40 @@ describe('jornada principal da interface', () => {
     expect(screen.getByRole('button', { name: /Vence em 24h/ })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Sem ciência/ })).not.toBeNull()
   })
+  it('aplica paletas e mantém cores independentes nos modos claro e escuro', async () => {
+    window.history.replaceState({}, '', '/configuracoes')
+    renderApp()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Aparência' }))
+    for (const [name, light, dark] of [
+      ['Azul original', '#303030', '#0f2935'],
+      ['Esmeralda', '#064e3b', '#022c22'],
+      ['Violeta', '#4c1d95', '#2e1065'],
+      ['Âmbar', '#78350f', '#451a03'],
+    ]) {
+      fireEvent.click(screen.getByRole('button', { name: `Aplicar paleta ${name}` }))
+      expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe(light)
+      fireEvent.click(screen.getByRole('button', { name: /Modo escuro/ }))
+      expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe(dark)
+      fireEvent.click(screen.getByRole('button', { name: /Modo claro/ }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar paleta Esmeralda' }))
+    expect(document.documentElement.style.getPropertyValue('--ui-sidebar-bg')).toBe('#065f46')
+    expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe('#064e3b')
+    fireEvent.click(screen.getByRole('button', { name: /Modo escuro/ }))
+    expect(document.documentElement.style.getPropertyValue('--ui-sidebar-bg')).toBe('#022c22')
+    expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe('#022c22')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rodapé do modo escuro em hexadecimal' }), { target: { value: '#123456' } })
+    expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe('#123456')
+    fireEvent.click(screen.getByRole('button', { name: /Modo claro/ }))
+    expect(document.documentElement.style.getPropertyValue('--ui-footer-bg')).toBe('#064e3b')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rodapé do modo claro em hexadecimal' }), { target: { value: '#FFFFFF' } })
+    expect(document.documentElement.style.getPropertyValue('--ui-footer-fg')).toBe('#000000')
+    fireEvent.click(screen.getByRole('button', { name: /Grande · Aumenta a leitura em 12,5%/ }))
+    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('1.125')
+    fireEvent.click(screen.getByRole('button', { name: 'Bem arredondado' }))
+    expect(document.documentElement.style.getPropertyValue('--ui-card-radius')).toBe('2rem')
+    expect(JSON.parse(localStorage.getItem('fluxo-publico:appearance') ?? '{}').darkFooterColor).toBe('#123456')
+  })
   it('mostra o indicador com o SVG durante uma troca de tela', async () => {
     window.history.replaceState({}, '', '/dashboard')
     renderApp()

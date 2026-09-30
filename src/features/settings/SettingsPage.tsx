@@ -7,9 +7,11 @@ import {
   Landmark,
   Palette,
   PanelLeft,
+  Moon,
   RotateCcw,
   Save,
   SlidersHorizontal,
+  Sun,
   Trash2,
   Type,
   ZoomIn,
@@ -49,36 +51,29 @@ type GeneralSettings = {
 };
 type AppearancePreset = {
   name: string;
-  detail: string;
-  theme: "light" | "dark";
   lightColors: AppearancePalette;
   darkColors: AppearancePalette;
 };
 const appearancePresets: AppearancePreset[] = [
   {
-    name: "Oceano", detail: "Azul institucional nos dois modos", theme: "light",
-    lightColors: { sidebarColor: "#dce8ee", headerColor: "#dce8ee", accent: "#17628b", backgroundColor: "#ffffff" },
-    darkColors: { sidebarColor: "#0f2935", headerColor: "#11202b", accent: "#2a95c5", backgroundColor: "#020617" },
+    name: "Azul original",
+    lightColors: { sidebarColor: "#dce8ee", headerColor: "#dce8ee", accent: "#17628b", backgroundColor: "#ffffff", footerColor: "#303030" },
+    darkColors: { sidebarColor: "#0f2935", headerColor: "#11202b", accent: "#2a95c5", backgroundColor: "#020617", footerColor: "#0f2935" },
   },
   {
-    name: "Esmeralda", detail: "Verde sóbrio nos dois modos", theme: "light",
-    lightColors: { sidebarColor: "#dcece7", headerColor: "#e7f1ed", accent: "#0f766e", backgroundColor: "#fbfdfc" },
-    darkColors: { sidebarColor: "#0d2926", headerColor: "#102f2b", accent: "#2dd4bf", backgroundColor: "#071310" },
+    name: "Esmeralda",
+    lightColors: { sidebarColor: "#065f46", headerColor: "#d1fae5", accent: "#026e4c", backgroundColor: "#ffffff", footerColor: "#064e3b" },
+    darkColors: { sidebarColor: "#022c22", headerColor: "#064e3b", accent: "#007a52", backgroundColor: "#020907", footerColor: "#022c22" },
   },
   {
-    name: "Terracota", detail: "Tons quentes nos dois modos", theme: "light",
-    lightColors: { sidebarColor: "#f0e0d6", headerColor: "#f5e9e1", accent: "#9a3412", backgroundColor: "#fffdfb" },
-    darkColors: { sidebarColor: "#321c16", headerColor: "#3b2118", accent: "#fb923c", backgroundColor: "#160b07" },
+    name: "Violeta",
+    lightColors: { sidebarColor: "#5b21b6", headerColor: "#ede9fe", accent: "#7c3aed", backgroundColor: "#ffffff", footerColor: "#4c1d95" },
+    darkColors: { sidebarColor: "#2e1065", headerColor: "#4c1d95", accent: "#a78bfa", backgroundColor: "#10091e", footerColor: "#2e1065" },
   },
   {
-    name: "Violeta", detail: "Contraste suave nos dois modos", theme: "light",
-    lightColors: { sidebarColor: "#e9e0f2", headerColor: "#f0e9f6", accent: "#7e22ce", backgroundColor: "#fefcff" },
-    darkColors: { sidebarColor: "#28183a", headerColor: "#302044", accent: "#c084fc", backgroundColor: "#11091c" },
-  },
-  {
-    name: "Noturno", detail: "Grafite claro e azul profundo", theme: "dark",
-    lightColors: { sidebarColor: "#e2e8f0", headerColor: "#f1f5f9", accent: "#334155", backgroundColor: "#f8fafc" },
-    darkColors: { sidebarColor: "#0b1220", headerColor: "#111827", accent: "#38bdf8", backgroundColor: "#020617" },
+    name: "Âmbar",
+    lightColors: { sidebarColor: "#92400e", headerColor: "#fef3c7", accent: "#d97706", backgroundColor: "#fffbeb", footerColor: "#78350f" },
+    darkColors: { sidebarColor: "#451a03", headerColor: "#78350f", accent: "#f59e0b", backgroundColor: "#120b03", footerColor: "#451a03" },
   },
 ];
 const defaultGeneral: GeneralSettings = {
@@ -180,8 +175,9 @@ export function SettingsPage() {
       darkSidebarColor: preset.darkColors.sidebarColor,
       darkHeaderColor: preset.darkColors.headerColor,
       darkBackgroundColor: preset.darkColors.backgroundColor,
+      footerColor: preset.lightColors.footerColor,
+      darkFooterColor: preset.darkColors.footerColor,
     });
-    setTheme(preset.theme);
   };
   const tabs: {
     id: Tab;
@@ -484,61 +480,57 @@ export function SettingsPage() {
             className="space-y-7 p-5 sm:p-7"
           >
             <SettingsSection
+              icon={Type}
+              title="Fonte, tamanho e cantos"
+              detail="Escolha a fonte, o tamanho de leitura e o arredondamento dos cartões. A mudança é aplicada em toda a interface."
+            >
+              <div className="grid gap-5 xl:grid-cols-3">
+                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                  <h3 className="mb-3 text-sm font-bold">Fonte do sistema</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {(['inter', 'roboto', 'poppins', 'montserrat', 'sora'] as const).map((font) => <button key={font} type="button" aria-pressed={appearance.font === font} onClick={() => setAppearance({ ...appearance, font })} className={`flex min-h-12 items-center justify-between gap-1 rounded-md border bg-white px-2 text-left text-sm font-semibold dark:bg-slate-900 ${appearance.font === font ? 'border-public-600 ring-1 ring-public-600' : 'hover:border-public-600'}`}><span className="capitalize">{font}</span><span className="shrink-0 whitespace-nowrap text-[10px] text-slate-500" style={{ fontFamily: font }}>Aa Bb 123</span></button>)}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                  <h3 className="mb-3 text-sm font-bold">Arredondamento dos cartões</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([{ id: 'square', label: 'Reto', radius: '0' }, { id: 'subtle', label: 'Leve', radius: '.375rem' }, { id: 'default', label: 'Padrão', radius: '.75rem' }, { id: 'medium', label: 'Médio', radius: '1rem' }, { id: 'rounded', label: 'Arredondado', radius: '1.5rem' }, { id: 'pill', label: 'Bem arredondado', radius: '2rem' }] as const).map((option) => <button key={option.id} type="button" aria-pressed={appearance.cardRadius === option.id} onClick={() => setAppearance({ ...appearance, cardRadius: option.id })} className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border bg-white p-2 text-center text-[11px] font-semibold dark:bg-slate-900 ${appearance.cardRadius === option.id ? 'border-public-600 ring-1 ring-public-600' : 'hover:border-public-600'}`}><span className="h-8 w-full border border-emerald-600/40 bg-emerald-600/15" style={{ borderRadius: option.radius }} aria-hidden="true"/>{option.label}</button>)}
+                  </div>
+                </div>
+                <div className="order-first rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50 xl:order-last">
+                  <h3 className="text-sm font-bold">Tamanho da fonte</h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Recurso de acessibilidade aplicado em toda a interface.</p>
+                  <div className="mt-3 space-y-2">
+                    {([{ id: 'default', label: 'Padrão', detail: 'Tamanho atual do sistema.' }, { id: 'large', label: 'Grande', detail: 'Aumenta a leitura em 12,5%.' }, { id: 'very-large', label: 'Muito grande', detail: 'Aumenta a leitura em 25%.' }, { id: 'extra-large', label: 'Extra grande', detail: 'Aumenta a leitura em 37,5%.' }] as const).map((option) => <button key={option.id} type="button" aria-pressed={appearance.fontSize === option.id} onClick={() => setAppearance({ ...appearance, fontSize: option.id })} className={`flex min-h-16 w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-left dark:bg-slate-900 ${appearance.fontSize === option.id ? 'border-public-600 ring-1 ring-public-600' : 'hover:border-public-600'}`}><span><strong className="block text-lg">Aa</strong><small className="text-xs text-slate-500 dark:text-slate-400">{option.label} · {option.detail}</small></span>{appearance.fontSize === option.id && <span aria-hidden="true">✓</span>}</button>)}
+                  </div>
+                </div>
+              </div>
+            </SettingsSection>
+            <SettingsSection
               icon={Palette}
               title="Tema e cores"
-              detail="Defina as cores dos modos claro e escuro separadamente ou aplique um preset completo para ambos."
+              detail="Escolha uma paleta rápida e ajuste as cinco cores de cada modo. O texto é adaptado automaticamente para contraste WCAG AA."
             >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button type="button" aria-label="Selecionar tema claro" onClick={() => setTheme("light")} className={`rounded-lg border p-4 text-left transition-shadow ${theme === "light" ? "border-public-600 ring-2 ring-public-100 dark:ring-public-950" : "hover:shadow-sm"}`}>
-                  <span className="mb-4 block h-12 rounded bg-slate-100"></span><strong className="block text-sm">Tema claro</strong><small className="mt-1 block text-xs text-slate-500">Interface clara e neutra.</small>
-                </button>
-                <button type="button" aria-label="Selecionar tema escuro" onClick={() => setTheme("dark")} className={`rounded-lg border p-4 text-left transition-shadow ${theme === "dark" ? "border-public-600 ring-2 ring-public-100 dark:ring-public-950" : "hover:shadow-sm"}`}>
-                  <span className="mb-4 block h-12 rounded bg-slate-900"></span><strong className="block text-sm">Tema escuro</strong><small className="mt-1 block text-xs text-slate-500">Reduz o brilho em ambientes escuros.</small>
-                </button>
-              </div>
-              <div className="mt-6">
-                <p className="label mb-3">Presets rápidos</p>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div>
+                <h3 className="text-sm font-bold">Paletas rápidas</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Escolha um ponto de partida e ajuste cada cor se desejar.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {appearancePresets.map((preset) => {
                     const lightSelected = Object.entries(preset.lightColors).every(([key, value]) => appearance[key as keyof AppearancePalette] === value);
-                    const darkSelected = appearance.darkAccent === preset.darkColors.accent && appearance.darkSidebarColor === preset.darkColors.sidebarColor && appearance.darkHeaderColor === preset.darkColors.headerColor && appearance.darkBackgroundColor === preset.darkColors.backgroundColor;
+                    const darkSelected = appearance.darkAccent === preset.darkColors.accent && appearance.darkSidebarColor === preset.darkColors.sidebarColor && appearance.darkHeaderColor === preset.darkColors.headerColor && appearance.darkBackgroundColor === preset.darkColors.backgroundColor && appearance.darkFooterColor === preset.darkColors.footerColor;
                     const selected = lightSelected && darkSelected;
-                    return <button key={preset.name} type="button" aria-label={`Aplicar preset ${preset.name}`} aria-pressed={selected} onClick={() => applyAppearancePreset(preset)} className={`rounded-lg border p-3 text-left transition ${selected ? "border-public-600 ring-2 ring-public-100 dark:ring-public-950" : "hover:-translate-y-0.5 hover:shadow-sm"}`}>
-                      <span className="mb-2 grid h-9 grid-rows-2 overflow-hidden rounded border border-black/10" aria-hidden="true">
-                        <span className="grid grid-cols-4"><span style={{ backgroundColor: preset.lightColors.sidebarColor }}/><span style={{ backgroundColor: preset.lightColors.headerColor }}/><span style={{ backgroundColor: preset.lightColors.accent }}/><span style={{ backgroundColor: preset.lightColors.backgroundColor }}/></span>
-                        <span className="grid grid-cols-4"><span style={{ backgroundColor: preset.darkColors.sidebarColor }}/><span style={{ backgroundColor: preset.darkColors.headerColor }}/><span style={{ backgroundColor: preset.darkColors.accent }}/><span style={{ backgroundColor: preset.darkColors.backgroundColor }}/></span>
+                    return <button key={preset.name} type="button" aria-label={`Aplicar paleta ${preset.name}`} aria-pressed={selected} onClick={() => applyAppearancePreset(preset)} className={`flex min-h-16 items-center gap-3 rounded-xl border p-3 text-left transition hover:shadow-sm focus-visible:ring-2 ${selected ? "border-public-600 ring-2 ring-public-100 dark:ring-public-950" : "border-transparent bg-slate-50 dark:bg-slate-800/60"}`}>
+                      <span className="flex shrink-0 -space-x-2" aria-hidden="true">
+                        {[preset.lightColors.accent, preset.lightColors.sidebarColor, preset.darkColors.backgroundColor].map((color, index) => <span key={index} className="size-9 rounded-full border-2 border-white dark:border-slate-800" style={{ backgroundColor: color }}/>) }
                       </span>
-                      <strong className="block text-sm">{preset.name}</strong><small className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{preset.detail}</small>
+                      <span><strong className="block text-sm">{preset.name}</strong><small className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{selected ? "Paleta aplicada" : "Aplicar paleta"}</small></span>
                     </button>;
                   })}
                 </div>
               </div>
-              <div className="mt-6 space-y-5">
-                <section className="rounded-lg border p-4">
-                  <div className="mb-4"><p className="text-sm font-bold">Cores do tema claro</p><p className="mt-1 text-xs text-muted-foreground">Aplicadas quando o sistema estiver no modo claro.</p></div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <AppearanceColorField label="Cor da sidebar — tema claro" value={appearance.sidebarColor} onChange={(sidebarColor) => setAppearance({ ...appearance, sidebarColor })}/>
-                    <AppearanceColorField label="Cor do header — tema claro" value={appearance.headerColor} onChange={(headerColor) => setAppearance({ ...appearance, headerColor })}/>
-                    <AppearanceColorField label="Cor primária — tema claro" value={appearance.accent} onChange={(accent) => setAppearance({ ...appearance, accent })}/>
-                    <AppearanceColorField label="Cor de fundo — tema claro" value={appearance.backgroundColor} onChange={(backgroundColor) => setAppearance({ ...appearance, backgroundColor })}/>
-                  </div>
-                </section>
-                <section className="rounded-lg border p-4">
-                  <div className="mb-4"><p className="text-sm font-bold">Cores do tema escuro</p><p className="mt-1 text-xs text-muted-foreground">Aplicadas quando o sistema estiver no modo escuro.</p></div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <AppearanceColorField label="Cor da sidebar — tema escuro" value={appearance.darkSidebarColor} onChange={(darkSidebarColor) => setAppearance({ ...appearance, darkSidebarColor })}/>
-                    <AppearanceColorField label="Cor do header — tema escuro" value={appearance.darkHeaderColor} onChange={(darkHeaderColor) => setAppearance({ ...appearance, darkHeaderColor })}/>
-                    <AppearanceColorField label="Cor primária — tema escuro" value={appearance.darkAccent} onChange={(darkAccent) => setAppearance({ ...appearance, darkAccent })}/>
-                    <AppearanceColorField label="Cor de fundo — tema escuro" value={appearance.darkBackgroundColor} onChange={(darkBackgroundColor) => setAppearance({ ...appearance, darkBackgroundColor })}/>
-                  </div>
-                </section>
-                <section className="rounded-lg border p-4">
-                  <div className="mb-4"><p className="text-sm font-bold">Cores do rodapé</p><p className="mt-1 text-xs text-muted-foreground">Aplicadas ao rodapé em toda a interface.</p></div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <AppearanceColorField label="Cor de fundo do rodapé" value={appearance.footerBackgroundColor} onChange={(footerBackgroundColor) => setAppearance({ ...appearance, footerBackgroundColor })}/>
-                    <AppearanceColorField label="Cor do texto do rodapé" value={appearance.footerTextColor} onChange={(footerTextColor) => setAppearance({ ...appearance, footerTextColor })}/>
-                  </div>
-                </section>
+              <div className="mt-6 grid gap-4 border-t pt-6 xl:grid-cols-2">
+                <AppearanceModeCard mode="light" active={theme === "light"} onSelect={() => setTheme("light")} colors={{ accent: appearance.accent, sidebarColor: appearance.sidebarColor, headerColor: appearance.headerColor, footerColor: appearance.footerColor, backgroundColor: appearance.backgroundColor }} onColorChange={(key, value) => setAppearance({ ...appearance, [key]: value })}/>
+                <AppearanceModeCard mode="dark" active={theme === "dark"} onSelect={() => setTheme("dark")} colors={{ accent: appearance.darkAccent, sidebarColor: appearance.darkSidebarColor, headerColor: appearance.darkHeaderColor, footerColor: appearance.darkFooterColor, backgroundColor: appearance.darkBackgroundColor }} onColorChange={(key, value) => setAppearance({ ...appearance, [{ accent: 'darkAccent', sidebarColor: 'darkSidebarColor', headerColor: 'darkHeaderColor', footerColor: 'darkFooterColor', backgroundColor: 'darkBackgroundColor' }[key]]: value })}/>
               </div>
             </SettingsSection>
             <SettingsSection
@@ -580,27 +572,6 @@ export function SettingsPage() {
               </div>
             </SettingsSection>
             <SettingsSection
-              icon={Type}
-              title="Fonte do sistema"
-              detail="Define a tipografia da interface e dos relatórios exibidos em tela."
-            >
-              <SettingField label="Família tipográfica">
-                <Select
-                  value={appearance.font}
-                  onChange={(event) =>
-                    setAppearance({
-                      ...appearance,
-                      font: event.target.value as typeof appearance.font,
-                    })
-                  }
-                >
-                  <option value="inter">Inter</option>
-                  <option value="roboto">Roboto</option>
-                  <option value="system">Fonte do sistema</option>
-                </Select>
-              </SettingField>
-            </SettingsSection>
-            <SettingsSection
               icon={ZoomIn}
               title="Zoom da interface"
               detail="Ajusta a escala visual sem alterar os dados ou o tamanho de impressão."
@@ -640,9 +611,30 @@ export function SettingsPage() {
     </div>
   );
 }
-function AppearanceColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const update = (next: string) => { if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next.toLowerCase()); };
-  return <SettingField label={label}><div className="flex items-center gap-3"><Input aria-label={label} className="h-11 w-16 cursor-pointer p-1" type="color" value={value} onChange={(event) => onChange(event.target.value)}/><Input aria-label={`${label} hexadecimal`} className="w-32 font-mono uppercase" value={value.toUpperCase()} onChange={(event) => update(event.target.value)} placeholder="#17628B"/><span className="h-9 flex-1 rounded-md border" style={{ backgroundColor: value }} aria-hidden="true"/></div></SettingField>;
+function AppearanceModeCard({ mode, active, onSelect, colors, onColorChange }: { mode: 'light' | 'dark'; active: boolean; onSelect: () => void; colors: AppearancePalette; onColorChange: (key: keyof AppearancePalette, value: string) => void }) {
+  const fields: { key: keyof AppearancePalette; label: string; detail: string }[] = [
+    { key: 'accent', label: 'Cor primária', detail: 'Botões, links, foco e destaques.' },
+    { key: 'sidebarColor', label: 'Sidebar', detail: 'Navegação lateral.' },
+    { key: 'headerColor', label: 'Cabeçalho', detail: 'Barra superior do sistema.' },
+    { key: 'footerColor', label: 'Rodapé', detail: 'Barra inferior; texto ajustado automaticamente.' },
+    { key: 'backgroundColor', label: 'Fundo', detail: 'Base da página e dos cartões.' },
+  ];
+  const isLight = mode === 'light';
+  return <section className={`rounded-xl border bg-slate-50/70 p-4 dark:bg-slate-800/40 ${active ? 'border-public-600' : ''}`}>
+    <button type="button" aria-pressed={active} onClick={onSelect} className="mb-5 flex w-full items-center justify-between gap-3 rounded-md text-left focus-visible:ring-2">
+      <span className="flex items-center gap-2">{isLight ? <Sun size={20} className="text-public-700"/> : <Moon size={20} className="text-public-700"/>}<span><strong className="block text-sm">Modo {isLight ? 'claro' : 'escuro'}</strong><small className="block text-xs text-slate-500 dark:text-slate-400">{isLight ? 'Superfícies luminosas e nítidas.' : 'Contraste confortável em baixa luz.'}</small></span></span>
+      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100">{active ? 'ATIVO' : isLight ? 'LIGHT' : 'DARK'}</span>
+    </button>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
+      {fields.map(({ key, label, detail }) => <AppearanceColorField key={key} label={label} context={`modo ${isLight ? 'claro' : 'escuro'}`} detail={detail} value={colors[key]} onChange={(value) => onColorChange(key, value)}/>)}
+    </div>
+  </section>;
+}
+function AppearanceColorField({ label, context, detail, value, onChange }: { label: string; context: string; detail: string; value: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState(value.toUpperCase());
+  useEffect(() => setDraft(value.toUpperCase()), [value]);
+  const update = (next: string) => { setDraft(next.toUpperCase()); if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next.toLowerCase()); };
+  return <div className="min-w-0"><span className="mb-1.5 block text-xs font-bold">{label}</span><div className="flex h-12 items-center gap-2 rounded-md border bg-white p-1 dark:bg-slate-900"><Input aria-label={`Selecionar ${label.toLowerCase()} do ${context}`} className="h-9 w-11 shrink-0 cursor-pointer border-0 p-0" type="color" value={value} onChange={(event) => onChange(event.target.value)}/><Input aria-label={`${label} do ${context} em hexadecimal`} className="min-w-0 flex-1 border-0 bg-transparent px-1 font-mono text-xs uppercase" value={draft} maxLength={7} onChange={(event) => update(event.target.value)} onBlur={() => setDraft(value.toUpperCase())} placeholder="#17628B"/></div><small className="mt-1 block text-[11px] text-slate-500 dark:text-slate-400">{detail}</small></div>;
 }
 function SettingField({
   label,

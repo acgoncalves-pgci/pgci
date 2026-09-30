@@ -2,57 +2,59 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import type { AppUser, Context } from '../domain/model';
 import { api } from '../services/api';
+import { readableAccentColor, readableTextColor } from '../lib/colorContrast';
 
 export type AppearancePalette = {
     accent: string;
     sidebarColor: string;
     headerColor: string;
     backgroundColor: string;
+    footerColor: string;
 };
 export type AppearanceSettings = AppearancePalette & {
     darkAccent: string;
     darkSidebarColor: string;
     darkHeaderColor: string;
     darkBackgroundColor: string;
-    footerBackgroundColor: string;
-    footerTextColor: string;
-    font: 'inter' | 'roboto' | 'system';
+    darkFooterColor: string;
+    font: 'inter' | 'roboto' | 'poppins' | 'montserrat' | 'sora' | 'system';
+    fontSize: 'default' | 'large' | 'very-large' | 'extra-large';
+    cardRadius: 'square' | 'subtle' | 'default' | 'medium' | 'rounded' | 'pill';
     zoom: number;
     sidebar: 'compact' | 'expanded';
 };
 
 const APPEARANCE_KEY = 'fluxo-publico:appearance';
-export const lightAppearanceColors: AppearancePalette = { accent: '#17628b', sidebarColor: '#dce8ee', headerColor: '#dce8ee', backgroundColor: '#ffffff' };
-export const darkAppearanceColors: AppearancePalette = { accent: '#2a95c5', sidebarColor: '#0f2935', headerColor: '#11202b', backgroundColor: '#020617' };
+export const lightAppearanceColors: AppearancePalette = { accent: '#17628b', sidebarColor: '#dce8ee', headerColor: '#dce8ee', backgroundColor: '#ffffff', footerColor: '#303030' };
+export const darkAppearanceColors: AppearancePalette = { accent: '#2a95c5', sidebarColor: '#0f2935', headerColor: '#11202b', backgroundColor: '#020617', footerColor: '#0f2935' };
 export const defaultAppearance: AppearanceSettings = {
     ...lightAppearanceColors,
     darkAccent: darkAppearanceColors.accent,
     darkSidebarColor: darkAppearanceColors.sidebarColor,
     darkHeaderColor: darkAppearanceColors.headerColor,
     darkBackgroundColor: darkAppearanceColors.backgroundColor,
-    footerBackgroundColor: '#303030',
-    footerTextColor: '#e5e5e5',
+    darkFooterColor: darkAppearanceColors.footerColor,
     font: 'inter',
+    fontSize: 'default',
+    cardRadius: 'default',
     zoom: 100,
     sidebar: 'expanded',
 };
 const fontStacks: Record<AppearanceSettings['font'], string> = {
     inter: "'Inter', ui-sans-serif, system-ui, sans-serif",
     roboto: "'Roboto', ui-sans-serif, system-ui, sans-serif",
+    poppins: "'Poppins', ui-sans-serif, system-ui, sans-serif",
+    montserrat: "'Montserrat', ui-sans-serif, system-ui, sans-serif",
+    sora: "'Sora', ui-sans-serif, system-ui, sans-serif",
     system: 'ui-sans-serif, system-ui, sans-serif',
 };
 const validColor = (value: unknown, fallback: string) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
-const contrastColor = (hex: string) => {
-    const value = hex.replace('#', '');
-    const [red, green, blue] = [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16) / 255);
-    const luminance = .2126 * red + .7152 * green + .0722 * blue;
-    return luminance > .58 ? '#0f172a' : '#f8fafc';
-};
 const readAppearance = (): AppearanceSettings => {
     try {
         const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}') as Partial<AppearanceSettings>;
         const hasDarkPalette = [saved.darkAccent, saved.darkSidebarColor, saved.darkHeaderColor, saved.darkBackgroundColor].every((color) => typeof color === 'string');
-        const legacyUsesDarkPreset = !hasDarkPalette && (Object.keys(darkAppearanceColors) as Array<keyof AppearancePalette>).every((key) => saved[key]?.toLowerCase() === darkAppearanceColors[key]);
+        const legacyUsesDarkPreset = !hasDarkPalette && (['accent', 'sidebarColor', 'headerColor', 'backgroundColor'] as const).every((key) => saved[key]?.toLowerCase() === darkAppearanceColors[key]);
+        const legacy = saved as Partial<AppearanceSettings> & { footerBackgroundColor?: string };
         return {
             ...defaultAppearance,
             ...saved,
@@ -60,12 +62,15 @@ const readAppearance = (): AppearanceSettings => {
             sidebarColor: validColor(legacyUsesDarkPreset ? undefined : saved.sidebarColor, defaultAppearance.sidebarColor),
             headerColor: validColor(legacyUsesDarkPreset ? undefined : saved.headerColor, defaultAppearance.headerColor),
             backgroundColor: validColor(legacyUsesDarkPreset ? undefined : saved.backgroundColor, defaultAppearance.backgroundColor),
+            footerColor: validColor(saved.footerColor ?? legacy.footerBackgroundColor, defaultAppearance.footerColor),
             darkAccent: validColor(saved.darkAccent, defaultAppearance.darkAccent),
             darkSidebarColor: validColor(saved.darkSidebarColor, defaultAppearance.darkSidebarColor),
             darkHeaderColor: validColor(saved.darkHeaderColor, defaultAppearance.darkHeaderColor),
             darkBackgroundColor: validColor(saved.darkBackgroundColor, defaultAppearance.darkBackgroundColor),
-            footerBackgroundColor: validColor(saved.footerBackgroundColor, defaultAppearance.footerBackgroundColor),
-            footerTextColor: validColor(saved.footerTextColor, defaultAppearance.footerTextColor),
+            darkFooterColor: validColor(saved.darkFooterColor ?? legacy.footerBackgroundColor, defaultAppearance.darkFooterColor),
+            font: saved.font && saved.font in fontStacks ? saved.font : defaultAppearance.font,
+            fontSize: ['default', 'large', 'very-large', 'extra-large'].includes(saved.fontSize ?? '') ? saved.fontSize! : defaultAppearance.fontSize,
+            cardRadius: ['square', 'subtle', 'default', 'medium', 'rounded', 'pill'].includes(saved.cardRadius ?? '') ? saved.cardRadius! : defaultAppearance.cardRadius,
             zoom: Math.min(120, Math.max(80, Number(saved.zoom) || defaultAppearance.zoom)),
         };
     } catch {
@@ -102,19 +107,23 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         const root = document.documentElement;
         const colors: AppearancePalette = theme === 'dark'
-            ? { accent: appearance.darkAccent, sidebarColor: appearance.darkSidebarColor, headerColor: appearance.darkHeaderColor, backgroundColor: appearance.darkBackgroundColor }
+            ? { accent: appearance.darkAccent, sidebarColor: appearance.darkSidebarColor, headerColor: appearance.darkHeaderColor, backgroundColor: appearance.darkBackgroundColor, footerColor: appearance.darkFooterColor }
             : appearance;
         localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
         root.style.setProperty('--ui-accent', colors.accent);
+        root.style.setProperty('--ui-accent-fg', readableTextColor(colors.accent));
+        root.style.setProperty('--ui-accent-text', readableAccentColor(colors.accent, colors.backgroundColor));
         root.style.setProperty('--ui-sidebar-bg', colors.sidebarColor);
         root.style.setProperty('--ui-header-bg', colors.headerColor);
         root.style.setProperty('--ui-page-bg', colors.backgroundColor);
-        root.style.setProperty('--ui-sidebar-fg', contrastColor(colors.sidebarColor));
-        root.style.setProperty('--ui-header-fg', contrastColor(colors.headerColor));
-        root.style.setProperty('--ui-page-fg', contrastColor(colors.backgroundColor));
-        root.style.setProperty('--ui-footer-bg', appearance.footerBackgroundColor);
-        root.style.setProperty('--ui-footer-fg', appearance.footerTextColor);
+        root.style.setProperty('--ui-sidebar-fg', readableTextColor(colors.sidebarColor));
+        root.style.setProperty('--ui-header-fg', readableTextColor(colors.headerColor));
+        root.style.setProperty('--ui-page-fg', readableTextColor(colors.backgroundColor));
+        root.style.setProperty('--ui-footer-bg', colors.footerColor);
+        root.style.setProperty('--ui-footer-fg', readableTextColor(colors.footerColor));
         root.style.setProperty('--ui-font', fontStacks[appearance.font]);
+        root.style.setProperty('--ui-font-scale', String(({ default: 1, large: 1.125, 'very-large': 1.25, 'extra-large': 1.375 } as const)[appearance.fontSize]));
+        root.style.setProperty('--ui-card-radius', ({ square: '0', subtle: '.375rem', default: '.75rem', medium: '1rem', rounded: '1.5rem', pill: '2rem' } as const)[appearance.cardRadius]);
         root.style.setProperty('--ui-zoom', String(appearance.zoom / 100));
     }, [appearance, theme]);
     const toggleTheme = useCallback(() => {

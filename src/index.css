@@ -4,14 +4,24 @@
 
 @font-face {
   font-family: 'Roboto';
-  src: url('/fonts/Roboto-Bold.ttf') format('truetype');
+  src: url('/fonts/Roboto-Regular.ttf') format('truetype');
+  font-weight: 400;
 }
 @font-face {
   font-family: 'Inter';
-  src: url('/fonts/Inter/Inter_18pt-Bold.ttf') format('truetype');
+  src: url('/fonts/Inter/Inter_24pt-Regular.ttf') format('truetype');
+  font-weight: 400;
 }
+@font-face { font-family: 'Inter'; src: url('/fonts/Inter/Inter_18pt-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Roboto'; src: url('/fonts/Roboto-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Poppins'; src: url('/fonts/Poppins-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Poppins'; src: url('/fonts/Poppins-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Montserrat'; src: url('/fonts/Montserrat/Montserrat-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Montserrat'; src: url('/fonts/Montserrat/Montserrat-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Sora'; src: url('/fonts/Sora/Sora-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Sora'; src: url('/fonts/Sora/Sora-Bold.ttf') format('truetype'); font-weight: 700; }
 
-html { --ui-accent: #17628b; --ui-sidebar-bg: #dce8ee; --ui-header-bg: #dce8ee; --ui-page-bg: #ffffff; --ui-sidebar-fg: #0f172a; --ui-header-fg: #0f172a; --ui-page-fg: #0f172a; --ui-footer-bg: #303030; --ui-footer-fg: #e5e5e5; --ui-font: 'Inter', ui-sans-serif, system-ui, sans-serif; --ui-zoom: 1; }
+html { --ui-accent: #17628b; --ui-accent-fg: #fff; --ui-accent-text: #17628b; --ui-sidebar-bg: #dce8ee; --ui-header-bg: #dce8ee; --ui-page-bg: #ffffff; --ui-sidebar-fg: #000; --ui-header-fg: #000; --ui-page-fg: #000; --ui-footer-bg: #303030; --ui-footer-fg: #fff; --ui-font: 'Inter', ui-sans-serif, system-ui, sans-serif; --ui-font-scale: 1; --ui-card-radius: .75rem; --ui-zoom: 1; font-size: calc(16px * var(--ui-font-scale)); }
 html[data-theme='light'] { color-scheme: light; }
 html[data-theme='dark'] { color-scheme: dark; }
 
@@ -97,10 +107,10 @@ html.dark .overview-metric:hover, html.dark button.overview-protocol-row:hover {
 
 
 
-.btn-primary { background-color: var(--ui-accent); }
+.btn-primary { background-color: var(--ui-accent); color: var(--ui-accent-fg); }
 .btn-primary:hover { background-color: color-mix(in srgb, var(--ui-accent) 86%, black); }
 .ui-switch[data-state='checked'], .ui-checkbox:checked { border-color: var(--ui-accent); background-color: var(--ui-accent); }
-.nav-link-active { background-color: color-mix(in srgb, var(--ui-accent) 11%, white); color: var(--ui-accent); }
+.nav-link-active { background-color: color-mix(in srgb, var(--ui-accent) 11%, white); color: var(--ui-accent-text); }
 html.dark .nav-link-active { background-color: color-mix(in srgb, var(--ui-accent) 20%, #0f172a); color: white; }
 @media print {
   body { zoom: 1; }
@@ -161,14 +171,14 @@ html.dark .pgci-sidebar nav .pgci-nav-link:is(:hover, :focus-visible, :active) {
 .overview-quick-link--users { --quick-tone: #ca8a04; --quick-card-border: #fde047; --quick-card-bg: #fefce8; --quick-card-hover: #fef9c3; }
 html.dark .overview-quick-link { --quick-card-border: color-mix(in srgb, var(--quick-tone) 55%, #334155); --quick-card-bg: color-mix(in srgb, var(--quick-tone) 10%, #020617); --quick-card-hover: color-mix(in srgb, var(--quick-tone) 18%, #020617); }
 
-.dashboard-greeting-name { color: var(--ui-accent); }
+.dashboard-greeting-name { color: var(--ui-accent-text); }
 html.dark .pgci-dashboard-shape-left { opacity: .26; }
 html.dark .pgci-dashboard-shape-right-primary { opacity: .3; }
 html.dark .pgci-dashboard-shape-right-secondary { opacity: .14; }
 
 /* Compatibilidade para componentes administrativos baseados em tokens de tema. */
 @layer components {
-  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50; background-color: var(--ui-accent); }
+  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50; background-color: var(--ui-accent); color: var(--ui-accent-fg); }
   .button-primary:hover { background-color: color-mix(in srgb, var(--ui-accent) 86%, black); }
   .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-md border bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800; }
   .icon-button { @apply p-2; }
@@ -177,7 +187,7 @@ html.dark .pgci-dashboard-shape-right-secondary { opacity: .14; }
 .bg-card, .bg-popover { background-color: #fff; }
 .text-muted-foreground { color: #64748b; }
 .bg-muted { background-color: #f1f5f9; }
-.text-primary { color: var(--ui-accent); }
+.text-primary { color: var(--ui-accent-text); }
 .bg-primary\/10 { background-color: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
 .text-destructive { color: #dc2626; }
 .bg-destructive { background-color: #dc2626; }
@@ -368,7 +378,7 @@ html.dark .overview-metric-icon--unacknowledged { background: rgb(30 58 138 / .3
 .pgci-dashboard-shape-right-secondary { clip-path: none; border-radius: 50%; }
 /* As abas seguem o desenho de pastas da referência e a cor escolhida. */
 .reports-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; padding-inline: 1.5rem; position: relative; z-index: 1; }
-.reports-tab { min-height: 3rem; border: 1px solid var(--report-border, #cbd5e1); border-bottom: 0; border-radius: .6rem .6rem 0 0; background: var(--ui-accent); color: white; padding: .75rem 1rem; font-size: .85rem; font-weight: 600; }
+.reports-tab { min-height: 3rem; border: 1px solid var(--report-border, #cbd5e1); border-bottom: 0; border-radius: .6rem .6rem 0 0; background: var(--ui-accent); color: var(--ui-accent-fg); padding: .75rem 1rem; font-size: .85rem; font-weight: 600; }
 .reports-tab[aria-selected='true'] { background: white; color: #0f172a; margin-bottom: -1px; padding-bottom: calc(.75rem + 1px); }
 .reports-tab:hover:not([aria-selected='true']) { background: color-mix(in srgb, var(--ui-accent) 85%, black); }
 .reports-panel { border: 1px solid var(--report-border, #cbd5e1); border-radius: .6rem; background: white; padding: 2rem; }
@@ -397,6 +407,11 @@ html.dark .pgci-sidebar .pgci-nav-link:is(.pgci-nav-link-active, :hover, :focus-
   background-color: var(--ui-page-bg);
   color: var(--ui-page-fg);
 }
+.panel, .bg-card, article.rounded-xl, section.rounded-xl, .overview-quick-link, .process-card, .overview-metric, .overview-protocol-row { border-radius: var(--ui-card-radius); }
+.pgci-sidebar .sidebar-group-label { color: var(--ui-sidebar-fg); opacity: 1; }
+.process-phase-step.is-current, .process-card:hover .process-card-arrow, .process-unit-context--action, .text-primary { color: var(--ui-accent-text); }
+.process-quick-filter[aria-pressed='true'], .process-shortcut[aria-pressed='true'], .process-status-filter[aria-pressed='true'], .process-attachment-filter[aria-pressed='true'] { color: var(--ui-accent-text); }
+.bg-public-600, .bg-public-700, .bg-public-800 { color: var(--ui-accent-fg); background-color: var(--ui-accent); }
 /* Lista e filtros de Processos, conforme o modelo de navegação do Figma. */
 .process-search-panel {
   margin-bottom: 1rem;
@@ -424,7 +439,7 @@ html.dark .pgci-sidebar .pgci-nav-link:is(.pgci-nav-link-active, :hover, :focus-
 .process-search-input:focus-within { border-color: var(--ui-accent); box-shadow: none; outline: none; }
 .process-search-input .field { min-height: 2.5rem; }
 .process-advanced-button { min-height: 2.65rem; }
-.process-filter-count { display: grid; min-width: 1.25rem; height: 1.25rem; place-items: center; border-radius: 999px; background: var(--ui-accent); color: white; font-size: .68rem; }
+.process-filter-count { display: grid; min-width: 1.25rem; height: 1.25rem; place-items: center; border-radius: 999px; background: var(--ui-accent); color: var(--ui-accent-fg); font-size: .68rem; }
 .process-quick-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; margin-top: .85rem; }
 .process-quick-filter {
   min-height: 3.5rem; border: 1px solid #d6d3d1; border-radius: .55rem; background: var(--ui-page-bg);
