@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { GitBranch, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { ProtocolPhase } from '../../domain/model'
+import { hasPermission } from '../../domain/permissions'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
@@ -32,7 +33,9 @@ export function PhasesPage() {
   const [deleting, setDeleting] = useState<ProtocolPhase | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [activeOnly, setActiveOnly] = useState(true)
-  const admin = ctx.user?.role === 'ADMIN'
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'workflow.create'))
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'workflow.edit'))
+  const canDelete = Boolean(db && hasPermission(db, ctx, 'workflow.delete'))
   const remove = useMutation({
     mutationFn: (id: string) => api.deletePhase(ctx, id),
     onSuccess: () => {
@@ -55,7 +58,7 @@ export function PhasesPage() {
       title="Tipos de Fases"
       detail="Cadastre as fases reutilizadas na montagem dos fluxos de processo."
       icon={GitBranch}
-      action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Novo</button></div> : undefined}
+      action={canCreate ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Novo</button></div> : undefined}
     />
 
     <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -72,9 +75,9 @@ export function PhasesPage() {
             <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-sm font-semibold">{phase.name}</h2>{!phase.active && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Inativa</span>}</div>
             {phase.description && <p className="mt-0.5 truncate text-xs text-muted-foreground">{phase.description}</p>}
           </div>
-          {admin && <div className="flex shrink-0 items-center gap-2">
-            <button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + phase.name} onClick={() => setEditing(phase)}><Pencil size={16}/></button>
-            <button type="button" className="button-secondary icon-button size-9 text-destructive" aria-label={'Excluir ' + phase.name} onClick={() => setDeleting(phase)}><Trash2 size={16}/></button>
+          {(canEdit || canDelete) && <div className="flex shrink-0 items-center gap-2">
+            {canEdit && <button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + phase.name} onClick={() => setEditing(phase)}><Pencil size={16}/></button>}
+            {canDelete && <button type="button" className="button-secondary icon-button size-9 text-destructive" aria-label={'Excluir ' + phase.name} onClick={() => setDeleting(phase)}><Trash2 size={16}/></button>}
           </div>}
         </article>
       })}

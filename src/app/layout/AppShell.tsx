@@ -25,6 +25,7 @@ import {
   RefreshCcw,
   Settings,
   Settings2,
+  ShieldCheck,
   Sun,
   Tags,
   Users,
@@ -35,6 +36,8 @@ import { useSession } from "../session";
 import { ROUTE_LOADING_EVENT, navigateWithLoading } from "../routeLoading";
 import { ProfileMenu } from "./ProfileMenu";
 import { StructureScopeMenu } from "./StructureScopeMenu";
+import { hasPermission } from '../../domain/permissions';
+import type { Permission } from '../../domain/permissions';
 type OrganizationHeaderDetails = {
   organizationName?: string;
   city?: string;
@@ -95,6 +98,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { phase: routeTransition, loading: routeLoading } = useRouteTransition(location.pathname);
   const {
+    userId,
+    activeUnitId,
     theme,
     toggleTheme,
     appearance,
@@ -137,10 +142,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         ["/situacoes", "Situações", CircleDot],
         ["/tipos-documento", "Tipos de documento", FileText],
         ["/usuarios", "Usuários", Users],
+        ["/perfis", "Perfis de acesso", ShieldCheck],
         ["/configuracoes", "Configurações", Settings],
       ],
     },
   ];
+  const navPermissions: Record<string, Permission> = {
+    '/relatorios': 'reports.view', '/processos': 'processes.view', '/documentos': 'documents.view',
+    '/pessoas': 'people.view', '/estrutura': 'structure.view', '/tipos-processo': 'protocolTypes.view',
+    '/categorias-processo': 'protocolTypes.view', '/fases': 'workflow.view', '/situacoes': 'workflow.view',
+    '/tipos-documento': 'documentTypes.view', '/usuarios': 'users.view', '/perfis': 'profiles.manage',
+  };
   const handleInternalNavigation = (event: MouseEvent<HTMLElement>) => {
     if (
       event.button !== 0 ||
@@ -215,7 +227,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {group.group}
               </p>
             )}
-            {group.items.map(([path, label, Icon]) => (
+            {group.items.filter(([path]) => !navPermissions[path as string] || Boolean(sessionDb && hasPermission(sessionDb, { userId, activeUnitId }, navPermissions[path as string]))).map(([path, label, Icon]) => (
               <NavLink
                 key={`${group.group ?? "principal"}-${label as string}`}
                 to={path as string}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Sparkles, Trash2 } from 'lucide-react'
 import type { AppUser, Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
+import { hasPermission } from '../../domain/permissions'
 import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
@@ -24,19 +25,21 @@ export function ProtocolTypesPage() {
   const [aiCreating, setAiCreating] = useState(false)
 
   if (isLoading || !db) return <Loading />
-  const admin = ctx.user?.role === 'ADMIN'
+  const canCreate = hasPermission(db, ctx, 'protocolTypes.create')
+  const canEdit = hasPermission(db, ctx, 'protocolTypes.edit')
+  const canDelete = hasPermission(db, ctx, 'protocolTypes.delete')
 
-  if (flowManaging) { const currentType = db.protocolTypes.find((type) => type.id === flowManaging.id) ?? flowManaging; return <TypeFlowPage type={currentType} flows={db.flows} flowPhases={db.flowPhases} phases={db.phases} situations={db.situations} units={db.units} editable={admin} onBack={() => setFlowManaging(null)} /> }
+  if (flowManaging) { const currentType = db.protocolTypes.find((type) => type.id === flowManaging.id) ?? flowManaging; return <TypeFlowPage type={currentType} flows={db.flows} flowPhases={db.flowPhases} phases={db.phases} situations={db.situations} units={db.units} editable={canEdit} onBack={() => setFlowManaging(null)} /> }
 
   return <>
     <PageTitle title="Tipos de processo" detail="Configure os tipos e suas etapas de fluxo. Fases, categorias e situações são administradas pelos itens próprios da barra lateral." icon={ListChecks} />
-    <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={admin} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />
+    <TypesList types={db.protocolTypes} categories={db.processCategories} flowPhases={db.flowPhases} attachments={db.attachments} editable={canEdit} canCreate={canCreate} canDelete={canDelete} onEdit={setTypeEditing} onOpenFlow={setFlowManaging} onEditFiles={setTypeFilesEditing} onCreateWithAi={() => setAiCreating(true)} onNew={() => setTypeEditing('new')} />
     {aiCreating && <AiProtocolTypeDialog categories={db.processCategories} phases={db.phases} situations={db.situations} units={db.units} onClose={() => setAiCreating(false)} onCreated={() => setAiCreating(false)} />}
     {typeEditing && <ProtocolTypeEditor categories={db.processCategories} users={db.users} units={db.units} type={typeEditing === 'new' ? undefined : typeEditing} onClose={() => setTypeEditing(null)} onSaved={() => setTypeEditing(null)} />}
-    {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={admin} onClose={() => setTypeFilesEditing(null)} />}
+    {typeFilesEditing && <TypeAttachmentsDialog type={typeFilesEditing} attachments={db.attachments.filter((attachment) => attachment.typeId === typeFilesEditing.id)} editable={canEdit} onClose={() => setTypeFilesEditing(null)} />}
   </>
 }
-function TypesList({ types, categories, flowPhases, attachments, editable, onEdit, onOpenFlow, onEditFiles, onCreateWithAi, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onCreateWithAi: () => void; onNew: () => void }) {
+function TypesList({ types, categories, flowPhases, attachments, editable, canCreate, canDelete, onEdit, onOpenFlow, onEditFiles, onCreateWithAi, onNew }: { types: ProtocolType[]; categories: ProcessCategory[]; flowPhases: { flowId: string; phaseId: string; position: number }[]; attachments: Attachment[]; editable: boolean; canCreate: boolean; canDelete: boolean; onEdit: (type: ProtocolType) => void; onOpenFlow: (type: ProtocolType) => void; onEditFiles: (type: ProtocolType) => void; onCreateWithAi: () => void; onNew: () => void }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -97,17 +100,19 @@ function TypesList({ types, categories, flowPhases, attachments, editable, onEdi
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de processo" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
         <button className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />Mais filtros</button>
       </div>
-      {editable && <div ref={menuRef} className="relative flex items-center gap-2">
+      {(editable || canCreate || canDelete) && <div ref={menuRef} className="relative flex items-center gap-2">
+        {(editable || canDelete) && <>
         <button className="button-secondary icon-button" aria-label="Ações em massa" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={18} /></button>
         {menuOpen && <div className="absolute right-12 top-0 z-30 w-64 rounded-xl border border-border bg-popover p-2 text-sm shadow-xl">
           <p className="px-2 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground">MANUTENÇÃO</p>
-          <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-muted" onClick={() => markAll.mutate()} disabled={markAll.isPending}><span className="flex items-center gap-2"><GitBranch size={15} />Marcar todos com tramitação</span><span className="text-xs text-muted-foreground">{types.length}</span></button>
+          {editable && <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-muted" onClick={() => markAll.mutate()} disabled={markAll.isPending}><span className="flex items-center gap-2"><GitBranch size={15} />Marcar todos com tramitação</span><span className="text-xs text-muted-foreground">{types.length}</span></button>}
           <div className="my-1 border-t border-border" />
           <p className="px-2 pb-1 text-[10px] font-bold tracking-wider text-muted-foreground">EXCLUIR REGISTROS</p>
-          <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleteOpen(true) }}><span className="flex items-center gap-2"><Trash2 size={15} />Excluir todos os Tipos de Processo</span><span className="text-xs">{types.length}</span></button>
+          {canDelete && <button className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-destructive hover:bg-destructive/10" onClick={() => { setMenuOpen(false); setDeleteOpen(true) }}><span className="flex items-center gap-2"><Trash2 size={15} />Excluir todos os Tipos de Processo</span><span className="text-xs">{types.length}</span></button>}
         </div>}
-        <button className="button-secondary border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30" onClick={onCreateWithAi}><Sparkles size={16} />Criar com IA</button>
-        <button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button>
+        </>}
+        {canCreate && <button className="button-secondary border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30" onClick={onCreateWithAi}><Sparkles size={16} />Criar com IA</button>}
+        {canCreate && <button className="button-primary" onClick={onNew}><Plus size={16} />Novo</button>}
       </div>}
     </div>
 

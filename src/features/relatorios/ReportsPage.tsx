@@ -7,6 +7,7 @@ import { Loading, ErrorBox, PageTitle } from '../../components/ui/Feedback';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { statusLabel } from '../../domain/model';
+import { hasPermission } from '../../domain/permissions';
 import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { participantOptionLabel, participantOptions } from '../../domain/participants';
 import { ParticipantOptionContent } from '../../components/ui/ParticipantOptionContent';
@@ -40,18 +41,21 @@ export function ReportsPage() {
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!db || !ctx.user) return null;
+  const availableTabs = tabs.filter(([id]) => id !== 'productivity' || hasPermission(db, ctx, 'reports.productivity'));
   const protocols = visibleProtocols(db, ctx);
   const filtered = filterProtocols(protocols, filters);
   const individual = protocols.find((p) => p.number.toLowerCase() === number.trim().toLowerCase());
   const update = (key: keyof ReportFilters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
   const changeTab = (next: Tab) => { setTab(next); setGenerationError(undefined); };
   const navigateTabs = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : undefined;
+    const next = event.key === 'ArrowRight' ? (index + 1) % availableTabs.length : event.key === 'ArrowLeft' ? (index + availableTabs.length - 1) % availableTabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? availableTabs.length - 1 : undefined;
     if (next === undefined) return;
-    event.preventDefault(); changeTab(tabs[next][0]); document.getElementById(`report-tab-${tabs[next][0]}`)?.focus();
+    event.preventDefault(); changeTab(availableTabs[next][0]); document.getElementById(`report-tab-${availableTabs[next][0]}`)?.focus();
   };
   const generate = async () => {
     setGenerationError(undefined);
+    if (!hasPermission(db, ctx, 'reports.export')) { setGenerationError(new Error('Você não possui permissão para exportar relatórios nesta unidade.')); return; }
+    if (tab === 'productivity' && !hasPermission(db, ctx, 'reports.productivity')) { setGenerationError(new Error('Você não possui permissão para gerar relatórios de produtividade.')); return; }
     const start = tab === 'processes' ? filters.from : from;
     const end = tab === 'processes' ? filters.to : to;
     if (tab !== 'individual' && start && end && start > end) { setGenerationError(new Error('A data final deve ser igual ou posterior à data inicial.')); return; }
@@ -73,7 +77,7 @@ export function ReportsPage() {
   };
   return <div className="reports-page">
     <PageTitle title="Relatórios" detail="Gere relatórios em PDF a partir dos processos da entidade." icon={BarChart3} action={<span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">Escopo: {ctx.user.role === 'ADMIN' ? db.organization.name : db.units.find((u) => u.id === ctx.activeUnitId)?.name}</span>} />
-    <div className="reports-tabs" role="tablist" aria-label="Tipos de relatório">{tabs.map(([id, label], index) => <button key={id} id={`report-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`report-panel-${id}`} tabIndex={tab === id ? 0 : -1} onKeyDown={(event) => navigateTabs(event, index)} onClick={() => changeTab(id)} className="reports-tab">{label}</button>)}</div>
+    <div className="reports-tabs" role="tablist" aria-label="Tipos de relatório">{availableTabs.map(([id, label], index) => <button key={id} id={`report-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`report-panel-${id}`} tabIndex={tab === id ? 0 : -1} onKeyDown={(event) => navigateTabs(event, index)} onClick={() => changeTab(id)} className="reports-tab">{label}</button>)}</div>
     <section id={`report-panel-${tab}`} role="tabpanel" aria-labelledby={`report-tab-${tab}`} className="reports-panel">
       <form onSubmit={(event) => { event.preventDefault(); void generate(); }}>
         {tab === 'processes' && <div className="grid gap-x-4 gap-y-5 md:grid-cols-3">
@@ -102,7 +106,7 @@ export function ReportsPage() {
           <div className="mt-5 grid gap-4 md:grid-cols-2"><ReportField label="Dificuldades ou impedimentos encontrados"><textarea className="field min-h-28 resize-y" value={difficulties} onChange={(e) => setDifficulties(e.target.value)} placeholder="Descreva os obstáculos encontrados no período..." /></ReportField><ReportField label="Sugestões para melhoria do desempenho e produtividade setorial"><textarea className="field min-h-28 resize-y" value={suggestions} onChange={(e) => setSuggestions(e.target.value)} placeholder="Indique ações para melhorar o trabalho do setor..." /></ReportField></div>
         </>}
         {generationError ? <div className="mt-5"><ErrorBox error={generationError} /></div> : null}
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{tab === 'processes' ? `${filtered.length} processo(s) encontrado(s)` : <span className="inline-flex items-center gap-1.5"><BarChart3 size={14} />PDF com o timbre configurado</span>}</span><button type="submit" className="btn-primary" disabled={busy || (tab === 'individual' && !individual) || (tab === 'productivity' && !server)}><Download size={16} />{busy ? 'Gerando PDF…' : 'Gerar PDF'}</button></div>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{tab === 'processes' ? `${filtered.length} processo(s) encontrado(s)` : <span className="inline-flex items-center gap-1.5"><BarChart3 size={14} />PDF com o timbre configurado</span>}</span><button type="submit" className="btn-primary" disabled={busy || !hasPermission(db, ctx, 'reports.export') || (tab === 'individual' && !individual) || (tab === 'productivity' && !server)}><Download size={16} />{busy ? 'Gerando PDF…' : 'Gerar PDF'}</button></div>
       </form>
     </section>
   </div>;

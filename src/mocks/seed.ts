@@ -2,6 +2,7 @@ import type { AppDocument, Assignment, Database, FieldsConfig, Protocol, Protoco
 import { isoDaysFromNow } from '../lib/format';
 import { systemSituationTypes } from '../domain/situations';
 import { defaultProcessCategories } from '../domain/processCategories';
+import { defaultPermissions, defaultProfiles, profileIdForRole } from '../domain/permissions';
 const blank: FieldsConfig = { interested: { enabled: false, required: false }, creditor: { enabled: false, required: false }, amount: { enabled: false, required: false } };
 const interested: FieldsConfig = { ...blank, interested: { enabled: true, required: true } };
 const interestedWithResponsible: FieldsConfig = { ...interested, responsavel: { enabled: true, required: true }, assunto: { enabled: true, required: true } };
@@ -37,6 +38,8 @@ export function seedDatabase(options: SeedOptions = {}): Database {
             userId: user.id,
             unitId: unit.id,
             role: user.role,
+            profileId: profileIdForRole(user.role),
+            permissions: defaultPermissions(user.role),
             title: user.role === 'ADMIN' ? 'Administrador geral' : 'Operador',
             startsAt: now(),
             active: true,
@@ -555,5 +558,5 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         const protocol = spec.protocolId ? protocols.find((item) => item.id === spec.protocolId) : undefined;
         return { id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: spec.typeId, protocolId: spec.protocolId, movementEventId: spec.movementEventId, subject: spec.subject, body: spec.body, unitId: protocol?.currentUnitId ?? 'u-prot', authorUserId: protocol?.currentAssigneeId ?? protocol?.createdById ?? 'usr-clara', createdAt: isoDaysFromNow(-index - 1) };
     });    documents.filter((d) => d.protocolId).forEach((d) => events.push({ id: `ev-doc-${d.id}`, protocolId: d.protocolId!, kind: 'DOCUMENTO_CRIADO', actorUserId: d.authorUserId, actorUnitId: d.unitId, relatedDocumentId: d.id, createdAt: d.createdAt }));
-    return { schemaVersion: 7, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 8 }, units, users, memberships, auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };
+    return { schemaVersion: 8, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 8 }, units, users, memberships, profiles: defaultProfiles(), auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };
 }

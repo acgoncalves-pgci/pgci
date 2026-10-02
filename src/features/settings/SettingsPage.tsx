@@ -26,6 +26,7 @@ import { Loading, PageTitle } from "../../components/ui/Feedback";
 import { defaultAppearance, useSession } from "../../app/session";
 import type { AppearancePalette } from "../../app/session";
 import { useDb } from "../../app/queries";
+import { hasPermission } from '../../domain/permissions';
 import { formatConfiguredNumber, GENERAL_SETTINGS_KEY } from "../../lib/numbering";
 type Tab = "general" | "portal" | "appearance";
 const stateTokens = { A: { pattern: /[a-z]/i, transform: (char: string) => char.toUpperCase() } };
@@ -116,7 +117,7 @@ const notify = (message: string) =>
   );
 export function SettingsPage() {
   const { data: db, isLoading } = useDb();
-  const { theme, setTheme, appearance, setAppearance } = useSession();
+  const { theme, setTheme, appearance, setAppearance, userId, activeUnitId } = useSession();
   const [tab, setTab] = useState<Tab>("general");
   const [general, setGeneral] = useState<GeneralSettings>(readGeneral);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -130,9 +131,12 @@ export function SettingsPage() {
       }));
   }, [db, general.organizationName]);
   if (isLoading || !db) return <Loading variant="detail" />;
+  const canManage = hasPermission(db, { userId, activeUnitId }, 'settings.manage');
+  const selectedTab = canManage ? tab : 'appearance';
   const update = (key: keyof GeneralSettings, value: string | boolean) =>
     setGeneral((current) => ({ ...current, [key]: value }));
   const saveGeneral = () => {
+    if (!canManage) return;
     try {
       if (general.publicUrl.trim()) {
         if (/^[a-z][a-z0-9+.-]*:/i.test(general.publicUrl.trim()) && !/^https?:\/\//i.test(general.publicUrl.trim())) throw new Error('Informe um endereço público HTTP ou HTTPS válido.');
@@ -194,7 +198,7 @@ export function SettingsPage() {
         title="Configurações"
         detail="Personalize dados institucionais, portal e aparência do sistema."
         icon={SlidersHorizontal}
-        action={
+        action={canManage &&
           <button className="btn-primary" onClick={saveGeneral} disabled={uploadingLogo}>
             <Save size={16} />
             Salvar configurações
@@ -205,25 +209,25 @@ export function SettingsPage() {
         <div
           role="tablist"
           aria-label="Seções de configurações"
-          className="m-3 grid grid-cols-3 rounded-md bg-[#efede5] p-1 dark:bg-slate-800"
+          className={`m-3 grid rounded-md bg-[#efede5] p-1 dark:bg-slate-800 ${canManage ? 'grid-cols-3' : 'grid-cols-1'}`}
         >
-          {tabs.map(({ id, label, icon: Icon }) => (
+          {tabs.filter(({ id }) => canManage || id === 'appearance').map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               role="tab"
               aria-label={label}
-              aria-selected={tab === id}
+              aria-selected={selectedTab === id}
               aria-controls={`settings-${id}`}
               onClick={() => setTab(id)}
-              className={`flex min-h-8 items-center justify-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${tab === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
+              className={`flex min-h-8 items-center justify-center gap-2 rounded px-3 text-sm font-semibold transition-colors ${selectedTab === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
             >
               <Icon size={15} />
               <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
-        {tab === "general" && (
+        {selectedTab === "general" && (
           <div
             id="settings-general"
             role="tabpanel"
@@ -438,7 +442,7 @@ export function SettingsPage() {
             </SettingsSection>
           </div>
         )}
-        {tab === "portal" && (
+        {selectedTab === "portal" && (
           <div
             id="settings-portal"
             role="tabpanel"
@@ -471,7 +475,7 @@ export function SettingsPage() {
             </SettingsSection>
           </div>
         )}
-        {tab === "appearance" && (
+        {selectedTab === "appearance" && (
           <div
             id="settings-appearance"
             role="tabpanel"

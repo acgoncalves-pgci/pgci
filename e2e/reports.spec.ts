@@ -84,6 +84,10 @@ test('sidebar recolhe imediatamente após selecionar e reabre ao retornar o pont
 });
 
 test('configuração persiste a logo e o endereço de consulta e gera capa pela ação do processo', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin');
+    localStorage.setItem('fluxo-publico:unit', 'u-prot');
+  });
   await page.goto('/configuracoes');
   await expect(page.getByRole('heading', { name: 'Configurações' })).toBeVisible();
   await page.locator('input[type=file]').setInputFiles('public/assets/pgci-logo.svg');

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FolderTree, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { ProcessCategory } from '../../domain/model'
+import { hasPermission } from '../../domain/permissions'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
 import { api } from '../../services/api'
@@ -22,7 +23,9 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
   const [deleting, setDeleting] = useState<ProcessCategory | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [activeOnly, setActiveOnly] = useState(true)
-  const admin = ctx.user?.role === 'ADMIN'
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'protocolTypes.create'))
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'protocolTypes.edit'))
+  const canDelete = Boolean(db && hasPermission(db, ctx, 'protocolTypes.delete'))
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteProcessCategory(ctx, id),
     onSuccess: () => { invalidateAll(client); setDeleting(null) },
@@ -42,7 +45,7 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
         title="Categorias de Processo"
         detail="Organize os tipos de processo em categorias reutilizáveis."
         icon={FolderTree}
-        action={admin ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova</button></div> : undefined}
+        action={canCreate ? <div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova</button></div> : undefined}
       />
     </>}
 
@@ -51,7 +54,7 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
         <label className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16}/><Input aria-label="Buscar categoria" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por código ou nome..." className="w-72 pl-9"/></label>
         <button type="button" className="button-secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16}/>Mais filtros</button>
       </div>
-      {embedded && admin && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova categoria</button>}
+      {embedded && canCreate && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova categoria</button>}
     </div>
 
     <div className="space-y-2" role="region" aria-label="Lista de categorias de processo">
@@ -61,7 +64,7 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
           <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-sm font-semibold"><span className="font-mono">{category.code}</span> — {category.name}</h2>{!category.active && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Inativa</span>}</div>
           {category.observation && <p className="mt-0.5 truncate text-xs text-muted-foreground">{category.observation}</p>}
         </div>
-        {admin && <div className="flex shrink-0 items-center gap-2"><button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + category.name} onClick={() => setEditing(category)}><Pencil size={16}/></button><button type="button" className="button-secondary icon-button size-9 text-destructive" aria-label={'Excluir ' + category.name} onClick={() => setDeleting(category)}><Trash2 size={16}/></button></div>}
+        {(canEdit || canDelete) && <div className="flex shrink-0 items-center gap-2">{canEdit && <button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + category.name} onClick={() => setEditing(category)}><Pencil size={16}/></button>}{canDelete && <button type="button" className="button-secondary icon-button size-9 text-destructive" aria-label={'Excluir ' + category.name} onClick={() => setDeleting(category)}><Trash2 size={16}/></button>}</div>}
       </article>)}
       {visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">Nenhuma categoria encontrada.</p>}
     </div>

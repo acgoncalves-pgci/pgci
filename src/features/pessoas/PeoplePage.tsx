@@ -11,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import type { Person, PersonRole, ResponsibilityPeriod } from '../../domain/model'
+import { hasPermission } from '../../domain/permissions'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
@@ -52,7 +53,8 @@ export function PeoplePage() {
   const [kindFilter, setKindFilter] = useState<'ALL' | Person['kind']>('ALL')
   const [roleFilter, setRoleFilter] = useState<'ALL' | PersonRole>('ALL')
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL')
-  const admin = ctx.user?.role === 'ADMIN'
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'people.create'))
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'people.edit'))
 
   if (isLoading || !db) return <Loading variant="list"/>
 
@@ -71,7 +73,7 @@ export function PeoplePage() {
       title="Pessoas (Física/Jurídica)"
       detail="Interessados, credores e responsáveis do município."
       icon={UserRound}
-      action={<div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button><button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova Pessoa</button></div>}
+      action={<div className="flex items-center gap-2"><button type="button" className="button-secondary icon-button" aria-label="Mais ações" onClick={() => setFiltersOpen(true)}><MoreHorizontal size={18}/></button>{canCreate && <button type="button" className="button-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova Pessoa</button>}</div>}
     />
 
     <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -95,7 +97,7 @@ export function PeoplePage() {
             </div>
             <p className="mt-1 truncate text-xs text-muted-foreground">{[formatDocument(person.document), person.email].filter(Boolean).join(' · ') || 'Sem documento ou e-mail informado'}</p>
           </div>
-          {admin && <button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + person.name} onClick={() => setEditing(person)}><Pencil size={16}/></button>}
+          {canEdit && <button type="button" className="button-secondary icon-button size-9" aria-label={'Editar ' + person.name} onClick={() => setEditing(person)}><Pencil size={16}/></button>}
         </article>
       })}
       {people.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">Nenhuma pessoa encontrada.</p>}

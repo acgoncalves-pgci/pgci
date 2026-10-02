@@ -1,5 +1,7 @@
 import type { AppDocument, AppUser, Context, Database, Protocol, ProtocolType, Role, UserUnitMembership } from './model'
 import { isActive } from './model'
+import { effectivePermissions, hasPermission } from './permissions'
+import type { Permission } from './permissions'
 
 export class DomainError extends Error {
   constructor(public code: string, message: string) {
@@ -39,7 +41,7 @@ export const findActiveMembership = (db: Database, ctx: Context) =>
 
 export const canReceiveWorkInUnit = (db: Database, userId: string, unitId: string) => {
   const membership = findActiveMembershipForUnit(db, userId, unitId)
-  return Boolean(membership && membership.role !== 'LEITOR')
+  return Boolean(membership && effectivePermissions(membership).includes('processes.act'))
 }
 
 export const canManageDocument = (db: Database, document: AppDocument, ctx: Context) => {
@@ -65,7 +67,7 @@ export const requireActiveMembership = (db: Database, ctx: Context) =>
 
 export const requireOperationalMembership = (db: Database, ctx: Context) => {
   const membership = requireActiveMembership(db, ctx)
-  if (membership.role === 'LEITOR')
+  if (!effectivePermissions(membership).includes('processes.act'))
     fail('FORBIDDEN', 'Seu vínculo com a unidade selecionada permite somente leitura.')
   return membership
 }
@@ -105,7 +107,7 @@ export const canView = (db: Database, protocol: Protocol, ctx: Context) => {
     (membership) =>
       membership.userId === ctx.userId &&
       unitIds.includes(membership.unitId) &&
-      isMembershipCurrent(membership),
+      isMembershipCurrent(membership) && effectivePermissions(membership).includes('processes.view'),
   )
   if (!memberships.length) return false
   const participated = hasParticipated(db, protocol, user.id)
@@ -119,7 +121,7 @@ export const canView = (db: Database, protocol: Protocol, ctx: Context) => {
 export const canAct = (db: Database, protocol: Protocol, ctx: Context) => {
   const user = getUser(db, ctx.userId)
   const membership = findActiveMembership(db, ctx)
-  if (!user.active || !membership || membership.role === 'LEITOR') return false
+  if (!user.active || !membership || !hasPermission(db, ctx, 'processes.act')) return false
   return (
     (membership.role === 'ADMIN' && ctx.activeUnitId === protocol.currentUnitId) ||
     (ctx.activeUnitId === protocol.currentUnitId && protocol.currentAssigneeId === user.id)
@@ -149,6 +151,13 @@ export const requireAdmin = (db: Database, ctx: Context) => {
   const user = requireActor(db, ctx)
   if (roleForContext(db, ctx) !== 'ADMIN')
     fail('FORBIDDEN', 'Apenas administradores podem executar esta ação.')
+  return user
+}
+
+export const requirePermission = (db: Database, ctx: Context, permission: Permission) => {
+  const user = requireActor(db, ctx)
+  if (!hasPermission(db, ctx, permission))
+    fail('FORBIDDEN', 'Você não possui permissão para executar esta ação nesta unidade.')
   return user
 }
 

@@ -32,6 +32,7 @@ import {
   LockKeyhole,
   MessageSquarePlus,
   MessageSquareText,
+  MessageSquareWarning,
   Paperclip,
   Pencil,
   Plus,
@@ -71,9 +72,9 @@ import {
   canOpenProtocolType,
   canReceiveWorkInUnit,
   findActiveMembershipForUnit,
-  roleForContext,
 } from "../../domain/rules";
 import { sortUnitsByPath, unitPath } from "../../domain/units";
+import { effectivePermissions, hasPermission } from '../../domain/permissions';
 import { documentText } from "../../lib/richText";
 import {
   participantName,
@@ -227,7 +228,7 @@ export function Protocols() {
         title="Processos"
         detail="Processos e protocolos"
         icon={ClipboardList}
-        action={
+        action={hasPermission(db, ctx, 'processes.create') &&
           <Link to="/processos/novo" className="btn-primary">
             <Plus size={16} />
             Novo processo
@@ -326,7 +327,7 @@ export function Protocols() {
         <Empty
           title="Nenhum processo encontrado"
           detail="Ajuste os filtros ou abra um novo processo."
-          action={
+          action={hasPermission(db, ctx, 'processes.create') &&
             <Link className="btn-primary" to="/processos/novo">
               Abrir processo
             </Link>
@@ -837,7 +838,7 @@ export function NewProtocol() {
         />
       </>
     );
-  if (activeMembership.role === "LEITOR")
+  if (!hasPermission(db, ctx, 'processes.create'))
     return (
       <>
         <PageTitle title="Abrir processo" icon={FilePlus2} />
@@ -1609,14 +1610,18 @@ export function ProtocolDetail() {
       (item.targetType === "ATTACHMENT" && attachmentIds.has(item.targetId)) ||
       (item.targetType === "DOCUMENT" && documentIds.has(item.targetId)),
   );
-  const contextRole = roleForContext(db, ctx);
   const canAct = canActProtocol(db, p, ctx);
-  const canManage = canAct && contextRole === "ADMIN";
-  const canEdit = canManage && isActive(p);
+  const inCurrentUnit = p.currentUnitId === ctx.activeUnitId;
+  const canManage = inCurrentUnit && hasPermission(db, ctx, 'processes.assign');
+  const canEdit = inCurrentUnit && hasPermission(db, ctx, 'processes.edit') && isActive(p);
+  const canCreateDocument = canAct && hasPermission(db, ctx, 'documents.create');
+  const canAddAttachment = canAct && hasPermission(db, ctx, 'attachments.create');
+  const canDeleteDocument = canAct && hasPermission(db, ctx, 'documents.delete');
+  const canDeleteAttachment = canAct && hasPermission(db, ctx, 'attachments.delete');
   const canAssume =
     p.currentUnitId === ctx.activeUnitId &&
     !p.currentAssigneeId &&
-    contextRole !== "LEITOR";
+    hasPermission(db, ctx, 'processes.act');
   const isHistoricalReadOnly = p.currentUnitId !== ctx.activeUnitId;
   const processUnit = db.units.find((unit) => unit.id === p.currentUnitId);
   const processUnitMembership = findActiveMembershipForUnit(
@@ -1629,9 +1634,9 @@ export function ProtocolDetail() {
     Boolean(
       processUnit?.active &&
       processUnitMembership &&
-      processUnitMembership.role !== "LEITOR",
+      effectivePermissions(processUnitMembership).includes('processes.act'),
     );
-  const canDelete = canManage && p.status === "CADASTRADO";
+  const canDelete = inCurrentUnit && hasPermission(db, ctx, 'processes.delete') && p.status === "CADASTRADO";
   const phases =
     p.flowSnapshot?.phases.slice().sort((a, b) => a.position - b.position) ??
     [];
@@ -1656,7 +1661,7 @@ export function ProtocolDetail() {
       </button>
     );
   else if (p.status === "ARQUIVADO")
-    primary = canManage && (
+    primary = inCurrentUnit && hasPermission(db, ctx, 'processes.edit') && (
       <button className="btn-primary" onClick={() => setAction("reopen")}>
         <RefreshCcw size={16} />
         Reabrir
@@ -1761,9 +1766,8 @@ export function ProtocolDetail() {
   const tabs: Array<[typeof tab, string, ReactNode]> = [
     ["progress", "Andamento", <ClipboardList size={15} />],
     ["data", "Resumo", <FileText size={15} />],
-    ["attachments", "Anexos", <Paperclip size={15} />],
-    ["documents", "Documentos", <FilePlus2 size={15} />],
-    ["audit", "Auditoria", <CheckCircle2 size={15} />],
+    ...(hasPermission(db, ctx, 'documents.view') ? [["attachments", "Anexos", <Paperclip size={15} />] as [typeof tab, string, ReactNode], ["documents", "Documentos", <FilePlus2 size={15} />] as [typeof tab, string, ReactNode]] : []),
+    ...(hasPermission(db, ctx, 'audit.view') ? [["audit", "Auditoria", <CheckCircle2 size={15} />] as [typeof tab, string, ReactNode]] : []),
   ];
   return (
     <>
@@ -1828,8 +1832,8 @@ export function ProtocolDetail() {
                         title={
                           !isActive(p)
                             ? "Processos concluídos ou arquivados não podem ser editados."
-                            : !canManage
-                              ? "Somente administradores na unidade atual podem editar."
+                            : !canEdit
+                              ? "Você não possui permissão para editar nesta unidade."
                               : undefined
                         }
                         onClick={() => {
@@ -1846,7 +1850,7 @@ export function ProtocolDetail() {
                         disabled={!canDelete}
                         title={
                           !canDelete
-                            ? "A exclusão é permitida apenas para processos cadastrados, por administrador da unidade atual."
+                            ? "A exclusão exige processo cadastrado e permissão nesta unidade."
                             : undefined
                         }
                         onClick={() => {
@@ -1976,6 +1980,11 @@ export function ProtocolDetail() {
                   }
                   canAssign={canManage}
                   canEdit={canAct && isActive(p) && !timelineUploading}
+                  canCreateDocument={canCreateDocument}
+                  canAddAttachment={canAddAttachment}
+                  canDeleteDocument={canDeleteDocument}
+                  canDeleteAttachment={canDeleteAttachment}
+                  showFiles={hasPermission(db, ctx, 'documents.view')}
                   allowFiles={Boolean(p.typeConfigSnapshot.arquivos?.enabled)}
                   readOnly={isHistoricalReadOnly}
                   showChecklist={checklistEventIds.has(event.id)}
@@ -2014,7 +2023,8 @@ export function ProtocolDetail() {
           <DocumentsInProtocol
             documents={data.documents}
             protocol={p}
-            canAct={canAct}
+            canAct={canCreateDocument}
+            canDelete={canDeleteDocument}
             onDelete={(item) => setDeletingLinkedItem({ kind: "document", item })}
           />
         )}{" "}
@@ -2022,13 +2032,14 @@ export function ProtocolDetail() {
           <Attachments
             attachments={data.attachments}
             protocol={p}
-            canAct={canAct}
+            canAct={canAddAttachment}
+            canDelete={canDeleteAttachment}
             readOnly={isHistoricalReadOnly}
             onChanged={refresh}
             onDelete={(item) => setDeletingLinkedItem({ kind: "attachment", item })}
           />
         )}{" "}
-        {tab === "audit" && (
+        {tab === "audit" && hasPermission(db, ctx, 'audit.view') && (
           <AuditTimeline
             events={data.events}
             auditEvents={auditEvents}
@@ -2769,6 +2780,11 @@ function TimelineRow({
   canAcknowledge,
   canAssign,
   canEdit,
+  canCreateDocument,
+  canAddAttachment,
+  canDeleteDocument,
+  canDeleteAttachment,
+  showFiles,
   allowFiles,
   readOnly,
   showChecklist,
@@ -2795,6 +2811,11 @@ function TimelineRow({
   canAcknowledge: boolean;
   canAssign: boolean;
   canEdit: boolean;
+  canCreateDocument: boolean;
+  canAddAttachment: boolean;
+  canDeleteDocument: boolean;
+  canDeleteAttachment: boolean;
+  showFiles: boolean;
   allowFiles: boolean;
   readOnly: boolean;
   showChecklist: boolean;
@@ -3149,7 +3170,7 @@ function TimelineRow({
                 answers={checklistAnswers}
                 questions={checklistQuestions}
                 attachmentCount={attachments.length}
-                canAttach={allowFiles && canEditChecklist}
+                canAttach={allowFiles && canEditChecklist && canAddAttachment}
                 editable={canEditChecklist}
                 pending={checklistPending}
                 waitingForAcknowledgement={isLatest && !acknowledged}
@@ -3157,12 +3178,13 @@ function TimelineRow({
                 onChange={onChecklistChange}
               />
             ) : null}
-            {(attachments.length > 0 || documents.length > 0) && (
+            {showFiles && (attachments.length > 0 || documents.length > 0) && (
               <MovementFiles
                 attachments={attachments}
                 documents={documents}
                 db={db}
-                canDelete={canEdit}
+                canDeleteDocument={canDeleteDocument && isLatest && !readOnly}
+                canDeleteAttachment={canDeleteAttachment && isLatest && !readOnly}
                 onDeleteAttachment={onDeleteAttachment}
                 onDeleteDocument={onDeleteDocument}
               />
@@ -3171,7 +3193,7 @@ function TimelineRow({
               {!readOnly && (
                 <div className="timeline-card-actions">
                   {allowFiles &&
-                    (canEdit && isLatest ? (
+                    (canCreateDocument && isLatest ? (
                       <Link
                         className="timeline-action-button"
                         to={`/documentos/novo?protocolId=${protocol.id}&movementEventId=${e.id}`}
@@ -3193,7 +3215,7 @@ function TimelineRow({
                     <button
                       type="button"
                       className="timeline-action-button"
-                      disabled={!canEdit || !isLatest}
+                      disabled={!canAddAttachment || !isLatest}
                       onClick={onAttachFile}
                     >
                       <Paperclip size={14} />
@@ -3235,14 +3257,16 @@ function MovementFiles({
   attachments,
   documents,
   db,
-  canDelete,
+  canDeleteAttachment,
+  canDeleteDocument,
   onDeleteAttachment,
   onDeleteDocument,
 }: {
   attachments: Attachment[];
   documents: AppDocument[];
   db: Database;
-  canDelete: boolean;
+  canDeleteAttachment: boolean;
+  canDeleteDocument: boolean;
   onDeleteAttachment: (item: Attachment) => void;
   onDeleteDocument: (item: AppDocument) => void;
 }) {
@@ -3258,12 +3282,7 @@ function MovementFiles({
         <div className="mt-2 divide-y divide-border/70">
           {documents.map((document) => (
             <div key={document.id} className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label={`Visualizar documento ${document.number}`}
-                onClick={() => setDocumentPreview(document)}
-                className="group flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              >
+              <div className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2.5">
                 <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                   <FileText size={16} />
                 </span>
@@ -3276,27 +3295,22 @@ function MovementFiles({
                     {dateTime(document.createdAt)}
                   </small>
                 </span>
-                <Eye
-                  aria-hidden="true"
-                  className="mt-1 shrink-0 text-muted-foreground opacity-60 transition group-hover:text-primary group-hover:opacity-100"
-                  size={16}
-                />
-              </button>
-              {canDelete && (
-                <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir documento ${document.number}`} onClick={() => onDeleteDocument(document)}>
-                  <Trash2 size={15} />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" aria-label={`Visualizar documento ${document.number}`} onClick={() => setDocumentPreview(document)}>
+                  <Eye size={16} />
                 </button>
-              )}
+                {canDeleteDocument && (
+                  <button type="button" className="grid size-8 place-items-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50" aria-label={`Excluir documento ${document.number}`} onClick={() => onDeleteDocument(document)}>
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {attachments.map((attachment) => (
             <div key={attachment.id} className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label={`Visualizar anexo ${attachment.filename}`}
-                onClick={() => setAttachmentPreview(attachment)}
-                className="group flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              >
+              <div className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2.5">
                 <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                   {attachment.filename.toLowerCase().startsWith("dossie_") ? (
                     <FileArchive size={16} />
@@ -3314,17 +3328,17 @@ function MovementFiles({
                     {Math.ceil(attachment.sizeBytes / 1024)} KB
                   </small>
                 </span>
-                <Eye
-                  aria-hidden="true"
-                  className="mt-1 shrink-0 text-muted-foreground opacity-60 transition group-hover:text-primary group-hover:opacity-100"
-                  size={16}
-                />
-              </button>
-              {canDelete && (
-                <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir arquivo ${attachment.filename}`} onClick={() => onDeleteAttachment(attachment)}>
-                  <Trash2 size={15} />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" aria-label={`Visualizar anexo ${attachment.filename}`} onClick={() => setAttachmentPreview(attachment)}>
+                  <Eye size={16} />
                 </button>
-              )}
+                {canDeleteAttachment && (
+                  <button type="button" className="grid size-8 place-items-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50" aria-label={`Excluir arquivo ${attachment.filename}`} onClick={() => onDeleteAttachment(attachment)}>
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -3516,11 +3530,13 @@ function ChecklistTimeline({
                     else updateAnswer(answer.questionId, { checked: true });
                   }}
                 />
-                <span className={`min-w-0 flex-1 ${answer.checked ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}`}>{answer.text}</span>
-                <span className="inline-flex shrink-0 items-center gap-0.5" aria-label="Informações solicitadas para este item">
-                  {question?.requiresDate && <CalendarDays aria-label="Data obrigatória" className="text-amber-600" size={15}/>}
-                  {question?.requiresAttachment && <Clipboard aria-label="Anexo obrigatório" className="text-amber-600" size={15}/>}
-                  {question?.requiresObservation && <MessageSquareText aria-label="Observação obrigatória" className="text-amber-600" size={15}/>}
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className={`${answer.checked ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}`}>{answer.text}</span>
+                  {hasRequiredDetails && <span className="inline-flex shrink-0 items-center gap-0.5" aria-label="Informações solicitadas para este item">
+                    {question?.requiresDate && <CalendarDays aria-label="Data obrigatória" className="text-amber-600" size={15}/>}
+                    {question?.requiresAttachment && <Clipboard aria-label="Anexo obrigatório" className="text-amber-600" size={15}/>}
+                    {question?.requiresObservation && <MessageSquareWarning aria-label="Observação obrigatória" className="text-amber-600" size={15}/>}
+                  </span>}
                 </span>
                 {answer.observation && <span className="hidden max-w-56 truncate text-xs text-muted-foreground sm:inline">{answer.observation}</span>}
                 <button
@@ -4184,11 +4200,13 @@ function DocumentsInProtocol({
   documents,
   protocol,
   canAct,
+  canDelete,
   onDelete,
 }: {
   documents: AppDocument[];
   protocol: Protocol;
   canAct: boolean;
+  canDelete: boolean;
   onDelete: (item: AppDocument) => void;
 }) {
   return (
@@ -4222,7 +4240,7 @@ function DocumentsInProtocol({
                 </span>
                 <ChevronRight size={18} />
               </Link>
-              {canAct && isActive(protocol) && (
+              {canDelete && isActive(protocol) && (
                 <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir documento ${d.number}`} onClick={() => onDelete(d)}>
                   <Trash2 size={16} />
                 </button>
@@ -4309,6 +4327,7 @@ function Attachments({
   attachments,
   protocol,
   canAct,
+  canDelete,
   readOnly,
   onChanged,
   onDelete,
@@ -4316,6 +4335,7 @@ function Attachments({
   attachments: Attachment[];
   protocol: Protocol;
   canAct: boolean;
+  canDelete: boolean;
   readOnly: boolean;
   onChanged: () => void;
   onDelete: (item: Attachment) => void;
@@ -4415,7 +4435,7 @@ function Attachments({
                       Baixar
                     </button>
                   )}
-                  {canAct && isActive(protocol) && !readOnly && (
+                  {canDelete && isActive(protocol) && !readOnly && (
                     <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir arquivo ${attachment.filename}`} onClick={() => onDelete(attachment)}><Trash2 size={16} /></button>
                   )}
                 </span>

@@ -2,14 +2,16 @@ import { isMovementEvent } from '../domain/model'
 import type { AppUser, Database, DocumentTemplate, FlowPhase, ProtocolEvent, ProtocolFlow, ProtocolFlowSnapshot, ProtocolPhase, ProtocolStatus, ProtocolType, Unit } from '../domain/model'
 import { legacySituationTypeId, systemSituationTypes } from '../domain/situations'
 import { defaultProcessCategories } from '../domain/processCategories'
+import { defaultPermissions, defaultProfiles, profileIdForRole } from '../domain/permissions'
 
 type LegacyUser = AppUser & { personId?: string }
-type LegacyDatabaseV6 = Omit<Database, 'schemaVersion' | 'users'> & {
+type LegacyDatabaseV7 = Omit<Database, 'schemaVersion' | 'profiles'> & { schemaVersion: 7 }
+type LegacyDatabaseV6 = Omit<LegacyDatabaseV7, 'schemaVersion' | 'users'> & {
   schemaVersion: 6
   users: LegacyUser[]
 }
 type LegacyProtocolType = Omit<ProtocolType, 'categoryId'> & { categoryId?: string }
-type LegacyDatabaseV5 = Omit<Database, 'schemaVersion' | 'documentTemplates' | 'users' | 'protocolTypes'> & {
+type LegacyDatabaseV5 = Omit<LegacyDatabaseV7, 'schemaVersion' | 'documentTemplates' | 'users' | 'protocolTypes'> & {
   schemaVersion: 5
   users: LegacyUser[]
   protocolTypes: LegacyProtocolType[]
@@ -165,7 +167,7 @@ const migrateV5 = (legacy: LegacyDatabaseV5): LegacyDatabaseV6 => {
     documentTemplates: defaultDocumentTemplates(legacy),
   }
 }
-const migrateV6 = (legacy: LegacyDatabaseV6): Database => ({
+const migrateV6 = (legacy: LegacyDatabaseV6): LegacyDatabaseV7 => ({
   ...legacy,
   schemaVersion: 7,
   users: legacy.users.map((user) => {
@@ -173,6 +175,16 @@ const migrateV6 = (legacy: LegacyDatabaseV6): Database => ({
     delete migrated.personId
     return migrated
   }),
+})
+const migrateV7 = (legacy: LegacyDatabaseV7): Database => ({
+  ...legacy,
+  schemaVersion: 8,
+  profiles: defaultProfiles(),
+  memberships: legacy.memberships.map((membership) => ({
+    ...membership,
+    profileId: profileIdForRole(membership.role),
+    permissions: defaultPermissions(membership.role),
+  })),
 })
 const relatedMovement = (database: Database, protocolId: string | undefined, createdAt: string, legacyEvent?: ProtocolEvent) => {
   if (!protocolId) return undefined
@@ -209,12 +221,13 @@ export const migrateDatabase = (value: unknown): Database => {
   ) {
     throw new Error('Dados locais incompatíveis.')
   }
-  if (value.schemaVersion === 7) return normalizeProcessTerminology(value as Database)
-  if (value.schemaVersion === 6) return normalizeProcessTerminology(migrateV6(value as LegacyDatabaseV6))
-  if (value.schemaVersion === 5) return normalizeProcessTerminology(migrateV6(migrateV5(value as LegacyDatabaseV5)))
-  if (value.schemaVersion === 4) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(value as LegacyDatabaseV4))))
-  if (value.schemaVersion === 3) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(value as LegacyDatabaseV3)))))
-  if (value.schemaVersion === 2) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(value as LegacyDatabaseV2))))))
-  if (value.schemaVersion === 1) return normalizeProcessTerminology(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(migrateV1(value as LegacyDatabaseV1)))))))
+  if (value.schemaVersion === 8) return normalizeProcessTerminology(value as Database)
+  if (value.schemaVersion === 7) return normalizeProcessTerminology(migrateV7(value as LegacyDatabaseV7))
+  if (value.schemaVersion === 6) return normalizeProcessTerminology(migrateV7(migrateV6(value as LegacyDatabaseV6)))
+  if (value.schemaVersion === 5) return normalizeProcessTerminology(migrateV7(migrateV6(migrateV5(value as LegacyDatabaseV5))))
+  if (value.schemaVersion === 4) return normalizeProcessTerminology(migrateV7(migrateV6(migrateV5(migrateV4(value as LegacyDatabaseV4)))))
+  if (value.schemaVersion === 3) return normalizeProcessTerminology(migrateV7(migrateV6(migrateV5(migrateV4(migrateV3(value as LegacyDatabaseV3))))))
+  if (value.schemaVersion === 2) return normalizeProcessTerminology(migrateV7(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(value as LegacyDatabaseV2)))))))
+  if (value.schemaVersion === 1) return normalizeProcessTerminology(migrateV7(migrateV6(migrateV5(migrateV4(migrateV3(migrateV2(migrateV1(value as LegacyDatabaseV1))))))))
   throw new Error('Versão de dados não suportada.')
 }

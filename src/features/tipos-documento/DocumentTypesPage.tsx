@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Copy, FileText, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { DocumentTemplate, DocumentType } from '../../domain/model';
+import { hasPermission } from '../../domain/permissions';
 import { api } from '../../services/api';
 import { useSession } from '../../app/session';
 import { invalidateAll, useDb } from '../../app/queries';
@@ -21,7 +22,8 @@ export function DocumentTypesPage() {
   const [modelsType, setModelsType] = useState<DocumentType | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const admin = ctx.user?.role === 'ADMIN'
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'documentTypes.create'))
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'documentTypes.edit'))
   useEffect(() => {
     const selected = db?.documentTypes.find((type) => type.id === searchParams.get('modelos'))
     if (selected) setModelsType(selected)
@@ -32,7 +34,7 @@ export function DocumentTypesPage() {
   const paginated = paginateItems(visible, page)
 
   return <>
-    <PageTitle title="Tipos de documento" detail="Configure os documentos disponíveis e seus modelos associados." icon={FileText} action={admin ? <button className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Novo</button> : undefined} />
+    <PageTitle title="Tipos de documento" detail="Configure os documentos disponíveis e seus modelos associados." icon={FileText} action={canCreate ? <button className="button-primary" onClick={() => setEditing('new')}><Plus size={16} />Novo</button> : undefined} />
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input aria-label="Buscar tipo de documento" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por nome..." className="w-60 pl-9" /></div>
     </div>
@@ -40,13 +42,13 @@ export function DocumentTypesPage() {
       {paginated.items.map((type) => <article className="flex min-h-14 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm" key={type.id}>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: `${type.color}1a`, color: type.color }}><FileText size={18} /></span>
         <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-sm font-semibold">{type.name}</h2>{type.active && <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Sistema</span>}</div><p className="truncate text-xs text-muted-foreground">{type.description}</p></div>
-        <div className="flex shrink-0 items-center gap-2"><button className="button-secondary h-8 px-3" onClick={() => setModelsType(type)}><Copy size={15} />Modelos <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{db.documentTemplates.filter((template) => template.typeId === type.id).length}</span><ChevronRight size={14} /></button>{admin && <><button className="button-secondary icon-button size-8" aria-label={`Editar ${type.name}`} onClick={() => setEditing(type)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${type.name}`} disabled><Trash2 size={15} /></button></>}</div>
+        <div className="flex shrink-0 items-center gap-2"><button className="button-secondary h-8 px-3" onClick={() => setModelsType(type)}><Copy size={15} />Modelos <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{db.documentTemplates.filter((template) => template.typeId === type.id).length}</span><ChevronRight size={14} /></button>{canEdit && <><button className="button-secondary icon-button size-8" aria-label={`Editar ${type.name}`} onClick={() => setEditing(type)}><Pencil size={15} /></button><button className="button-secondary icon-button size-8 text-destructive" aria-label={`Excluir ${type.name}`} disabled><Trash2 size={15} /></button></>}</div>
       </article>)}
       {visible.length === 0 && <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">Nenhum tipo de documento encontrado.</p>}
     </div>
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="tipos de documento"/>
     {editing && <DocumentTypeEditor type={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />}
-    {modelsType && <DocumentModelsDialog type={modelsType} templates={db.documentTemplates.filter((template) => template.typeId === modelsType.id)} editable={admin} onClose={() => { setModelsType(null); if (searchParams.has('modelos')) navigate('/tipos-documento', { replace: true }) }}/>}
+    {modelsType && <DocumentModelsDialog type={modelsType} templates={db.documentTemplates.filter((template) => template.typeId === modelsType.id)} editable={canCreate || canEdit} onClose={() => { setModelsType(null); if (searchParams.has('modelos')) navigate('/tipos-documento', { replace: true }) }}/>}
   </>
 }
 function DocumentTypeEditor({ type, onClose, onSaved }: {

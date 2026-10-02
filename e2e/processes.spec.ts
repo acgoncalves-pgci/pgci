@@ -409,6 +409,10 @@ test('abertura revela e valida os campos configurados pelo tipo de processo', as
 })
 
 test('cadastra pessoa responsável na abertura e mostra seu nome no resumo', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+  })
   await page.goto('/processos/novo')
   await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
   await page.getByRole('option', { name: 'Pedido de informação' }).click()

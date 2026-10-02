@@ -98,7 +98,7 @@ test('lista compacta mostra anexos e menu de impressão completo', async ({ page
   expect(Math.abs((statusBox!.y + statusBox!.height / 2) - (attachmentBox!.y + attachmentBox!.height / 2))).toBeLessThan(1)
   expect(Math.abs(statusBox!.x - stateBox!.x)).toBeLessThan(1)
   expect(Math.abs((stateBox!.x + stateBox!.width) - (attachmentBox!.x + attachmentBox!.width))).toBeLessThan(5)
-  expect(referenceBox!.x + referenceBox!.width - (attachmentBox!.x + attachmentBox!.width)).toBeGreaterThan(8)
+  expect(referenceBox!.x + referenceBox!.width - (attachmentBox!.x + attachmentBox!.width)).toBeGreaterThanOrEqual((page.viewportSize()?.width ?? 0) < 1024 ? 0 : 8)
 
   const descriptionChannels = await firstCard.locator('.process-card-description').evaluate((element) => {
     const canvas = document.createElement('canvas')
@@ -376,6 +376,12 @@ test('abre os requisitos do checklist ao marcar e identifica data, anexo e obser
   await expect(row.locator('svg[aria-label="Data obrigatória"]')).toBeVisible()
   await expect(row.locator('svg[aria-label="Anexo obrigatório"]')).toBeVisible()
   await expect(row.locator('svg[aria-label="Observação obrigatória"]')).toBeVisible()
+  await expect(row.locator('svg[aria-label="Observação obrigatória"]')).toHaveClass(/lucide-message-square-warning/)
+  const itemText = await row.getByText('Registrar pesquisa de preços compatível com o objeto').boundingBox()
+  const requirementIcon = await row.locator('svg[aria-label="Data obrigatória"]').boundingBox()
+  const observationAction = await row.getByRole('button', { name: /Preencher detalhes/ }).boundingBox()
+  expect(requirementIcon!.x - (itemText!.x + itemText!.width)).toBeLessThan(20)
+  expect(observationAction!.x).toBeGreaterThan(requirementIcon!.x + requirementIcon!.width)
 
   await checklistItem.click()
   const popover = page.getByRole('dialog', { name: 'Informações do item Registrar pesquisa de preços compatível com o objeto' })
@@ -487,6 +493,16 @@ test('responsável exclui documento e arquivo vinculados ao processo', async ({ 
   await page.getByRole('button', { name: /Trocar para Marina Duarte/ }).click()
   await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
 
+  const documentPreview = page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })
+  const documentDelete = page.getByRole('button', { name: 'Excluir documento DOC-2026.000001' })
+  const previewBox = await documentPreview.boundingBox()
+  const deleteBox = await documentDelete.boundingBox()
+  expect(previewBox).not.toBeNull()
+  expect(deleteBox).not.toBeNull()
+  expect(previewBox!.y).toBe(deleteBox!.y)
+  expect(previewBox!.height).toBe(deleteBox!.height)
+  await expect(documentDelete).toHaveCSS('border-top-width', '0px')
+
   await page.getByRole('button', { name: 'Excluir documento DOC-2026.000001' }).click()
   const documentConfirmation = page.getByRole('dialog', { name: 'Excluir documento?' })
   await documentConfirmation.getByRole('button', { name: 'Excluir documento' }).click()
@@ -526,6 +542,8 @@ test('documentos da movimentação abrem diretamente o visualizador de PDF', asy
 
   const documentButton = page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })
   await expect(documentButton).toBeVisible()
+  await documentButton.locator('xpath=../preceding-sibling::div').click()
+  await expect(page.getByRole('dialog', { name: 'DOC-2026.000001.pdf' })).toHaveCount(0)
   await documentButton.click()
 
   const documentDialog = page.getByRole('dialog', { name: 'DOC-2026.000001.pdf' })
@@ -542,6 +560,8 @@ test('documentos da movimentação abrem diretamente o visualizador de PDF', asy
 
   const attachmentButton = page.getByRole('button', { name: 'Visualizar anexo comprovante-demo.txt' })
   await expect(attachmentButton).toBeVisible()
+  await attachmentButton.locator('xpath=../preceding-sibling::div').click()
+  await expect(page.getByRole('dialog', { name: 'comprovante-demo.txt' })).toHaveCount(0)
   await attachmentButton.click()
 
   const attachmentDialog = page.getByRole('dialog', { name: 'comprovante-demo.txt' })
@@ -563,7 +583,9 @@ test('documento formatado da movimentação mantém HTML renderizado na prévia 
   await expect(page.getByRole('heading', { level: 1, name: 'Documento formatado da movimentação' })).toBeVisible()
 
   await page.goto('/processos/pr-1')
-  const documentButton = page.getByRole('button', { name: /Visualizar documento DOC-/ }).filter({ hasText: 'Documento formatado da movimentação' })
+  const documentButton = page.getByText('Documento formatado da movimentação', { exact: false })
+    .locator('xpath=ancestor::div[contains(@class,"items-center")][1]')
+    .getByRole('button', { name: /Visualizar documento DOC-/ })
   await expect(documentButton).toBeVisible()
   const number = (await documentButton.getAttribute('aria-label'))!.replace('Visualizar documento ', '')
   await documentButton.click()

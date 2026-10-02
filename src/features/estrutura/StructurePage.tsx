@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, ChevronDown, ChevronRight, ChevronsUpDown, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { Database, Unit } from '../../domain/model';
+import { hasPermission } from '../../domain/permissions';
 import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { api } from '../../services/api';
 import { useSession } from '../../app/session';
@@ -27,7 +28,9 @@ export function StructurePage() {
   const [editing, setEditing] = useState<UnitEditorTarget | null>(null);
   const [deleting, setDeleting] = useState<Unit | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const admin = ctx.user?.role === 'ADMIN';
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'structure.create'));
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'structure.edit'));
+  const canDelete = Boolean(db && hasPermission(db, ctx, 'structure.delete'));
   const remove = useMutation({
     mutationFn: (unitId: string) => api.deleteUnit(ctx, unitId),
     onSuccess: () => { invalidateAll(client); setDeleting(null); },
@@ -88,11 +91,11 @@ export function StructurePage() {
           <strong className="min-w-0 truncate text-sm">{unit.name}</strong>
           <small className="hidden shrink-0 text-xs text-slate-500 dark:text-slate-400 sm:inline">· {unit.abbreviation}</small>
           {hasChildren && <span className="structure-tree-count">{children.length}</span>}
-          {admin && (
+          {(canCreate || canEdit || canDelete) && (
             <span className="structure-tree-actions">
-              <button type="button" className="structure-tree-action" aria-label={`Criar unidade subordinada a ${unit.name}`} title="Criar unidade subordinada" onClick={() => setEditing({ parentId: unit.id })}><Plus size={16} /></button>
-              <button type="button" className="structure-tree-action" aria-label={`Editar ${unit.name}`} title="Editar unidade" onClick={() => setEditing({ unit })}><Pencil size={15} /></button>
-              <button type="button" className="structure-tree-action structure-tree-action--danger" aria-label={`Excluir ${unit.name}`} title="Excluir unidade" onClick={() => setDeleting(unit)}><Trash2 size={15} /></button>
+              {canCreate && <button type="button" className="structure-tree-action" aria-label={`Criar unidade subordinada a ${unit.name}`} title="Criar unidade subordinada" onClick={() => setEditing({ parentId: unit.id })}><Plus size={16} /></button>}
+              {canEdit && <button type="button" className="structure-tree-action" aria-label={`Editar ${unit.name}`} title="Editar unidade" onClick={() => setEditing({ unit })}><Pencil size={15} /></button>}
+              {canDelete && <button type="button" className="structure-tree-action structure-tree-action--danger" aria-label={`Excluir ${unit.name}`} title="Excluir unidade" onClick={() => setDeleting(unit)}><Trash2 size={15} /></button>}
             </span>
           )}
         </div>
@@ -105,7 +108,7 @@ export function StructurePage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageTitle title="Estrutura Organizacional" detail={db.organization.name} icon={Building2} action={admin && (
+      <PageTitle title="Estrutura Organizacional" detail={db.organization.name} icon={Building2} action={canCreate && (
           <div className="flex items-center justify-end gap-2">
             <div className="relative">
               <button type="button" className="btn-secondary !p-2" aria-label="Mais ações" aria-expanded={moreOpen} onClick={() => setMoreOpen((current) => !current)}>

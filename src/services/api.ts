@@ -1,7 +1,9 @@
-import type { AppDocument, AppUser, Attachment, AuditEvent, Context, Database, Person, Protocol, Unit, ProtocolType, DocumentType, DocumentTemplate, ProtocolEvent, ProtocolStatus, ProtocolPhase, ProtocolFlow, ChecklistAnswer, ChecklistQuestion, FlowPhase, Role, SituationType, UserUnitMembership, ProcessCategory } from '../domain/model';
+import type { AccessProfile, AppDocument, AppUser, Attachment, AuditEvent, Context, Database, Person, Protocol, Unit, ProtocolType, DocumentType, DocumentTemplate, ProtocolEvent, ProtocolStatus, ProtocolPhase, ProtocolFlow, ChecklistAnswer, ChecklistQuestion, FlowPhase, Role, SituationType, UserUnitMembership, ProcessCategory } from '../domain/model';
 import { documentTemplateValues, replaceTemplateVariables, validateTemplateContent } from '../lib/documentTemplate';
 import { isActive, isLegacyAssumptionEvent, isMovementEvent } from '../domain/model';
-import { canAct, canManageDocument, canOpenProtocolType, canReceiveWorkInUnit, canView, DomainError, findActiveMembershipForUnit, getAssignment, getProtocol, getUser, requireActive, requireActor, requireAdmin, requireAssignmentReceived, requireOperationalMembership, requireVersion, unitIdsForScope } from '../domain/rules';
+import { canAct, canManageDocument, canOpenProtocolType, canReceiveWorkInUnit, canView, DomainError, findActiveMembershipForUnit, getAssignment, getProtocol, getUser, requireActive, requireActor, requireAdmin, requireAssignmentReceived, requireOperationalMembership, requirePermission, requireVersion, unitIdsForScope } from '../domain/rules';
+import { allPermissions, effectivePermissions, profileIdForRole, validPermissions } from '../domain/permissions';
+import type { Permission } from '../domain/permissions';
 import { cleanupOrphanedBlobs, deleteBlob, getBlob, loadDb, putBlob, saveDb } from '../storage/database';
 import { isoDaysFromNow } from '../lib/format';
 import { currentProtocolSituation } from '../domain/situations';
@@ -34,7 +36,11 @@ const resolveMovement = (db: Database, protocol: Protocol, requestedId?: string)
         throw new DomainError('VALIDATION', 'A movimentação selecionada não pertence a este processo.');
     return movement;
 };
-const mutate = async <T>(fn: (db: Database) => T) => { await sleep(); const db = loadDb(); const value = fn(db); saveDb(db); window.dispatchEvent(new Event('fluxo-publico:changed')); window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'success', message: 'Alteração salva com sucesso.' } })); return value; };
+const hasActiveAdmin = (db: Database) => {
+    const now = Date.now();
+    return db.users.some((user) => user.active && db.memberships.some((membership) => membership.userId === user.id && membership.active && membership.role === 'ADMIN' && new Date(membership.startsAt).getTime() <= now && (!membership.endsAt || new Date(membership.endsAt).getTime() >= now) && db.units.some((unit) => unit.id === membership.unitId && unit.active)));
+};
+const mutate = async <T>(fn: (db: Database) => T) => { await sleep(); const db = loadDb(); const value = fn(db); if (!hasActiveAdmin(db)) throw new DomainError('VALIDATION', 'O sistema precisa manter pelo menos um administrador ativo com acesso a uma unidade.'); saveDb(db); window.dispatchEvent(new Event('fluxo-publico:changed')); window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'success', message: 'Alteração salva com sucesso.' } })); return value; };
 const protocolType = (db: Database, typeId: string) => db.protocolTypes.find((t) => t.id === typeId) ?? (() => { throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.'); })();
 type ChecklistSource = Pick<ProtocolPhase, 'checklistItems' | 'checklistQuestions'>;
 const phaseQuestions = (phase: ChecklistSource): ChecklistQuestion[] => (phase.checklistQuestions?.length ? phase.checklistQuestions : phase.checklistItems.map((text, order) => ({ id: `legacy-${order}`, text, order: order + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false }))).slice().sort((a, b) => a.order - b.order);
@@ -221,7 +227,16 @@ const validateFlow = (db: Database, input: ProtocolFlowInput, ignoreId?: string)
         throw new DomainError('VALIDATION', 'Selecione uma situação ativa para cada etapa.');
 };
 type UserInput = Pick<AppUser, 'name' | 'email' | 'role' | 'active'> & { cpf?: string; createPerson?: boolean };
-export type MembershipInput = { unitId: string; role: Role; title?: string };
+export type MembershipInput = { unitId: string; role?: Role; profileId?: string; permissions?: Permission[]; title?: string };
+export type ProfileInput = Pick<AccessProfile, 'name' | 'description' | 'isAdmin' | 'permissions'>;
+const normalizedProfileInput = (db: Database, input: ProfileInput, ignoreId?: string) => {
+    const name = input.name.trim();
+    if (!name) throw new DomainError('VALIDATION', 'Informe o nome do perfil.');
+    if (db.profiles.some((profile) => profile.id !== ignoreId && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase()))
+        throw new DomainError('VALIDATION', 'Já existe um perfil com este nome.');
+    if (!validPermissions(input.permissions)) throw new DomainError('VALIDATION', 'O perfil contém permissões inválidas.');
+    return { name, description: input.description?.trim(), isAdmin: input.isAdmin, permissions: input.isAdmin ? [...allPermissions] : [...new Set(input.permissions)] };
+};
 const validateUser = (db: Database, input: UserInput, ignoreId?: string) => {
     if (!input.name.trim())
         throw new DomainError('VALIDATION', 'Informe o nome do usuário.');
@@ -249,6 +264,41 @@ const addUser = (db: Database, ctx: Context, input: UserInput) => {
         audit(db, { action: 'PERSON_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PERSON', targetId: person.id, details: 'Pessoa criada junto com o usuário “' + user.name + '”.' });
     }
     return user;
+};
+const saveMembership = (db: Database, ctx: Context, user: AppUser, membershipId: string | undefined, input: MembershipInput) => {
+    const unit = db.units.find((item) => item.id === input.unitId && item.active);
+    if (!unit) throw new DomainError('VALIDATION', 'Selecione uma unidade ativa.');
+    const profileId = input.profileId ?? profileIdForRole(input.role ?? 'OPERADOR');
+    const profile = db.profiles.find((item) => item.id === profileId);
+    if (!profile) throw new DomainError('VALIDATION', 'Selecione um perfil válido.');
+    if (profile.isAdmin) requireAdmin(db, ctx);
+    if (input.permissions && !validPermissions(input.permissions)) throw new DomainError('VALIDATION', 'Há permissões inválidas neste acesso.');
+    const role: Role = profile.isAdmin ? 'ADMIN' : profileId === 'profile-manager' ? 'GESTOR' : profileId === 'profile-reader' ? 'LEITOR' : 'OPERADOR';
+    const permissions = profile.isAdmin ? [...allPermissions] : [...new Set(input.permissions ?? profile.permissions)];
+    const duplicate = db.memberships.find((item) => item.userId === user.id && item.unitId === input.unitId && item.active && item.id !== membershipId);
+    if (duplicate) throw new DomainError('VALIDATION', 'O usuário já possui acesso ativo a esta unidade.');
+    const title = input.title?.trim() || profile.name;
+    let membership: UserUnitMembership | undefined;
+    if (membershipId) {
+        membership = db.memberships.find((item) => item.id === membershipId && item.userId === user.id && item.active);
+        if (!membership) throw new DomainError('NOT_FOUND', 'Vínculo de unidade não encontrado.');
+        if (membership.role === 'ADMIN') requireAdmin(db, ctx);
+        if (membership.role === 'ADMIN' && role !== 'ADMIN' && user.id === ctx.userId) throw new DomainError('VALIDATION', 'Você não pode remover sua própria permissão de administrador.');
+        if (membership.role === 'ADMIN' && role !== 'ADMIN' && user.id === 'usr-admin') throw new DomainError('VALIDATION', 'O administrador principal deve manter a permissão de administrador.');
+        const previousUnitId = membership.unitId;
+        Object.assign(membership, { unitId: input.unitId, role, profileId, permissions, title });
+        if (user.unitId === previousUnitId) { user.unitId = input.unitId; user.role = role; }
+    } else {
+        membership = db.memberships.find((item) => item.userId === user.id && item.unitId === input.unitId && !item.active);
+        if (membership) Object.assign(membership, { role, profileId, permissions, title, startsAt: new Date().toISOString(), endsAt: undefined, active: true });
+        else {
+            membership = { id: id(), userId: user.id, unitId: input.unitId, role, profileId, permissions, title, startsAt: new Date().toISOString(), active: true };
+            db.memberships.push(membership);
+        }
+        if (!user.unitId) { user.unitId = input.unitId; user.role = role; }
+    }
+    audit(db, { action: membershipId ? 'USER_MEMBERSHIP_UPDATED' : 'USER_MEMBERSHIP_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: `Acesso à unidade ${unit.name} salvo com o perfil ${profile.name}.` });
+    return membership;
 };
 export interface ProtocolFilters {
     tab?: 'mine' | 'unit' | 'created' | 'participated' | 'all';
@@ -389,8 +439,7 @@ export const api = {
             if (!['application/pdf', 'image/png', 'image/jpeg', 'text/plain'].includes(file.type) || file.size > 5 * 1024 * 1024)
                 throw new DomainError('VALIDATION', 'Envie PDF, PNG, JPEG ou TXT de até 5 MB.');
         const preflightDb = loadDb();
-        requireActor(preflightDb, ctx);
-        requireOperationalMembership(preflightDb, ctx);
+        requirePermission(preflightDb, ctx, 'processes.create');
         const preflightType = protocolType(preflightDb, input.typeId);
         if (!preflightType.active || !canOpenProtocolType(preflightDb, preflightType, ctx))
             throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
@@ -402,8 +451,7 @@ export const api = {
         try {
             await Promise.all(staged.map(({ blobKey, file }) => putBlob(blobKey, file)));
             return await mutate((db) => {
-                const user = requireActor(db, ctx);
-                requireOperationalMembership(db, ctx);
+                const user = requirePermission(db, ctx, 'processes.create');
                 const type = protocolType(db, input.typeId);
                 if (!type.active || !canOpenProtocolType(db, type, ctx))
                     throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
@@ -528,8 +576,8 @@ export const api = {
             await Promise.all(staged.map(({ blobKey }) => deleteBlob(blobKey).catch(() => undefined)));
             throw error;
         }
-    },    async updateProtocol(ctx: Context, protocolId: string, expectedVersion: number, input: { subject: string; description: string; dueAt?: string }) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); requireActive(protocol); const actor = requireAdmin(db, ctx); if (protocol.currentUnitId !== ctx.activeUnitId) throw new DomainError('FORBIDDEN', 'Selecione a unidade atual do processo para editá-lo.'); if (!input.subject.trim() || input.subject.trim().length > 160) throw new DomainError('VALIDATION', 'Informe um assunto de até 160 caracteres.'); if (!input.description.trim() || input.description.trim().length > 4000) throw new DomainError('VALIDATION', 'Informe uma descrição de até 4.000 caracteres.'); if (input.dueAt && new Date(input.dueAt).getTime() < Date.now()) throw new DomainError('VALIDATION', 'O prazo não pode estar no passado.'); protocol.subject = input.subject.trim(); protocol.description = input.description.trim(); protocol.dueAt = input.dueAt; bump(protocol); audit(db, { action: 'PROTOCOL_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Dados gerais do processo ${protocol.number} atualizados.` }); return protocol; }); },
-    async deleteProtocol(ctx: Context, protocolId: string, expectedVersion: number) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); const actor = requireAdmin(db, ctx); if (protocol.currentUnitId !== ctx.activeUnitId || protocol.status !== 'CADASTRADO') throw new DomainError('FORBIDDEN', 'Somente processos cadastrados, na unidade atual, podem ser excluídos.'); audit(db, { action: 'PROTOCOL_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Processo ${protocol.number} excluído.` }); db.protocols = db.protocols.filter((item) => item.id !== protocolId); db.assignments = db.assignments.filter((item) => item.protocolId !== protocolId); db.events = db.events.filter((item) => item.protocolId !== protocolId); db.documents.filter((item) => item.protocolId === protocolId).forEach((item) => { item.protocolId = undefined; item.movementEventId = undefined; }); db.attachments = db.attachments.filter((item) => item.protocolId !== protocolId); return undefined; }); },
+    },    async updateProtocol(ctx: Context, protocolId: string, expectedVersion: number, input: { subject: string; description: string; dueAt?: string }) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); requireActive(protocol); const actor = requirePermission(db, ctx, 'processes.edit'); if (protocol.currentUnitId !== ctx.activeUnitId) throw new DomainError('FORBIDDEN', 'Selecione a unidade atual do processo para editá-lo.'); if (!input.subject.trim() || input.subject.trim().length > 160) throw new DomainError('VALIDATION', 'Informe um assunto de até 160 caracteres.'); if (!input.description.trim() || input.description.trim().length > 4000) throw new DomainError('VALIDATION', 'Informe uma descrição de até 4.000 caracteres.'); if (input.dueAt && new Date(input.dueAt).getTime() < Date.now()) throw new DomainError('VALIDATION', 'O prazo não pode estar no passado.'); protocol.subject = input.subject.trim(); protocol.description = input.description.trim(); protocol.dueAt = input.dueAt; bump(protocol); audit(db, { action: 'PROTOCOL_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Dados gerais do processo ${protocol.number} atualizados.` }); return protocol; }); },
+    async deleteProtocol(ctx: Context, protocolId: string, expectedVersion: number) { return mutate((db) => { const protocol = getProtocol(db, protocolId); requireVersion(protocol, expectedVersion); const actor = requirePermission(db, ctx, 'processes.delete'); if (protocol.currentUnitId !== ctx.activeUnitId || protocol.status !== 'CADASTRADO') throw new DomainError('FORBIDDEN', 'Somente processos cadastrados, na unidade atual, podem ser excluídos.'); audit(db, { action: 'PROTOCOL_DELETED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Processo ${protocol.number} excluído.` }); db.protocols = db.protocols.filter((item) => item.id !== protocolId); db.assignments = db.assignments.filter((item) => item.protocolId !== protocolId); db.events = db.events.filter((item) => item.protocolId !== protocolId); db.documents.filter((item) => item.protocolId === protocolId).forEach((item) => { item.protocolId = undefined; item.movementEventId = undefined; }); db.attachments = db.attachments.filter((item) => item.protocolId !== protocolId); return undefined; }); },
     async assume(ctx: Context, protocolId: string, expectedVersion: number) {
         return mutate((db) => {
             const protocol = getProtocol(db, protocolId);
@@ -596,7 +644,7 @@ export const api = {
             const protocol = getProtocol(db, protocolId);
             requireVersion(protocol, expectedVersion);
             requireActive(protocol);
-            const actor = requireAdmin(db, ctx);
+            const actor = requirePermission(db, ctx, 'processes.assign');
             if (ctx.activeUnitId !== protocol.currentUnitId)
                 throw new DomainError('FORBIDDEN', 'Apenas admin no contexto da unidade atual pode designar responsável.');
             const assignee = getUser(db, assigneeId);
@@ -847,7 +895,7 @@ export const api = {
         assigneeId?: string;
         message: string;
         dueAt?: string;
-    }) { return mutate((db) => { const p = getProtocol(db, protocolId); requireVersion(p, expectedVersion); const user = requireAdmin(db, ctx); if (ctx.activeUnitId !== p.currentUnitId || (p.status !== 'CONCLUIDO' && p.status !== 'ARQUIVADO'))
+    }) { return mutate((db) => { const p = getProtocol(db, protocolId); requireVersion(p, expectedVersion); const user = requirePermission(db, ctx, 'processes.edit'); if (ctx.activeUnitId !== p.currentUnitId || (p.status !== 'CONCLUIDO' && p.status !== 'ARQUIVADO'))
         throw new DomainError('FORBIDDEN', 'Apenas admin no contexto da unidade atual pode reabrir processo concluído ou arquivado.'); if (!input.message.trim())
         throw new DomainError('VALIDATION', 'Informe o motivo da reabertura.'); const dest = db.units.find((u) => u.id === input.unitId && u.active); if (!dest)
         throw new DomainError('VALIDATION', 'Selecione uma unidade destino ativa.'); const recipient = input.assigneeId ? getUser(db, input.assigneeId) : undefined; if (recipient && (!recipient.active || !canReceiveWorkInUnit(db, recipient.id, input.unitId)))
@@ -859,6 +907,7 @@ export const api = {
             if (!['application/pdf', 'image/png', 'image/jpeg', 'text/plain'].includes(file.type) || file.size > 5 * 1024 * 1024)
                 throw new DomainError('VALIDATION', 'Envie PDF, PNG, JPEG ou TXT de até 5 MB.');
         const preflightDb = loadDb();
+        requirePermission(preflightDb, ctx, 'attachments.create');
         const preflightProtocol = getProtocol(preflightDb, protocolId);
         requireVersion(preflightProtocol, expectedVersion);
         requireActive(preflightProtocol);
@@ -870,6 +919,7 @@ export const api = {
             await cleanupOrphanedBlobs(loadDb().attachments.map((attachment) => attachment.blobKey)).catch(() => undefined);
             await Promise.all(staged.map(({ blobKey, file }) => putBlob(blobKey, file)));
             const attachments = await mutate((db) => {
+                requirePermission(db, ctx, 'attachments.create');
                 const p = getProtocol(db, protocolId);
                 requireVersion(p, expectedVersion);
                 requireActive(p);
@@ -898,6 +948,7 @@ export const api = {
     }, async addAttachment(ctx: Context, protocolId: string, expectedVersion: number, file: File, movementEventId?: string) { const [attachment] = await this.addAttachments(ctx, protocolId, expectedVersion, [file], movementEventId); return attachment; },
     async removeAttachment(ctx: Context, protocolId: string, expectedVersion: number, attachmentId: string) {
         const blobKey = await mutate((db) => {
+            requirePermission(db, ctx, 'attachments.delete');
             const protocol = getProtocol(db, protocolId);
             requireVersion(protocol, expectedVersion);
             requireActive(protocol);
@@ -935,7 +986,7 @@ export const api = {
             await cleanupOrphanedBlobs(loadDb().attachments.map((attachment) => attachment.blobKey)).catch(() => undefined);
             await Promise.all(staged.map(({ blobKey, file }) => putBlob(blobKey, file)));
             const attachments = await mutate((db) => {
-                requireAdmin(db, ctx); protocolType(db, typeId);
+                requirePermission(db, ctx, 'protocolTypes.edit'); protocolType(db, typeId);
                 const createdAt = new Date().toISOString();
                 const created = staged.map(({ file, blobKey }) => ({ id: id(), typeId, filename: file.name, mimeType: file.type, sizeBytes: file.size, blobKey, uploadedById: ctx.userId, createdAt } satisfies Attachment));
                 db.attachments.push(...created);
@@ -946,11 +997,11 @@ export const api = {
         } catch (error) { await Promise.allSettled(staged.map(({ blobKey }) => deleteBlob(blobKey))); throw error; }
     },
     async removeProtocolTypeAttachment(ctx: Context, attachmentId: string) {
-        const blobKey = await mutate((db) => { requireAdmin(db, ctx); const index = db.attachments.findIndex((attachment) => attachment.id === attachmentId && attachment.typeId); if (index < 0) throw new DomainError('NOT_FOUND', 'Arquivo do tipo não encontrado.'); return db.attachments.splice(index, 1)[0].blobKey; });
+        const blobKey = await mutate((db) => { requirePermission(db, ctx, 'protocolTypes.edit'); const index = db.attachments.findIndex((attachment) => attachment.id === attachmentId && attachment.typeId); if (index < 0) throw new DomainError('NOT_FOUND', 'Arquivo do tipo não encontrado.'); return db.attachments.splice(index, 1)[0].blobKey; });
         await deleteBlob(blobKey); await cleanupOrphanedBlobs(loadDb().attachments.map((attachment) => attachment.blobKey)).catch(() => undefined);
         return true;
-    },    async listDocuments(ctx: Context, search = '', typeId = '') { await sleep(); const db = loadDb(); requireActor(db, ctx); const q = search.toLocaleLowerCase(); const scopeUnitIds = unitIdsForScope(db, ctx); const items = db.documents.filter((d) => { const p = d.protocolId ? db.protocols.find((x) => x.id === d.protocolId) : undefined; return (!p || canView(db, p, ctx) || d.authorUserId === ctx.userId || scopeUnitIds.includes(d.unitId)) && (!q || d.number.toLowerCase().includes(q) || d.subject.toLowerCase().includes(q)) && (!typeId || d.typeId === typeId); }); return { items, db }; },
-    async createDocument(ctx: Context, input: Omit<AppDocument, 'id' | 'number' | 'authorUserId' | 'createdAt' | 'unitId'> & { unitId?: string }) { return mutate((db) => { const author = requireActor(db, ctx); if (!author.active)
+    },    async listDocuments(ctx: Context, search = '', typeId = '') { await sleep(); const db = loadDb(); requirePermission(db, ctx, 'documents.view'); const q = search.toLocaleLowerCase(); const scopeUnitIds = unitIdsForScope(db, ctx); const items = db.documents.filter((d) => { const p = d.protocolId ? db.protocols.find((x) => x.id === d.protocolId) : undefined; return (!p || canView(db, p, ctx) || d.authorUserId === ctx.userId || scopeUnitIds.includes(d.unitId)) && (!q || d.number.toLowerCase().includes(q) || d.subject.toLowerCase().includes(q)) && (!typeId || d.typeId === typeId); }); return { items, db }; },
+    async createDocument(ctx: Context, input: Omit<AppDocument, 'id' | 'number' | 'authorUserId' | 'createdAt' | 'unitId'> & { unitId?: string }) { return mutate((db) => { const author = requirePermission(db, ctx, 'documents.create'); if (!author.active)
         throw new DomainError('FORBIDDEN', 'Usuário inativo não pode criar documentos.'); const type = db.documentTypes.find((t) => t.id === input.typeId && t.active); if (!type || !input.subject.trim() || !documentText(input.body))
         throw new DomainError('VALIDATION', 'Preencha tipo, assunto e corpo do documento.'); if (input.recipientPersonId && !db.people.some((person) => person.id === input.recipientPersonId && person.active))
         throw new DomainError('VALIDATION', 'Selecione um destinatário ativo.'); let linkedProtocol: Protocol | undefined; let movementEventId = input.movementEventId; if (input.protocolId) {
@@ -963,13 +1014,13 @@ export const api = {
     } else if (movementEventId) throw new DomainError('VALIDATION', 'Uma movimentação só pode ser informada para documento vinculado a processo.');
     const unitId = input.unitId || ctx.activeUnitId;
     const membership = findActiveMembershipForUnit(db, author.id, unitId);
-    if (!db.units.some((unit) => unit.id === unitId && unit.active) || !membership || membership.role === 'LEITOR' || (linkedProtocol && unitId !== ctx.activeUnitId))
+    if (!db.units.some((unit) => unit.id === unitId && unit.active) || !membership || !effectivePermissions(membership).includes('documents.create') || (linkedProtocol && unitId !== ctx.activeUnitId))
         throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
     const number = nextNumber(db, 'document');
     const values = documentTemplateValues(db, ctx, { ...input, unitId }, number);
     const doc: AppDocument = { ...input, movementEventId, id: id(), number, subject: replaceTemplateVariables(input.subject.trim(), values), body: sanitizeDocumentHtml(replaceTemplateVariables(input.body, values, true)), unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined, authorUserId: author.id, createdAt: new Date().toISOString() }; db.documents.push(doc); audit(db, { action: 'DOCUMENT_CREATED', actorUserId: author.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: doc.id, details: linkedProtocol ? `Documento ${doc.number} — “${doc.subject}” anexado à movimentação do processo ${linkedProtocol.number}.` : `Documento avulso ${doc.number} — “${doc.subject}” criado.` }); return doc; }); },
     async updateDocument(ctx: Context, documentId: string, input: Pick<AppDocument, 'typeId' | 'subject' | 'body' | 'recipientPersonId' | 'unitId' | 'signerName' | 'signerTitle'>) { return mutate((db) => {
-        const actor = requireActor(db, ctx);
+        const actor = requirePermission(db, ctx, 'documents.edit');
         const document = db.documents.find((item) => item.id === documentId);
         if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
         if (!canManageDocument(db, document, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode editar este documento.');
@@ -978,14 +1029,14 @@ export const api = {
         if (input.recipientPersonId && !db.people.some((person) => person.id === input.recipientPersonId && person.active))
             throw new DomainError('VALIDATION', 'Selecione um destinatário ativo.');
         const membership = findActiveMembershipForUnit(db, actor.id, input.unitId);
-        if (document.protocolId ? input.unitId !== document.unitId : !db.units.some((unit) => unit.id === input.unitId && unit.active) || !membership || membership.role === 'LEITOR')
+        if (document.protocolId ? input.unitId !== document.unitId : !db.units.some((unit) => unit.id === input.unitId && unit.active) || !membership || !effectivePermissions(membership).includes('documents.edit'))
             throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
         Object.assign(document, { typeId: input.typeId, subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), recipientPersonId: input.recipientPersonId || undefined, unitId: input.unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined });
         audit(db, { action: 'DOCUMENT_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento ${document.number} atualizado.` });
         return document;
     }); },
     async deleteDocument(ctx: Context, documentId: string) { return mutate((db) => {
-        const actor = requireActor(db, ctx);
+        const actor = requirePermission(db, ctx, 'documents.delete');
         const document = db.documents.find((item) => item.id === documentId);
         if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
         if (!document.protocolId && db.events.some((event) => event.relatedDocumentId === documentId))
@@ -1000,12 +1051,12 @@ export const api = {
         return true;
     }); },
     async listData() { await sleep(); return loadDb(); },
-    async listPeople(ctx: Context, search = '') { await sleep(); const db = loadDb(); requireActor(db, ctx); const query = search.trim().toLocaleLowerCase(); return { items: db.people.filter((person) => !query || person.name.toLocaleLowerCase().includes(query) || person.document?.includes(query)), db }; },
-    async createUnit(ctx: Context, input: Omit<Unit, 'id'>) { return mutate((db) => { requireAdmin(db, ctx); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
+    async listPeople(ctx: Context, search = '') { await sleep(); const db = loadDb(); requirePermission(db, ctx, 'people.view'); const query = search.trim().toLocaleLowerCase(); return { items: db.people.filter((person) => !query || person.name.toLocaleLowerCase().includes(query) || person.document?.includes(query)), db }; },
+    async createUnit(ctx: Context, input: Omit<Unit, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'structure.create'); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
         throw new DomainError('VALIDATION', 'Informe nome e sigla da unidade.'); if (db.units.some((unit) => unit.name.toLocaleLowerCase() === name.toLocaleLowerCase() || unit.abbreviation.toLocaleLowerCase() === abbreviation.toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Nome ou sigla já está em uso.'); if (input.parentId && !db.units.some((unit) => unit.id === input.parentId && unit.active))
         throw new DomainError('VALIDATION', 'Selecione uma unidade superior ativa.'); const unit: Unit = { id: id(), name, abbreviation, parentId: input.parentId, position: input.position ?? db.units.filter((item) => item.parentId === input.parentId).length, active: input.active }; db.units.push(unit); return unit; }); },
-    async updateUnit(ctx: Context, unitId: string, input: Omit<Unit, 'id'>) { return mutate((db) => { requireAdmin(db, ctx); const unit = db.units.find((item) => item.id === unitId); if (!unit)
+    async updateUnit(ctx: Context, unitId: string, input: Omit<Unit, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'structure.edit'); const unit = db.units.find((item) => item.id === unitId); if (!unit)
         throw new DomainError('NOT_FOUND', 'Unidade não encontrada.'); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
         throw new DomainError('VALIDATION', 'Informe nome e sigla da unidade.'); if (db.units.some((item) => item.id !== unitId && (item.name.toLocaleLowerCase() === name.toLocaleLowerCase() || item.abbreviation.toLocaleLowerCase() === abbreviation.toLocaleLowerCase())))
         throw new DomainError('VALIDATION', 'Nome ou sigla já está em uso.'); if (input.parentId) {
@@ -1027,7 +1078,7 @@ export const api = {
             throw new DomainError('VALIDATION', 'Não é possível inativar unidade com processos ativos.');
     } Object.assign(unit, { name, abbreviation, parentId: input.parentId, active: input.active }); return unit; }); },
     async deleteUnit(ctx: Context, unitId: string) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'structure.delete');
         const index = db.units.findIndex((item) => item.id === unitId);
         if (index < 0)
             throw new DomainError('NOT_FOUND', 'Unidade não encontrada.');
@@ -1051,7 +1102,7 @@ export const api = {
     }); },
     async createPerson(ctx: Context, input: PersonInput) {
         return mutate((db) => {
-            requireActor(db, ctx);
+            requirePermission(db, ctx, 'people.create');
             const normalized = normalizePersonInput(input);
             validatePerson(normalized);
             const person: Person = { ...normalized, document: normalized.document?.replace(/\D/g, ''), id: id(), name: normalized.name.trim() };
@@ -1062,7 +1113,7 @@ export const api = {
     },
     async createSituationType(ctx: Context, input: SituationTypeInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.create');
             validateSituationType(db, input);
             const situation: SituationType = { ...input, id: id(), name: input.name.trim(), observation: input.observation?.trim(), system: false };
             db.situations.push(situation);
@@ -1072,7 +1123,7 @@ export const api = {
     },
     async updateSituationType(ctx: Context, situationId: string, input: SituationTypeInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.edit');
             const situation = db.situations.find((item) => item.id === situationId);
             if (!situation)
                 throw new DomainError('NOT_FOUND', 'Situação não encontrada.');
@@ -1086,7 +1137,7 @@ export const api = {
     },
     async deleteSituationType(ctx: Context, situationId: string) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.delete');
             const index = db.situations.findIndex((item) => item.id === situationId);
             if (index < 0)
                 throw new DomainError('NOT_FOUND', 'Situação não encontrada.');
@@ -1102,7 +1153,7 @@ export const api = {
     },
     async createPhase(ctx: Context, input: ProtocolPhaseInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.create');
             validatePhase(db, input);
             const checklistQuestions = cleanQuestions(input.checklistQuestions, input.checklistItems);
             const phase: ProtocolPhase = { ...input, id: id(), name: input.name.trim(), code: input.code.trim().toUpperCase(), description: input.description?.trim(), checklistQuestions, checklistItems: checklistQuestions.map((question) => question.text), requiredAttachmentTypes: input.requiredAttachmentTypes.map((item) => item.trim()).filter(Boolean) };
@@ -1113,7 +1164,7 @@ export const api = {
     },
     async updatePhase(ctx: Context, phaseId: string, input: ProtocolPhaseInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.edit');
             const phase = db.phases.find((item) => item.id === phaseId);
             if (!phase)
                 throw new DomainError('NOT_FOUND', 'Fase não encontrada.');
@@ -1128,7 +1179,7 @@ export const api = {
     },
     async deletePhase(ctx: Context, phaseId: string) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'workflow.delete');
             const index = db.phases.findIndex((item) => item.id === phaseId);
             if (index < 0)
                 throw new DomainError('NOT_FOUND', 'Fase não encontrada.');
@@ -1140,10 +1191,10 @@ export const api = {
             return true;
         });
     },
-    async createFlow(ctx: Context, input: ProtocolFlowInput) { return mutate((db) => { requireAdmin(db, ctx); validateFlow(db, input); const flow: ProtocolFlow = { id: id(), name: input.name.trim(), version: input.version, active: input.active, startsAt: input.startsAt, endsAt: input.endsAt }; db.flows.push(flow); stagesFor(input).forEach((stage) => db.flowPhases.push({ id: id(), flowId: flow.id, ...stage })); return flow; }); },
-    async updateFlow(ctx: Context, flowId: string, input: ProtocolFlowInput) { return mutate((db) => { requireAdmin(db, ctx); const flow = db.flows.find((item) => item.id === flowId); if (!flow) throw new DomainError('NOT_FOUND', 'Fluxo não encontrado.'); validateFlow(db, input, flowId); if (!input.active && db.protocolTypes.some((type) => type.flowId === flowId && type.active)) throw new DomainError('VALIDATION', 'Não é possível inativar fluxo vinculado a tipo ativo.'); Object.assign(flow, { name: input.name.trim(), version: input.version, active: input.active, startsAt: input.startsAt, endsAt: input.endsAt }); db.flowPhases = db.flowPhases.filter((item) => item.flowId !== flowId); stagesFor(input).forEach((stage) => db.flowPhases.push({ id: id(), flowId, ...stage })); return flow; }); },    async saveProtocolTypeFlow(ctx: Context, typeId: string, stages: StageInput[]) {
+    async createFlow(ctx: Context, input: ProtocolFlowInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.create'); validateFlow(db, input); const flow: ProtocolFlow = { id: id(), name: input.name.trim(), version: input.version, active: input.active, startsAt: input.startsAt, endsAt: input.endsAt }; db.flows.push(flow); stagesFor(input).forEach((stage) => db.flowPhases.push({ id: id(), flowId: flow.id, ...stage })); return flow; }); },
+    async updateFlow(ctx: Context, flowId: string, input: ProtocolFlowInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.edit'); const flow = db.flows.find((item) => item.id === flowId); if (!flow) throw new DomainError('NOT_FOUND', 'Fluxo não encontrado.'); validateFlow(db, input, flowId); if (!input.active && db.protocolTypes.some((type) => type.flowId === flowId && type.active)) throw new DomainError('VALIDATION', 'Não é possível inativar fluxo vinculado a tipo ativo.'); Object.assign(flow, { name: input.name.trim(), version: input.version, active: input.active, startsAt: input.startsAt, endsAt: input.endsAt }); db.flowPhases = db.flowPhases.filter((item) => item.flowId !== flowId); stagesFor(input).forEach((stage) => db.flowPhases.push({ id: id(), flowId, ...stage })); return flow; }); },    async saveProtocolTypeFlow(ctx: Context, typeId: string, stages: StageInput[]) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.edit');
             const type = db.protocolTypes.find((item) => item.id === typeId);
             if (!type)
                 throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.');
@@ -1177,7 +1228,7 @@ export const api = {
     },
     async clearProtocolTypeFlow(ctx: Context, typeId: string) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.edit');
             const type = db.protocolTypes.find((item) => item.id === typeId);
             if (!type)
                 throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.');
@@ -1192,7 +1243,7 @@ export const api = {
     },
     async createProcessCategory(ctx: Context, input: ProcessCategoryInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.create');
             validateProcessCategory(db, input);
             const category: ProcessCategory = { ...input, id: id(), code: input.code.trim().toUpperCase(), name: input.name.trim(), observation: input.observation?.trim() };
             db.processCategories.push(category);
@@ -1202,7 +1253,7 @@ export const api = {
     },
     async updateProcessCategory(ctx: Context, categoryId: string, input: ProcessCategoryInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.edit');
             const category = db.processCategories.find((item) => item.id === categoryId);
             if (!category) throw new DomainError('NOT_FOUND', 'Categoria de processo não encontrada.');
             validateProcessCategory(db, input, categoryId);
@@ -1215,7 +1266,7 @@ export const api = {
     },
     async deleteProcessCategory(ctx: Context, categoryId: string) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.delete');
             const index = db.processCategories.findIndex((item) => item.id === categoryId);
             if (index < 0) throw new DomainError('NOT_FOUND', 'Categoria de processo não encontrada.');
             const category = db.processCategories[index];
@@ -1228,7 +1279,7 @@ export const api = {
     },
     async createProtocolTypeWithFlow(ctx: Context, input: Omit<ProtocolTypeInput, 'flowId'>, stages: StageInput[]) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'protocolTypes.create');
             const normalizedStages = stages.map((stage) => ({ ...stage, checklistQuestions: stage.requiresChecklist ? cleanQuestions(stage.checklistQuestions, []) : [] }));
             const flowMode = input.flowMode ?? 'NONE';
             if (flowMode === 'NONE' && normalizedStages.length)
@@ -1268,20 +1319,20 @@ export const api = {
             return { type, flow };
         });
     },
-    async createProtocolType(ctx: Context, input: ProtocolTypeInput) { return mutate((db) => { requireAdmin(db, ctx); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); if (db.protocolTypes.some((type) => type.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
+    async createProtocolType(ctx: Context, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.create'); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); if (db.protocolTypes.some((type) => type.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); const type: ProtocolType = { ...normalized, id: id(), name: normalized.name.trim(), description: normalized.description.trim() }; db.protocolTypes.push(type); return type; }); },
-    async updateProtocolType(ctx: Context, typeId: string, input: ProtocolTypeInput) { return mutate((db) => { requireAdmin(db, ctx); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); const type = db.protocolTypes.find((item) => item.id === typeId); if (!type)
+    async updateProtocolType(ctx: Context, typeId: string, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.edit'); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); const type = db.protocolTypes.find((item) => item.id === typeId); if (!type)
         throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.'); if (db.protocolTypes.some((item) => item.id !== typeId && item.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); Object.assign(type, { ...normalized, name: normalized.name.trim(), description: normalized.description.trim() }); return type; }); },
-    async deleteAllProtocolTypes(ctx: Context) { return mutate((db) => { requireAdmin(db, ctx); if (db.protocols.length) throw new DomainError('VALIDATION', 'Não é possível excluir os tipos enquanto existirem processos vinculados.'); db.protocolTypes.splice(0, db.protocolTypes.length); return true; }); },    async createDocumentType(ctx: Context, input: Omit<DocumentType, 'id'>) { return mutate((db) => { requireAdmin(db, ctx); const name = input.name.trim(); const description = input.description.trim(); if (!name || !description)
+    async deleteAllProtocolTypes(ctx: Context) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.delete'); if (db.protocols.length) throw new DomainError('VALIDATION', 'Não é possível excluir os tipos enquanto existirem processos vinculados.'); db.protocolTypes.splice(0, db.protocolTypes.length); return true; }); },    async createDocumentType(ctx: Context, input: Omit<DocumentType, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'documentTypes.create'); const name = input.name.trim(); const description = input.description.trim(); if (!name || !description)
         throw new DomainError('VALIDATION', 'Informe nome e descrição do tipo.'); if (db.documentTypes.some((type) => type.name.toLocaleLowerCase() === name.toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); const type: DocumentType = { ...input, id: id(), name, description }; db.documentTypes.push(type); return type; }); },
-    async updateDocumentType(ctx: Context, typeId: string, input: Omit<DocumentType, 'id'>) { return mutate((db) => { requireAdmin(db, ctx); const type = db.documentTypes.find((item) => item.id === typeId); if (!type)
+    async updateDocumentType(ctx: Context, typeId: string, input: Omit<DocumentType, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'documentTypes.edit'); const type = db.documentTypes.find((item) => item.id === typeId); if (!type)
         throw new DomainError('NOT_FOUND', 'Tipo de documento não encontrado.'); const name = input.name.trim(); const description = input.description.trim(); if (!name || !description)
         throw new DomainError('VALIDATION', 'Informe nome e descrição do tipo.'); if (db.documentTypes.some((item) => item.id !== typeId && item.name.toLocaleLowerCase() === name.toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); Object.assign(type, { ...input, name, description }); return type; }); },
     async createDocumentTemplate(ctx: Context, input: Omit<DocumentTemplate, 'id' | 'createdAt' | 'updatedAt'>) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'documentTypes.create');
         if (!db.documentTypes.some((type) => type.id === input.typeId && type.active)) throw new DomainError('VALIDATION', 'Selecione um tipo de documento ativo.');
         if (!input.name.trim()) throw new DomainError('VALIDATION', 'Informe o nome do modelo.');
         const contentError = validateTemplateContent(input.subject, input.body);
@@ -1296,7 +1347,7 @@ export const api = {
         return template;
     }); },
     async updateDocumentTemplate(ctx: Context, templateId: string, input: Omit<DocumentTemplate, 'id' | 'createdAt' | 'updatedAt'>) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'documentTypes.edit');
         const template = db.documentTemplates.find((item) => item.id === templateId);
         if (!template) throw new DomainError('NOT_FOUND', 'Modelo de documento não encontrado.');
         if (!db.documentTypes.some((type) => type.id === input.typeId && type.active)) throw new DomainError('VALIDATION', 'Selecione um tipo de documento ativo.');
@@ -1311,83 +1362,91 @@ export const api = {
         return template;
     }); },
     async deleteDocumentTemplate(ctx: Context, templateId: string) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'documentTypes.edit');
         const index = db.documentTemplates.findIndex((item) => item.id === templateId);
         if (index < 0) throw new DomainError('NOT_FOUND', 'Modelo de documento não encontrado.');
         const [template] = db.documentTemplates.splice(index, 1);
         audit(db, { action: 'DOCUMENT_TEMPLATE_DELETED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: template.id, details: `Modelo “${template.name}” excluído.` });
         return true;
     }); },
-    async createUser(ctx: Context, input: UserInput) { return mutate((db) => {
-        requireAdmin(db, ctx);
-        return addUser(db, ctx, input);
+    async createProfile(ctx: Context, input: ProfileInput) { return mutate((db) => {
+        requirePermission(db, ctx, 'profiles.manage');
+        if (input.isAdmin) requireAdmin(db, ctx);
+        const profile: AccessProfile = { id: id(), ...normalizedProfileInput(db, input) };
+        db.profiles.push(profile);
+        audit(db, { action: 'PROFILE_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROFILE', targetId: profile.id, details: `Perfil “${profile.name}” criado.` });
+        return profile;
+    }); },
+    async updateProfile(ctx: Context, profileId: string, input: ProfileInput) { return mutate((db) => {
+        requirePermission(db, ctx, 'profiles.manage');
+        const profile = db.profiles.find((item) => item.id === profileId);
+        if (!profile) throw new DomainError('NOT_FOUND', 'Perfil não encontrado.');
+        if (profile.isAdmin || input.isAdmin) requireAdmin(db, ctx);
+        if (profile.id === 'profile-admin' && !input.isAdmin) throw new DomainError('VALIDATION', 'O perfil Administrador deve manter acesso completo.');
+        Object.assign(profile, normalizedProfileInput(db, input, profileId));
+        audit(db, { action: 'PROFILE_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROFILE', targetId: profile.id, details: `Modelo do perfil “${profile.name}” atualizado. Acessos já concedidos foram preservados.` });
+        return profile;
+    }); },
+    async deleteProfile(ctx: Context, profileId: string) { return mutate((db) => {
+        requirePermission(db, ctx, 'profiles.manage');
+        const index = db.profiles.findIndex((item) => item.id === profileId);
+        if (index < 0) throw new DomainError('NOT_FOUND', 'Perfil não encontrado.');
+        const profile = db.profiles[index];
+        if (profile.isAdmin) requireAdmin(db, ctx);
+        if (profile.system) throw new DomainError('VALIDATION', 'Os perfis padrão não podem ser excluídos.');
+        db.profiles.splice(index, 1);
+        db.memberships.forEach((membership) => { if (membership.profileId === profileId) membership.profileId = undefined; });
+        audit(db, { action: 'PROFILE_DELETED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROFILE', targetId: profileId, details: `Modelo do perfil “${profile.name}” excluído. Acessos já concedidos foram preservados.` });
+        return true;
+    }); },
+    async createUser(ctx: Context, input: UserInput & { access?: MembershipInput }) { return mutate((db) => {
+        requirePermission(db, ctx, 'users.create');
+        if (input.access) requirePermission(db, ctx, 'users.assign');
+        const user = addUser(db, ctx, input);
+        if (input.access) saveMembership(db, ctx, user, undefined, input.access);
+        return user;
     }); },
     async importUsers(ctx: Context, rows: UserImportRow[]) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'users.create');
         if (!rows.length || rows.length > 1000) throw new DomainError('VALIDATION', 'Importe entre 1 e 1000 usuários por arquivo.');
         const errors = validateUserImportRows(rows, db);
         if (errors.length) throw new DomainError('VALIDATION', errors.join(' '));
         return rows.map((row) => addUser(db, ctx, row));
     }); },
     async updateUser(ctx: Context, userId: string, input: UserInput) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'users.edit');
         const user = db.users.find((item) => item.id === userId);
         if (!user) throw new DomainError('NOT_FOUND', 'Usuário não encontrado.');
         validateUser(db, input, userId);
+        if (input.role !== user.role) throw new DomainError('VALIDATION', 'Altere o perfil pela página Unidades / Permissões.');
         if (!input.active && user.active) {
+            requirePermission(db, ctx, 'users.deactivate');
             if (user.id === ctx.userId) throw new DomainError('VALIDATION', 'Não é possível inativar o usuário atual.');
+            if (user.id === 'usr-admin') throw new DomainError('VALIDATION', 'O administrador principal não pode ser inativado.');
             if (user.role === 'ADMIN' && db.users.filter((item) => item.active && item.role === 'ADMIN').length === 1) throw new DomainError('VALIDATION', 'Não é possível inativar o último administrador ativo.');
             if (db.protocols.some((protocol) => isActive(protocol) && protocol.currentAssigneeId === user.id)) throw new DomainError('VALIDATION', 'Redistribua os processos ativos antes de inativar este usuário.');
         }
-        Object.assign(user, { name: input.name.trim(), email: input.email.trim().toLocaleLowerCase(), role: input.role, cpf: input.cpf ? cpfDigits(input.cpf) : undefined, active: input.active });
-        const primary = db.memberships.find((membership) => membership.userId === user.id && membership.unitId === user.unitId && membership.active);
-        if (primary) primary.role = input.role;
+        Object.assign(user, { name: input.name.trim(), email: input.email.trim().toLocaleLowerCase(), cpf: input.cpf ? cpfDigits(input.cpf) : undefined, active: input.active });
         audit(db, { action: 'USER_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Dados cadastrais do usuário atualizados.' });
         return user;
     }); },
     async saveUserMembership(ctx: Context, userId: string, membershipId: string | undefined, input: MembershipInput) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'users.assign');
         const user = db.users.find((item) => item.id === userId);
         if (!user) throw new DomainError('NOT_FOUND', 'Usuário não encontrado.');
-        const unit = db.units.find((item) => item.id === input.unitId && item.active);
-        if (!unit) throw new DomainError('VALIDATION', 'Selecione uma unidade ativa.');
-        const duplicate = db.memberships.find((item) => item.userId === userId && item.unitId === input.unitId && item.active && item.id !== membershipId);
-        if (duplicate) throw new DomainError('VALIDATION', 'O usuário já possui acesso ativo a esta unidade.');
-        const title = input.title?.trim() || (input.role === 'ADMIN' ? 'Administrador' : input.role === 'GESTOR' ? 'Gestor' : input.role === 'LEITOR' ? 'Leitor' : 'Operador');
-        let membership: UserUnitMembership | undefined;
-        if (membershipId) {
-            membership = db.memberships.find((item) => item.id === membershipId && item.userId === userId && item.active);
-            if (!membership) throw new DomainError('NOT_FOUND', 'Vínculo de unidade não encontrado.');
-            const previousUnitId = membership.unitId;
-            Object.assign(membership, { unitId: input.unitId, role: input.role, title });
-            if (user.unitId === previousUnitId) {
-                user.unitId = input.unitId;
-                user.role = input.role;
-            }
-        } else {
-            membership = db.memberships.find((item) => item.userId === userId && item.unitId === input.unitId && !item.active);
-            if (membership) {
-                Object.assign(membership, { role: input.role, title, startsAt: new Date().toISOString(), endsAt: undefined, active: true });
-            } else {
-                membership = { id: id(), userId, unitId: input.unitId, role: input.role, title, startsAt: new Date().toISOString(), active: true };
-                db.memberships.push(membership);
-            }
-            if (!user.unitId) {
-                user.unitId = input.unitId;
-                user.role = input.role;
-            }
-        }
-        audit(db, { action: membershipId ? 'USER_MEMBERSHIP_UPDATED' : 'USER_MEMBERSHIP_CREATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'USER', targetId: user.id, details: 'Acesso à unidade ' + unit.name + ' salvo com o perfil ' + title + '.' });
-        return membership;
+        return saveMembership(db, ctx, user, membershipId, input);
     }); },
     async removeUserMembership(ctx: Context, userId: string, membershipId: string) { return mutate((db) => {
-        requireAdmin(db, ctx);
+        requirePermission(db, ctx, 'users.assign');
         const user = db.users.find((item) => item.id === userId);
         if (!user) throw new DomainError('NOT_FOUND', 'Usuário não encontrado.');
         const membership = db.memberships.find((item) => item.id === membershipId && item.userId === userId && item.active);
         if (!membership) throw new DomainError('NOT_FOUND', 'Vínculo de unidade não encontrado.');
+        if (membership.role === 'ADMIN') requireAdmin(db, ctx);
         const activeMemberships = db.memberships.filter((item) => item.userId === userId && item.active);
         if (user.active && activeMemberships.length <= 1) throw new DomainError('VALIDATION', 'O usuário ativo precisa manter acesso a pelo menos uma unidade.');
+        if (user.id === ctx.userId && membership.role === 'ADMIN') throw new DomainError('VALIDATION', 'Você não pode remover seu próprio acesso de administrador.');
+        if (user.id === 'usr-admin' && membership.role === 'ADMIN') throw new DomainError('VALIDATION', 'O administrador principal deve manter o acesso de administrador.');
         if (user.id === ctx.userId && membership.unitId === ctx.activeUnitId) throw new DomainError('VALIDATION', 'Não é possível remover o acesso usado na sessão atual.');
         membership.active = false;
         membership.endsAt = new Date().toISOString();
@@ -1404,7 +1463,7 @@ export const api = {
     }); },
     async updatePerson(ctx: Context, personId: string, input: PersonInput) {
         return mutate((db) => {
-            requireAdmin(db, ctx);
+            requirePermission(db, ctx, 'people.edit');
             const person = db.people.find((item) => item.id === personId);
             if (!person)
                 throw new DomainError('NOT_FOUND', 'Pessoa não encontrada.');

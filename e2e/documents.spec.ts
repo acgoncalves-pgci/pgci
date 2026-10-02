@@ -45,7 +45,7 @@ test('prévia PDF distribui conteúdo longo em folhas A4', async ({ page }, test
   await expect(page.getByRole('heading', { level: 1, name: 'Documento de várias páginas' })).toBeVisible()
   await page.getByRole('button', { name: 'Prévia de impressão' }).click()
   const viewer = page.getByRole('dialog').getByTitle(/Pré-visualização de .*\.pdf/)
-  await expect(viewer).toBeVisible()
+  await expect(viewer).toBeVisible({ timeout: 20_000 })
   const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
     const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
     return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))

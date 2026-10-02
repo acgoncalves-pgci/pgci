@@ -6,6 +6,7 @@ import { api } from '../services/api'
 import { DATABASE_KEY, loadDb, saveDb, StorageError, storageErrorMessage } from '../storage/database'
 import { GENERAL_SETTINGS_KEY } from '../lib/numbering'
 import { participantOptions } from './participants'
+import { hasPermission } from './permissions'
 
 describe('regras do MVP', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
@@ -400,6 +401,67 @@ describe('usuários de demonstração', () => {
     await expect(api.removeUserMembership(context, 'usr-clara', onlyMembership.id)).rejects.toMatchObject({
       code: 'VALIDATION',
     })
+  })
+})
+
+describe('perfis e permissões por unidade', () => {
+  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+  const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+
+  it('aplica o perfil como modelo e preserva ajustes e acessos já concedidos', async () => {
+    const profile = await api.createProfile(admin, { name: 'Cadastro de pessoas', isAdmin: false, permissions: ['people.view', 'people.create'] })
+    const user = await api.createUser(admin, { name: 'Servidor com perfil', email: 'perfil@example.com', role: 'OPERADOR', active: true, access: { unitId: 'u-prot', profileId: profile.id, permissions: ['people.view', 'structure.create'] } })
+    const context = { userId: user.id, activeUnitId: 'u-prot' }
+    expect(hasPermission(loadDb(), context, 'structure.create')).toBe(true)
+    expect(hasPermission(loadDb(), context, 'people.create')).toBe(false)
+    await api.createUnit(context, { name: 'Unidade do perfil', abbreviation: 'UP', active: true })
+    await api.updateProfile(admin, profile.id, { name: 'Cadastro de pessoas', isAdmin: false, permissions: ['people.view'] })
+    expect(hasPermission(loadDb(), context, 'structure.create')).toBe(true)
+    await api.saveUserMembership(admin, user.id, undefined, { unitId: 'u-adm', profileId: profile.id })
+    expect(hasPermission(loadDb(), { userId: user.id, activeUnitId: 'u-adm' }, 'structure.create')).toBe(false)
+    await expect(api.createUnit({ userId: user.id, activeUnitId: 'u-adm' }, { name: 'Outra unidade', abbreviation: 'OU', active: true })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('concede todas as permissões ao perfil administrador sem seleção manual', async () => {
+    const profile = await api.createProfile(admin, { name: 'Administração regional', isAdmin: true, permissions: [] })
+    const user = await api.createUser(admin, { name: 'Admin regional', email: 'admin.regional@example.com', role: 'ADMIN', active: true, access: { unitId: 'u-adm', profileId: profile.id } })
+    const context = { userId: user.id, activeUnitId: 'u-adm' }
+    expect(hasPermission(loadDb(), context, 'profiles.manage')).toBe(true)
+    expect(hasPermission(loadDb(), context, 'structure.delete')).toBe(true)
+    expect(hasPermission(loadDb(), { ...context, activeUnitId: 'u-prot' }, 'profiles.manage')).toBe(false)
+  })
+
+  it('impede retirar o próprio admin, inativar o principal e deixar o sistema sem administrador', async () => {
+    const membership = loadDb().memberships.find((item) => item.userId === 'usr-admin' && item.unitId === 'u-prot')!
+    await expect(api.saveUserMembership(admin, 'usr-admin', membership.id, { unitId: 'u-prot', profileId: 'profile-operator' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.removeUserMembership(admin, 'usr-admin', membership.id)).rejects.toMatchObject({ code: 'VALIDATION' })
+    const user = loadDb().users.find((item) => item.id === 'usr-admin')!
+    await expect(api.updateUser(admin, user.id, { ...user, active: false })).rejects.toMatchObject({ code: 'VALIDATION' })
+    const database = loadDb()
+    database.memberships.filter((item) => item.userId === 'usr-admin').forEach((item) => { item.active = false })
+    const claraAccess = database.memberships.find((item) => item.userId === 'usr-clara' && item.unitId === 'u-prot')!
+    claraAccess.permissions = [...(claraAccess.permissions ?? []), 'people.create']
+    saveDb(database)
+    await expect(api.createPerson({ userId: 'usr-clara', activeUnitId: 'u-prot' }, { kind: 'PF', name: 'Pessoa sem admin', roles: [], active: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('não permite que um perfil não admin promova outro usuário a administrador', async () => {
+    const db = loadDb()
+    const operator = db.memberships.find((item) => item.userId === 'usr-clara')!
+    operator.permissions = [...(operator.permissions ?? []), 'users.assign']
+    saveDb(db)
+    await expect(api.saveUserMembership({ userId: 'usr-clara', activeUnitId: 'u-prot' }, 'usr-bruno', undefined, { unitId: 'u-prot', profileId: 'profile-admin' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('exige permissão de atribuição para criar usuário já vinculado a uma unidade', async () => {
+    const db = loadDb()
+    const operator = db.memberships.find((item) => item.userId === 'usr-clara')!
+    operator.permissions = [...(operator.permissions ?? []), 'users.create']
+    saveDb(db)
+    await expect(api.createUser({ userId: 'usr-clara', activeUnitId: 'u-prot' }, {
+      name: 'Novo acesso', email: 'novo.acesso@example.com', role: 'OPERADOR', active: true,
+      access: { unitId: 'u-prot', profileId: 'profile-operator' },
+    })).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })
 

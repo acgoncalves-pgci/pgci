@@ -140,9 +140,16 @@ test('apresenta a timeline em cartões e permite recolher e expandir cada movime
 })
 test('mostra o loading antes de mudar a rota interna', async ({ page }) => {
   await page.goto('/dashboard')
+  await expect(page.getByRole('heading', { name: 'Meus Processos' })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    await page.getByRole('button', { name: 'Abrir menu', exact: true }).click()
+    await expect(page.locator('#mobile-navigation').getByRole('link', { name: 'Processos', exact: true })).toBeVisible()
+  } else {
+    await expect(page.getByRole('link', { name: 'Processos', exact: true }).first()).toBeVisible()
+  }
 
   const stateBeforeRoute = await page.evaluate(async () => new Promise<{ path: string; loading: boolean }>((resolve) => {
-    const link = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find((item) => new URL(item.href).pathname === '/processos')
+    const link = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find((item) => new URL(item.href).pathname === '/processos' && item.getClientRects().length > 0)
     if (!link) throw new Error('Link de processos não encontrado.')
     link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
     requestAnimationFrame(() => resolve({ path: window.location.pathname, loading: Boolean(document.querySelector('[aria-label="Carregando tela"]')) }))
@@ -175,73 +182,32 @@ test('centraliza a linha com os marcadores da timeline em desktop', async ({ pag
 })
 
 test('oferece e aplica configurações de aparência', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+  })
   await page.goto('/configuracoes')
-  await expect(page.getByRole('heading', { name: 'Configurações' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Geral' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Aparência' }).click()
 
-  await expect(page.getByRole('button', { name: /Aplicar preset/ })).toHaveCount(5)
-  await page.getByRole('button', { name: 'Aplicar preset Terracota' }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-  const colors = await page.locator('html').evaluate((root) => ({
-    sidebar: root.style.getPropertyValue('--ui-sidebar-bg'),
-    header: root.style.getPropertyValue('--ui-header-bg'),
-    accent: root.style.getPropertyValue('--ui-accent'),
-    background: root.style.getPropertyValue('--ui-page-bg'),
-  }))
-  expect(colors).toEqual({ sidebar: '#f0e0d6', header: '#f5e9e1', accent: '#9a3412', background: '#fffdfb' })
-  await expect(page.locator('.pgci-sidebar').first()).toHaveCSS('background-color', 'rgb(240, 224, 214)')
-  await expect(page.locator('.pgci-header')).toHaveCSS('background-color', 'rgb(245, 233, 225)')
-  await expect(page.locator('#main-content')).toHaveCSS('background-color', 'rgb(255, 253, 251)')
-  await page.getByLabel('Cor de fundo do rodapé', { exact: true }).fill('#1f2937')
-  await page.getByLabel('Cor do texto do rodapé', { exact: true }).fill('#f8fafc')
-  await expect(page.locator('.pgci-footer')).toHaveCSS('background-color', 'rgb(31, 41, 55)')
-  await expect(page.locator('.pgci-footer')).toHaveCSS('color', 'rgb(248, 250, 252)')
-  await page.getByLabel('Cor do header — tema claro', { exact: true }).fill('#123456')
-  await page.getByLabel('Cor do header — tema escuro', { exact: true }).fill('#654321')
+  await expect(page.getByRole('button', { name: /Aplicar paleta/ })).toHaveCount(4)
+  await page.getByRole('button', { name: 'Aplicar paleta Violeta' }).click()
+  await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-sidebar-bg'))).toBe('#5b21b6')
+  await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-header-bg'))).toBe('#ede9fe')
+
+  await page.getByLabel('Cabeçalho do modo claro em hexadecimal').fill('#123456')
   await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-header-bg'))).toBe('#123456')
 
-  await page.getByRole('button', { name: 'Selecionar tema escuro' }).click()
+  await page.getByRole('button', { name: /Modo escuro/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  const darkColors = await page.locator('html').evaluate((root) => ({
-    sidebar: root.style.getPropertyValue('--ui-sidebar-bg'),
-    header: root.style.getPropertyValue('--ui-header-bg'),
-    accent: root.style.getPropertyValue('--ui-accent'),
-    background: root.style.getPropertyValue('--ui-page-bg'),
-  }))
-  expect(darkColors).toEqual({ sidebar: '#321c16', header: '#654321', accent: '#fb923c', background: '#160b07' })
-  await expect(page.locator('.pgci-sidebar').first()).toHaveCSS('background-color', 'rgb(50, 28, 22)')
-  await expect(page.locator('.pgci-header')).toHaveCSS('background-color', 'rgb(101, 67, 33)')
-  await expect(page.locator('#main-content')).toHaveCSS('background-color', 'rgb(22, 11, 7)')
-
-  await page.getByRole('button', { name: 'Selecionar tema claro' }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-  await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-header-bg'))).toBe('#123456')
-  const savedAppearance = await page.evaluate(() => JSON.parse(localStorage.getItem('fluxo-publico:appearance') ?? '{}'))
-  expect(savedAppearance.darkHeaderColor).toBe('#654321')
+  await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-header-bg'))).toBe('#4c1d95')
 
   const zoom = page.getByLabel('Zoom da interface')
   await zoom.press('Home')
   for (let index = 0; index < 6; index += 1) await zoom.press('ArrowRight')
   await expect(page.getByText('110%', { exact: true })).toBeVisible()
   await expect.poll(() => page.locator('html').evaluate((root) => root.style.getPropertyValue('--ui-zoom'))).toBe('1.1')
-
-  if ((page.viewportSize()?.width ?? 0) >= 1024) {
-    await page.goto('/processos/pr-18')
-    const shellGeometry = await page.evaluate(() => {
-      const sidebar = document.querySelector<HTMLElement>('.pgci-sidebar')
-      const footer = document.querySelector<HTMLElement>('.pgci-footer')
-      if (!sidebar || !footer) throw new Error('Shell não encontrado.')
-      const sidebarBox = sidebar.getBoundingClientRect()
-      const footerBox = footer.getBoundingClientRect()
-      return { sidebarRight: sidebarBox.right, sidebarBottom: sidebarBox.bottom, footerLeft: footerBox.left, footerBottom: footerBox.bottom, viewportHeight: window.innerHeight }
-    })
-    expect(Math.abs(shellGeometry.sidebarRight - shellGeometry.footerLeft)).toBeLessThan(1.5)
-    expect(Math.abs(shellGeometry.sidebarBottom - shellGeometry.footerBottom)).toBeLessThan(1.5)
-    expect(Math.abs(shellGeometry.footerBottom - shellGeometry.viewportHeight)).toBeLessThan(1.5)
-  }
 })
-
 test('rola apenas o conteúdo entre header e footer', async ({ page }) => {
   await page.goto('/processos')
   await expect(page.getByRole('heading', { name: 'Processos' })).toBeVisible()

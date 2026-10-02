@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { SituationCategory, SituationType } from "../../domain/model";
+import { hasPermission } from "../../domain/permissions";
 import { situationCategoryLabel } from "../../domain/situations";
 import { api } from "../../services/api";
 import { useSession } from "../../app/session";
@@ -38,7 +39,9 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [category, setCategory] = useState<SituationCategory | "ALL">("ALL");
   const [activeOnly, setActiveOnly] = useState(true);
-  const admin = ctx.user?.role === "ADMIN";
+  const canCreate = Boolean(db && hasPermission(db, ctx, 'workflow.create'));
+  const canEdit = Boolean(db && hasPermission(db, ctx, 'workflow.edit'));
+  const canDelete = Boolean(db && hasPermission(db, ctx, 'workflow.delete'));
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteSituationType(ctx, id),
     onSuccess: () => {
@@ -70,7 +73,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             detail="Cadastre as situações disponíveis para uso nas etapas dos fluxos de processo."
             icon={CircleDot}
             action={
-              admin ? (
+              canCreate ? (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -119,7 +122,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             Mais filtros
           </button>
         </div>
-        {embedded && admin && (
+        {embedded && canCreate && (
           <button
             type="button"
             className="button-primary"
@@ -168,17 +171,17 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
                   : "Sem categoria"}
               </span>
             </div>
-            {admin && (
+            {(canEdit || canDelete) && (
               <div className="flex shrink-0 items-center gap-2">
-                <button
+                {canEdit && <button
                   type="button"
                   className="button-secondary icon-button size-9"
                   aria-label={`Editar ${situation.name}`}
                   onClick={() => setEditing(situation)}
                 >
                   <Pencil size={16} />
-                </button>
-                <button
+                </button>}
+                {canDelete && <button
                   type="button"
                   className="button-secondary icon-button size-9 text-destructive"
                   aria-label={`Excluir ${situation.name}`}
@@ -191,7 +194,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
                   onClick={() => setDeleting(situation)}
                 >
                   <Trash2 size={16} />
-                </button>
+                </button>}
               </div>
             )}
           </article>

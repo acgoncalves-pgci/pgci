@@ -102,7 +102,7 @@ describe('migração do banco local', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(7)
+    expect(migrated.schemaVersion).toBe(8)
     expect(migrated.units.map((unit) => unit.position)).toEqual([0, 1, 0, 2, 3])
     expect(migrated.memberships).toHaveLength(migrated.users.length + migrated.units.filter((unit) => unit.active).length - 1)
     expect(migrated.memberships.find((membership) => membership.userId === 'usr-admin')).toMatchObject({
@@ -135,7 +135,7 @@ describe('migração do banco local', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(7)
+    expect(migrated.schemaVersion).toBe(8)
     expect(migrated.users[0]).toMatchObject({
       id: 'usr-admin',
       name: 'Marina Duarte',
@@ -185,7 +185,7 @@ describe('migração de categorias da versão 4', () => {
 
     const migrated = migrateDatabase(legacy)
 
-    expect(migrated.schemaVersion).toBe(7)
+    expect(migrated.schemaVersion).toBe(8)
     expect(migrated.processCategories.map((category) => category.code)).toEqual(['01', '02'])
     expect(migrated.protocolTypes.every((type) => type.categoryId)).toBe(true)
   })

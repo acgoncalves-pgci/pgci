@@ -18,6 +18,8 @@ import {
   Users,
 } from 'lucide-react';
 import type { AppUser, Database, Role, UserUnitMembership } from '../../domain/model';
+import type { Permission } from '../../domain/permissions';
+import { defaultPermissions, hasPermission, profileIdForRole } from '../../domain/permissions';
 import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { api } from '../../services/api';
 import { useSession } from '../../app/session';
@@ -31,6 +33,7 @@ import { Empty, ErrorBox, Field, Loading, PageTitle } from '../../components/ui/
 import { ListPagination, paginateItems } from '../../components/ui/ListPagination';
 import { parseUserCsv } from '../../lib/userCsv';
 import type { UserImportResult } from '../../lib/userCsv';
+import { PermissionGrid } from './PermissionGrid';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Administrador',
@@ -79,13 +82,17 @@ export function UsersPage() {
 
   if (isLoading || !db) return <Loading variant="list" />;
 
-  const isAdmin = ctx.user?.role === 'ADMIN';
+  const canCreate = hasPermission(db, ctx, 'users.create');
+  const canAssign = hasPermission(db, ctx, 'users.assign');
+  const canEdit = hasPermission(db, ctx, 'users.edit');
+  const canManageProfiles = hasPermission(db, ctx, 'profiles.manage');
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageTitle title="Usuários" detail="Usuários com acesso ao sistema desta entidade." icon={Users} action={isAdmin && <div className="flex flex-wrap items-center gap-2">
-          <button className="btn-secondary self-start" onClick={() => setImporting(true)}><FileUp size={16} /> Importar CSV</button>
-          <button className="btn-primary self-start" onClick={() => setEditing('new')}><Plus size={16} /> Novo usuário</button>
+      <PageTitle title="Usuários" detail="Usuários com acesso ao sistema desta entidade." icon={Users} action={(canCreate || canManageProfiles) && <div className="flex flex-wrap items-center gap-2">
+          {canManageProfiles && <Link className="btn-secondary self-start" to="/perfis"><ShieldCheck size={16} /> Perfis de acesso</Link>}
+          {canCreate && <button className="btn-secondary self-start" onClick={() => setImporting(true)}><FileUp size={16} /> Importar CSV</button>}
+          {canCreate && canAssign && <button className="btn-primary self-start" onClick={() => setEditing('new')}><Plus size={16} /> Novo usuário</button>}
         </div>} />
 
       <section className="mb-5 space-y-3" aria-label="Busca e filtros de usuários">
@@ -130,6 +137,8 @@ export function UsersPage() {
         <section className="space-y-2" aria-label="Lista de usuários">
           {paginated.items.map((user) => {
             const units = membershipCount(db, user.id);
+            const primaryAccess = db.memberships.find((membership) => membership.userId === user.id && membership.unitId === user.unitId && membership.active);
+            const primaryProfile = db.profiles.find((profile) => profile.id === primaryAccess?.profileId);
             return (
               <article className="flex min-h-[4.15rem] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-[color-mix(in_srgb,var(--ui-accent)_40%,#cbd5e1)] dark:border-slate-700 dark:bg-slate-900/70" key={user.id}>
                 <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--ui-accent)_12%,transparent)] text-[var(--ui-accent)]">
@@ -140,7 +149,7 @@ export function UsersPage() {
                     <h2 className="truncate text-sm font-bold">{user.name}</h2>
                     {!user.active && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-300">Inativo</span>}
                     {!units && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-950 dark:text-amber-200">Sem unidade</span>}
-                    <span className={'rounded-full border px-2 py-0.5 text-[10px] font-bold ' + roleStyles[user.role]}>{roleLabels[user.role]}</span>
+                    <span className={'rounded-full border px-2 py-0.5 text-[10px] font-bold ' + roleStyles[user.role]}>{primaryProfile?.name ?? roleLabels[user.role]}</span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
                 </div>
@@ -155,7 +164,7 @@ export function UsersPage() {
                     <span className="grid min-w-5 place-items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700 dark:bg-slate-700 dark:text-slate-100">{units}</span>
                     <ChevronRight size={14} />
                   </Link>
-                  {isAdmin && (
+                  {canEdit && (
                     <button type="button" className="btn-secondary !min-h-9 !p-2" aria-label={'Editar usuário ' + user.name} onClick={() => setEditing(user)}>
                       <Pencil size={15} />
                     </button>
@@ -173,6 +182,7 @@ export function UsersPage() {
       {editing && (
         <UserEditor
           user={editing === 'new' ? undefined : editing}
+          db={db}
           onClose={() => setEditing(null)}
           onSaved={() => setEditing(null)}
         />
@@ -207,7 +217,7 @@ export function UserAccessPage() {
     .sort((left, right) => unitPath(db.units, left.unitId).localeCompare(unitPath(db.units, right.unitId), 'pt-BR'));
   const linkedUnitIds = new Set(memberships.map((membership) => membership.unitId));
   const canAdd = db.units.some((unit) => unit.active && !linkedUnitIds.has(unit.id));
-  const isAdmin = ctx.user?.role === 'ADMIN';
+  const canAssign = hasPermission(db, ctx, 'users.assign');
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -228,7 +238,7 @@ export function UserAccessPage() {
             <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide"><ShieldCheck size={15} /> Unidades / Permissões</h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Gerencie os acessos do usuário sem alterar as movimentações já registradas.</p>
           </div>
-          {isAdmin && (
+          {canAssign && (
             <button type="button" className="btn-primary self-start" disabled={!canAdd} title={canAdd ? undefined : 'Todas as unidades ativas já foram vinculadas'} onClick={() => setEditing('new')}>
               <Plus size={16} /> Adicionar unidade
             </button>
@@ -250,13 +260,13 @@ export function UserAccessPage() {
                     {unit && <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[9px] font-bold dark:border-slate-700">{unit.abbreviation}</span>}
                     {membership.unitId === user.unitId && <span className="rounded-full bg-[color-mix(in_srgb,var(--ui-accent)_12%,transparent)] px-2 py-0.5 text-[9px] font-bold text-[var(--ui-accent)]">Principal</span>}
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{membership.title || roleLabels[membership.role]}{parent ? ' · ' + parent.name : ''}</p>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{membership.title || db.profiles.find((profile) => profile.id === membership.profileId)?.name || roleLabels[membership.role]}{parent ? ' · ' + parent.name : ''}</p>
                   <p className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                     <CalendarDays size={11} /> Desde {new Date(membership.startsAt).toLocaleDateString('pt-BR')}
-                    <span className={'ml-1 rounded-full border px-2 py-0.5 font-bold ' + roleStyles[membership.role]}>{roleLabels[membership.role]}</span>
+                    <span className={'ml-1 rounded-full border px-2 py-0.5 font-bold ' + roleStyles[membership.role]}>{db.profiles.find((profile) => profile.id === membership.profileId)?.name ?? roleLabels[membership.role]}</span>
                   </p>
                 </div>
-                {isAdmin && (
+                {canAssign && (
                   <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                     <button type="button" className="btn-secondary !min-h-9 !p-2" aria-label={'Editar acesso à ' + (unit?.name ?? 'unidade')} onClick={() => setEditing(membership)}>
                       <Pencil size={15} />
@@ -297,8 +307,9 @@ export function UserAccessPage() {
   );
 }
 
-function UserEditor({ user, onClose, onSaved }: {
+function UserEditor({ user, db, onClose, onSaved }: {
   user?: AppUser;
+  db: Database;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -306,14 +317,18 @@ function UserEditor({ user, onClose, onSaved }: {
   const client = useQueryClient();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
-  const [role, setRole] = useState<Role>(user?.role ?? 'OPERADOR');
+  const availableUnits = sortUnitsByPath(db.units.filter((unit) => unit.active));
+  const [unitId, setUnitId] = useState(availableUnits[0]?.id ?? '');
+  const [profileId, setProfileId] = useState(profileIdForRole('OPERADOR'));
+  const [permissions, setPermissions] = useState<Permission[]>(defaultPermissions('OPERADOR'));
+  const selectedProfile = db.profiles.find((profile) => profile.id === profileId);
   const [cpf, setCpf] = useState(user?.cpf ?? '');
   const [createPerson, setCreatePerson] = useState(false);
   const [active, setActive] = useState(user?.active ?? true);
   const mutation = useMutation({
     mutationFn: () => {
-      const input = { name, email, role, cpf, active, createPerson: !user && createPerson };
-      return user ? api.updateUser(ctx, user.id, input) : api.createUser(ctx, input);
+      const input = { name, email, role: user?.role ?? (selectedProfile?.isAdmin ? 'ADMIN' : 'OPERADOR'), cpf, active, createPerson: !user && createPerson };
+      return user ? api.updateUser(ctx, user.id, input) : api.createUser(ctx, { ...input, access: { unitId, profileId, permissions } });
     },
     onSuccess: () => {
       invalidateAll(client);
@@ -322,7 +337,7 @@ function UserEditor({ user, onClose, onSaved }: {
   });
 
   return (
-    <Dialog title={user ? 'Editar usuário' : 'Novo usuário'} onClose={onClose}>
+    <Dialog title={user ? 'Editar usuário' : 'Novo usuário'} onClose={onClose} wide={!user}>
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nome *">
@@ -333,27 +348,23 @@ function UserEditor({ user, onClose, onSaved }: {
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Perfil principal">
-            <Select aria-label="Perfil principal" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-              <option value="ADMIN">Administrador</option>
-              <option value="GESTOR">Gestor</option>
-              <option value="OPERADOR">Operador</option>
-              <option value="LEITOR">Leitor</option>
-            </Select>
-          </Field>
           <Field label="CPF (opcional)">
             <CpfInput aria-label="CPF do usuário" defaultValue={cpf} onChange={(event) => setCpf(event.target.value)} placeholder="000.000.000-00" />
           </Field>
         </div>
         {!user && <>
-          <label className="flex items-center gap-2 text-sm"><Switch checked={createPerson} onCheckedChange={setCreatePerson} aria-label="Criar pessoa" /> Criar pessoa com o mesmo nome</label>
-          <p className="text-xs text-slate-500 dark:text-slate-400">A unidade será atribuída depois, pelo botão Unidades. Até lá, o usuário não terá acesso ao sistema.</p>
+          <Field label="Unidade organizacional *"><Select aria-label="Unidade organizacional" value={unitId} onChange={(event) => setUnitId(event.target.value)}>{availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}</Select></Field>
+          <Field label="Perfil nesta unidade *"><Select aria-label="Perfil nesta unidade" value={profileId} onChange={(event) => { const profile = db.profiles.find((item) => item.id === event.target.value); if (profile) { setProfileId(profile.id); setPermissions([...profile.permissions]); } }}>{db.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</Select></Field>
+          {selectedProfile?.isAdmin ? <p className="text-sm text-violet-700 dark:text-violet-300">Administrador: todas as permissões nesta unidade.</p> : <div className="max-h-[45vh] overflow-y-auto pr-1"><PermissionGrid value={permissions} onChange={setPermissions}/></div>}
         </>}
-        {user && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onCheckedChange={setActive} /> Usuário ativo</label>}
+        {!user && <>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={createPerson} onCheckedChange={setCreatePerson} aria-label="Criar pessoa" /> Criar pessoa com o mesmo nome</label>
+        </>}
+        {user && <label className="flex items-center gap-2 text-sm"><Switch checked={active} disabled={user.id === ctx.userId || user.id === 'usr-admin'} onCheckedChange={setActive} /> Usuário ativo</label>}
         {mutation.error && <ErrorBox error={mutation.error} />}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-          <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim()}>Salvar</button>
+          <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim() || (!user && !unitId)}>Salvar</button>
         </div>
       </form>
     </Dialog>
@@ -422,10 +433,12 @@ function AccessEditor({ user, membership, db, onClose, onSaved }: {
   const linkedUnitIds = new Set(db.memberships.filter((item) => item.userId === user.id && item.active && item.id !== membership?.id).map((item) => item.unitId));
   const availableUnits = sortUnitsByPath(db.units.filter((unit) => unit.active && !linkedUnitIds.has(unit.id)));
   const [unitId, setUnitId] = useState(membership?.unitId ?? availableUnits[0]?.id ?? '');
-  const [role, setRole] = useState<Role>(membership?.role ?? user.role);
-  const [title, setTitle] = useState(membership?.title ?? '');
+  const [profileId, setProfileId] = useState(membership?.profileId ?? profileIdForRole(membership?.role ?? user.role));
+  const [permissions, setPermissions] = useState<Permission[]>(membership?.permissions ?? defaultPermissions(membership?.role ?? user.role));
+  const selectedProfile = db.profiles.find((profile) => profile.id === profileId);
+  const [title, setTitle] = useState(membership?.title === db.profiles.find((profile) => profile.id === membership?.profileId)?.name ? '' : membership?.title ?? '');
   const mutation = useMutation({
-    mutationFn: () => api.saveUserMembership(ctx, user.id, membership?.id, { unitId, role, title }),
+    mutationFn: () => api.saveUserMembership(ctx, user.id, membership?.id, { unitId, profileId, permissions, title }),
     onSuccess: () => {
       invalidateAll(client);
       onSaved();
@@ -433,24 +446,18 @@ function AccessEditor({ user, membership, db, onClose, onSaved }: {
   });
 
   return (
-    <Dialog title={membership ? 'Editar acesso à unidade' : 'Adicionar unidade'} onClose={onClose}>
+    <Dialog title={membership ? 'Editar acesso à unidade' : 'Adicionar unidade'} onClose={onClose} wide>
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
         <Field label="Unidade organizacional *">
           <Select aria-label="Unidade organizacional" value={unitId} disabled={Boolean(membership)} onChange={(event) => setUnitId(event.target.value)}>
             {availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}
           </Select>
         </Field>
-        <Field label="Permissão nesta unidade *">
-          <Select aria-label="Permissão nesta unidade" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-            <option value="ADMIN">Administrador</option>
-            <option value="GESTOR">Gestor</option>
-            <option value="OPERADOR">Operador</option>
-            <option value="LEITOR">Leitor</option>
-          </Select>
-        </Field>
+        <Field label="Perfil nesta unidade *"><Select aria-label="Perfil nesta unidade" value={profileId} onChange={(event) => { const profile = db.profiles.find((item) => item.id === event.target.value); if (profile) { setProfileId(profile.id); setPermissions([...profile.permissions]); } }}>{db.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</Select></Field>
         <Field label="Cargo ou função">
-          <Input aria-label="Cargo ou função" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={roleLabels[role]} />
+          <Input aria-label="Cargo ou função" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={selectedProfile?.name ?? 'Função na unidade'} />
         </Field>
+        {selectedProfile?.isAdmin ? <p className="text-sm text-violet-700 dark:text-violet-300">Administrador: todas as permissões nesta unidade.</p> : <><p className="text-xs text-slate-500 dark:text-slate-400">O perfil preenche as permissões iniciais. Você pode adicionar ou remover permissões para esta unidade.</p><div className="max-h-[45vh] overflow-y-auto pr-1"><PermissionGrid value={permissions} onChange={setPermissions}/></div></>}
         {mutation.error && <ErrorBox error={mutation.error} />}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>

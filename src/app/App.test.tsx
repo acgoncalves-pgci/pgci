@@ -88,7 +88,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/dashboard')
     renderApp()
 
-    fireEvent.click(screen.getByRole('link', { name: 'Documentos' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Documentos' }))
     const loading = await screen.findByRole('status', { name: 'Carregando tela' })
     expect(loading.querySelector('img')?.getAttribute('src')).toBe('/assets/file-sync.svg')
   })

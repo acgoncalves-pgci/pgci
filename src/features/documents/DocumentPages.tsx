@@ -14,6 +14,7 @@ import { Select } from '../../components/ui/Select'
 import { ListPagination, paginateItems } from '../../components/ui/ListPagination'
 import type { AppDocument, Database } from '../../domain/model'
 import { canManageDocument, canOpenProtocolType, canReceiveWorkInUnit } from '../../domain/rules'
+import { hasPermission } from '../../domain/permissions'
 import { unitPath } from '../../domain/units'
 import { dateOnly } from '../../lib/format'
 import { documentText } from '../../lib/richText'
@@ -50,7 +51,7 @@ export function Documents() {
   const sorted = data.items.slice().sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   const paginated = paginateItems(sorted, page)
   return <>
-    <PageTitle title="Documentos" detail="Ofícios, memorandos e demais documentos da entidade." icon={FileText} action={<Link className="btn-primary" to="/documentos/novo"><Plus size={16}/>Novo</Link>} />
+    <PageTitle title="Documentos" detail="Ofícios, memorandos e demais documentos da entidade." icon={FileText} action={hasPermission(data.db, ctx, 'documents.create') && <Link className="btn-primary" to="/documentos/novo"><Plus size={16}/>Novo</Link>} />
     <div className="mb-5 flex flex-wrap gap-2">
       <label className="relative min-w-0 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 text-slate-400" size={17}/><Input aria-label="Buscar documentos" className="field !mt-0 pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Buscar por número ou assunto..."/></label>
       <button type="button" className="btn-secondary" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}><ListFilter size={16}/>Mais filtros</button>
@@ -64,8 +65,9 @@ export function Documents() {
 
 function DocumentRow({ document, db, ctx, onDelete }: { document: AppDocument; db: Database; ctx: ReturnType<typeof useSession>; onDelete: () => void }) {
   const type = db.documentTypes.find((item) => item.id === document.typeId)
-  const editable = canManageDocument(db, document, ctx)
-  const canStartProtocol = !document.protocolId && type?.active && editable && canReceiveWorkInUnit(db, ctx.userId, ctx.activeUnitId) && db.protocolTypes.some((protocolType) => protocolType.active && protocolType.fieldsConfig.arquivos?.enabled && canOpenProtocolType(db, protocolType, ctx))
+  const editable = canManageDocument(db, document, ctx) && hasPermission(db, ctx, 'documents.edit')
+  const deletable = !document.protocolId && canManageDocument(db, document, ctx) && hasPermission(db, ctx, 'documents.delete')
+  const canStartProtocol = !document.protocolId && type?.active && hasPermission(db, ctx, 'processes.create') && canReceiveWorkInUnit(db, ctx.userId, ctx.activeUnitId) && db.protocolTypes.some((protocolType) => protocolType.active && protocolType.fieldsConfig.arquivos?.enabled && canOpenProtocolType(db, protocolType, ctx))
   const recipient = db.people.find((person) => person.id === document.recipientPersonId)?.name
   const protocol = db.protocols.find((item) => item.id === document.protocolId)
   return <article className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 dark:bg-slate-900 sm:flex-nowrap">
@@ -75,7 +77,7 @@ function DocumentRow({ document, db, ctx, onDelete }: { document: AppDocument; d
       <Link className="btn-secondary icon-button" to={`/documentos/${document.id}`} aria-label={`Visualizar ${document.number}`} title="Visualizar"><Eye size={16}/></Link>
       {canStartProtocol && <Link className="btn-secondary icon-button" to={`/processos/novo?documentId=${document.id}`} aria-label={`Abrir processo a partir de ${document.number}`} title="Abrir processo a partir"><FilePlus2 size={16}/></Link>}
       {editable ? <Link className="btn-secondary icon-button" to={`/documentos/${document.id}/editar`} aria-label={`Editar ${document.number}`} title="Editar"><Pencil size={16}/></Link> : <button type="button" className="btn-secondary icon-button" disabled aria-label={`Editar ${document.number}`} title="Sem permissão para editar"><Pencil size={16}/></button>}
-      <button type="button" className="btn-secondary icon-button" disabled={!editable} onClick={onDelete} aria-label={`Excluir ${document.number}`} title={editable ? 'Excluir' : 'Sem permissão para excluir'}><Trash2 size={16}/></button>
+      <button type="button" className="btn-secondary icon-button" disabled={!deletable} onClick={onDelete} aria-label={`Excluir ${document.number}`} title={deletable ? 'Excluir' : 'Sem permissão para excluir'}><Trash2 size={16}/></button>
     </div>
   </article>
 }
@@ -177,7 +179,7 @@ export function DocumentDetail() {
     }
   }
   return <>
-    <PageTitle eyebrow={document.number} title={document.subject} icon={FileText} action={<div className="flex flex-wrap items-center justify-end gap-2">{canManageDocument(data.db, document, ctx) && <Link className="btn-secondary no-print" to={`/documentos/${document.id}/editar`}><Pencil size={16}/>Editar</Link>}<button className="btn-secondary no-print" disabled={generatingPreview} onClick={() => void openPreview()}><Printer size={16}/>{generatingPreview ? 'Gerando prévia…' : 'Prévia de impressão'}</button></div>}/>
+    <PageTitle eyebrow={document.number} title={document.subject} icon={FileText} action={<div className="flex flex-wrap items-center justify-end gap-2">{canManageDocument(data.db, document, ctx) && hasPermission(data.db, ctx, 'documents.edit') && <Link className="btn-secondary no-print" to={`/documentos/${document.id}/editar`}><Pencil size={16}/>Editar</Link>}<button className="btn-secondary no-print" disabled={generatingPreview} onClick={() => void openPreview()}><Printer size={16}/>{generatingPreview ? 'Gerando prévia…' : 'Prévia de impressão'}</button></div>}/>
     {previewError && <ErrorBox error={previewError}/>}
     <div className="mb-4 text-sm text-muted-foreground">{metadata}</div>
     {document.signerName && <p className="mb-4 text-sm text-muted-foreground">Assinante cadastrado: {document.signerName}{document.signerTitle && ` · ${document.signerTitle}`}</p>}
