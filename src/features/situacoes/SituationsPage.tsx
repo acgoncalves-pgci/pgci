@@ -15,7 +15,7 @@ import { situationCategoryLabel } from "../../domain/situations";
 import { api } from "../../services/api";
 import { useSession } from "../../app/session";
 import { invalidateAll, useDb } from "../../app/queries";
-import { Dialog } from "../../components/ui/Dialog";
+import { Dialog, DialogBody, DialogFooter } from "../../components/ui/Dialog";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
@@ -219,7 +219,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
           title="Filtros de situações"
           onClose={() => setFiltersOpen(false)}
         >
-          <div className="space-y-4">
+          <><DialogBody className="space-y-4">
             <Field label="Categoria">
               <Select
                 value={category}
@@ -245,7 +245,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
               />{" "}
               Mostrar somente situações ativas
             </label>
-            <div className="flex justify-end gap-2">
+            </DialogBody><DialogFooter>
               <button
                 type="button"
                 className="btn-secondary"
@@ -264,15 +264,15 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
               >
                 Aplicar
               </button>
-            </div>
-          </div>
+            </DialogFooter>
+          </>
         </Dialog>
       )}
       {deleting && (
         <Dialog
           title="Excluir tipo de situação"
           onClose={() => setDeleting(null)}
-        >
+        ><DialogBody>
           <p className="text-sm text-muted-foreground">
             Deseja excluir a situação <strong>{deleting.name}</strong>? Ela só
             poderá ser removida se não estiver sendo usada em uma etapa.
@@ -282,7 +282,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
               <ErrorBox error={remove.error} />
             </div>
           )}
-          <div className="mt-5 flex justify-end gap-2">
+          </DialogBody><DialogFooter>
             <button
               type="button"
               className="btn-secondary"
@@ -298,7 +298,7 @@ export function SituationsPage({ embedded = false }: { embedded?: boolean }) {
             >
               {remove.isPending ? "Excluindo…" : "Excluir"}
             </button>
-          </div>
+          </DialogFooter>
         </Dialog>
       )}
     </>
@@ -353,12 +353,12 @@ export function SituationEditor({
       stacked={stacked}
     >
       <form
-        className="space-y-5"
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
         onSubmit={(event) => {
           event.preventDefault();
           mutation.mutate();
         }}
-      >
+      ><DialogBody className="space-y-5">
         <Field label="Descrição *">
           <Input
             autoFocus
@@ -429,7 +429,7 @@ export function SituationEditor({
           </label>
         )}
         {mutation.error && <ErrorBox error={mutation.error} />}
-        <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-border bg-white py-3 dark:bg-slate-900">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancelar
           </button>
@@ -439,7 +439,7 @@ export function SituationEditor({
           >
             {mutation.isPending ? "Salvando…" : "Salvar"}
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );

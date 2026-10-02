@@ -8,7 +8,7 @@ import { invalidateAll } from '../../app/queries'
 import { api } from '../../services/api'
 import { generateProtocolTypeProposal } from '../../services/processTypeAi'
 import type { ProtocolTypeAiProposal } from '../../services/processTypeAi'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { ErrorBox, Field } from '../../components/ui/Feedback'
 import { IconGlyph, iconOptions } from '../../components/ui/IconSelect'
 
@@ -89,7 +89,7 @@ export function AiProtocolTypeDialog({ categories, phases, situations, units, on
   const enabledRequirements = proposal ? requirementLabels.filter(([key]) => proposal.fields[key]) : []
 
   return <Dialog title="Criar tipo de processo com IA" onClose={onClose} wide>
-    {!proposal ? <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); generate.mutate() }}>
+    {!proposal ? <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); generate.mutate() }}><DialogBody className="space-y-5">
       <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 dark:border-violet-900 dark:bg-violet-950/20">
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-violet-600 text-white"><WandSparkles size={20}/></span>
@@ -104,8 +104,8 @@ export function AiProtocolTypeDialog({ categories, phases, situations, units, on
         <span>{description.trim().length}/6000 caracteres</span>
       </div>
       {generate.error && <ErrorBox error={generate.error}/>} 
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary bg-violet-600 hover:bg-violet-700" disabled={generate.isPending || description.trim().length < 30}>{generate.isPending ? <><LoaderCircle className="animate-spin" size={16}/>Analisando processo…</> : <><Sparkles size={16}/>Gerar proposta</>}</button></div>
-    </form> : <div className="space-y-5">
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary bg-violet-600 hover:bg-violet-700" disabled={generate.isPending || description.trim().length < 30}>{generate.isPending ? <><LoaderCircle className="animate-spin" size={16}/>Analisando processo…</> : <><Sparkles size={16}/>Gerar proposta</>}</button></DialogFooter>
+    </form> : <><DialogBody className="space-y-5">
       <section className="flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-start">
         <span className="grid size-12 shrink-0 place-items-center rounded-xl" style={{ backgroundColor: `${proposal.color}20`, color: proposal.color }}><IconGlyph name={proposal.icon} size={24}/></span>
         <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-bold">{proposal.name}</h3><span className="rounded-full border px-2.5 py-1 text-xs font-semibold" style={{ borderColor: `${proposal.color}55`, color: proposal.color, backgroundColor: `${proposal.color}10` }}>{flowLabels[proposal.flowMode]}</span></div><p className="mt-1 text-sm text-muted-foreground">{proposal.description}</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-muted px-2.5 py-1 font-medium">{category ? `${category.code} — ${category.name}` : 'Sem categoria'}</span>{proposal.defaultDeadlineDays && <span className="rounded-full bg-muted px-2.5 py-1 font-medium">Prazo: {proposal.defaultDeadlineDays} dia(s)</span>}</div></div>
@@ -129,7 +129,7 @@ export function AiProtocolTypeDialog({ categories, phases, situations, units, on
         </div>
       </div>
       {create.error && <ErrorBox error={create.error}/>} 
-      <div className="sticky bottom-0 z-[130] flex flex-wrap justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={() => { setProposal(null); generate.reset(); create.reset() }} disabled={create.isPending}><ArrowLeft size={16}/>Voltar e ajustar</button><button type="button" className="btn-primary" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? <><LoaderCircle className="animate-spin" size={16}/>Criando…</> : <><Check size={16}/>Confirmar e criar</>}</button></div>
-    </div>}
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => { setProposal(null); generate.reset(); create.reset() }} disabled={create.isPending}><ArrowLeft size={16}/>Voltar e ajustar</button><button type="button" className="btn-primary" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? <><LoaderCircle className="animate-spin" size={16}/>Criando…</> : <><Check size={16}/>Confirmar e criar</>}</button></DialogFooter>
+    </>}
   </Dialog>
 }

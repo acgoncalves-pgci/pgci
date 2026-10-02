@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { Children, createContext, isValidElement, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -23,15 +23,30 @@ const unlockBodyScroll = () => {
 
 export const OverlayLayerContext = createContext(60);
 
-export function Dialog({ title, children, onClose, wide = false, stacked = false }: {
+export function DialogBody({ children, className = '' }: { children: ReactNode; className?: string }) {
+    return <div className={`dialog-body min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 ${className}`}>{children}</div>;
+}
+
+export function DialogFooter({ children, className = '' }: { children: ReactNode; className?: string }) {
+    return <footer className={`dialog-footer flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-white px-5 py-4 dark:bg-slate-900 ${className}`}>{children}</footer>;
+}
+
+const containsDialogPart = (children: ReactNode, part: typeof DialogBody | typeof DialogFooter): boolean =>
+    Children.toArray(children).some((child) => {
+        if (!isValidElement<{ children?: ReactNode }>(child) || child.type === Dialog) return false;
+        return child.type === part || containsDialogPart(child.props.children, part);
+    });
+
+export function Dialog({ title, children, onClose, wide = false, stacked = false, size = 'default' }: {
     title: string;
     children: ReactNode;
     onClose: () => void;
     wide?: boolean;
     stacked?: boolean;
+    size?: 'default' | 'large';
 }) {
     const contentRef = useRef<HTMLElement>(null);
-    const openerRef = useRef<HTMLElement | null>(null);
+    const openerRef = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const closeTimer = useRef<number>();
     const titleId = useId();
     const [closing, setClosing] = useState(false);
@@ -39,7 +54,7 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
     const layer = Math.max(stacked ? 140 : 100, parentLayer + 40);
 
     useEffect(() => {
-        openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const opener = openerRef.current;
         lockBodyScroll();
         const frame = window.requestAnimationFrame(() => {
             const content = contentRef.current;
@@ -51,7 +66,7 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
             if (closeTimer.current)
                 window.clearTimeout(closeTimer.current);
             unlockBodyScroll();
-            openerRef.current?.focus();
+            if (opener?.isConnected) opener.focus();
         };
     }, []);
 
@@ -63,6 +78,7 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
     };
 
     const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+        event.stopPropagation();
         if (event.key === 'Escape') {
             event.preventDefault();
             requestClose();
@@ -90,12 +106,15 @@ export function Dialog({ title, children, onClose, wide = false, stacked = false
     return createPortal(
         <OverlayLayerContext.Provider value={layer}>
             <div data-state={closing ? 'closed' : 'open'} style={{ zIndex: layer }} className="dialog-backdrop fixed inset-0 flex items-end justify-center bg-slate-950/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-                <section ref={contentRef} tabIndex={-1} onKeyDown={onKeyDown} className={`dialog-content max-h-[92vh] min-w-0 w-full overflow-auto rounded-xl bg-white shadow-2xl dark:bg-slate-900 ${wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-5xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-xl'}`}>
-                    <header className="flex items-center justify-between border-b px-5 py-4">
+                <section ref={contentRef} tabIndex={-1} onKeyDown={onKeyDown} className={`dialog-content flex max-h-[min(92dvh,100%)] min-w-0 w-full flex-col overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900 ${wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-5xl' : size === 'large' ? 'max-w-[calc(100vw-2rem)] sm:max-w-3xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-xl'}`}>
+                    <header className="flex shrink-0 items-center justify-between border-b px-5 py-4">
                         <h2 id={titleId} className="text-xl font-bold">{title}</h2>
                         <button type="button" aria-label="Fechar diálogo" className="btn-secondary !p-2" onClick={requestClose}><X aria-hidden="true" size={17}/></button>
                     </header>
-                    <div className="p-5">{children}</div>
+                    {containsDialogPart(children, DialogBody)
+                        ? children
+                        : <DialogBody>{children}</DialogBody>}
+                    {!containsDialogPart(children, DialogFooter) && <DialogFooter><button type="button" className="btn-secondary" onClick={requestClose}>Fechar</button></DialogFooter>}
                 </section>
             </div>
         </OverlayLayerContext.Provider>,

@@ -15,7 +15,7 @@ import { hasPermission } from '../../domain/permissions'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { MaskedInput } from '../../components/ui/MaskedInput'
 import { BrazilianPhoneInput } from '../../components/ui/BrazilianPhoneInput'
@@ -105,12 +105,12 @@ export function PeoplePage() {
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="pessoas"/>
 
     {editing && <PersonEditor person={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>}
-    {filtersOpen && <Dialog title="Filtros de pessoas" onClose={() => setFiltersOpen(false)}><div className="space-y-4">
+    {filtersOpen && <Dialog title="Filtros de pessoas" onClose={() => setFiltersOpen(false)}><><DialogBody className="space-y-4">
       <Field label="Tipo"><Select value={kindFilter} onChange={(event) => { setKindFilter(event.target.value as typeof kindFilter); setPage(1) }}><option value="ALL">Pessoa física e jurídica</option><option value="PF">Pessoa física</option><option value="PJ">Pessoa jurídica</option></Select></Field>
       <Field label="Papel"><Select value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value as typeof roleFilter); setPage(1) }}><option value="ALL">Todos os papéis</option><option value="CREDOR">Credor</option><option value="INTERESSADO">Interessado</option><option value="RESPONSAVEL">Responsável</option></Select></Field>
       <Field label="Situação"><Select value={activeFilter} onChange={(event) => { setActiveFilter(event.target.value as typeof activeFilter); setPage(1) }}><option value="ALL">Todas</option><option value="ACTIVE">Ativas</option><option value="INACTIVE">Inativas</option></Select></Field>
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => { setKindFilter('ALL'); setRoleFilter('ALL'); setActiveFilter('ALL'); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
-    </div></Dialog>}
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => { setKindFilter('ALL'); setRoleFilter('ALL'); setActiveFilter('ALL'); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></DialogFooter>
+    </></Dialog>}
   </>
 }
 
@@ -164,7 +164,7 @@ function PersonEditor({ person, onClose, onSaved }: {
   }
 
   return <Dialog title={person ? 'Editar Pessoa' : 'Nova Pessoa'} onClose={onClose} wide>
-    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+    <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><DialogBody className="space-y-5">
       <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
         <h3 className="label mb-4">Tipo e identificação</h3>
         <fieldset>
@@ -212,7 +212,7 @@ function PersonEditor({ person, onClose, onSaved }: {
 
       {person && <label className="flex items-center justify-between rounded-xl border border-border bg-card p-4 text-sm font-semibold"><span>Pessoa ativa</span><Switch checked={active} onCheckedChange={setActive}/></label>}
       {mutation.error && <ErrorBox error={mutation.error}/>}
-      <div className="flex justify-end gap-2 border-t border-border pt-4"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></DialogFooter>
     </form>
   </Dialog>
 }

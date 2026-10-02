@@ -24,7 +24,7 @@ import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { api } from '../../services/api';
 import { useSession } from '../../app/session';
 import { invalidateAll, useDb } from '../../app/queries';
-import { Dialog } from '../../components/ui/Dialog';
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
 import { CpfInput } from '../../components/ui/CpfInput';
 import { Select } from '../../components/ui/Select';
@@ -292,15 +292,15 @@ export function UserAccessPage() {
         />
       )}
       {removing && (
-        <Dialog title="Remover acesso à unidade?" onClose={() => setRemoving(null)}>
+        <Dialog title="Remover acesso à unidade?" onClose={() => setRemoving(null)}><DialogBody>
           <p className="text-sm text-slate-600 dark:text-slate-300">
             O usuário deixará de atuar em <strong>{db.units.find((unit) => unit.id === removing.unitId)?.name}</strong>. Os registros anteriores serão preservados.
           </p>
           {removeMutation.error && <div className="mt-4"><ErrorBox error={removeMutation.error} /></div>}
-          <div className="mt-5 flex justify-end gap-2">
+          </DialogBody><DialogFooter>
             <button type="button" className="btn-secondary" onClick={() => setRemoving(null)}>Cancelar</button>
             <button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={removeMutation.isPending} onClick={() => removeMutation.mutate(removing.id)}>Remover acesso</button>
-          </div>
+          </DialogFooter>
         </Dialog>
       )}
     </div>
@@ -338,7 +338,7 @@ function UserEditor({ user, db, onClose, onSaved }: {
 
   return (
     <Dialog title={user ? 'Editar usuário' : 'Novo usuário'} onClose={onClose} wide={!user}>
-      <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
+      <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><DialogBody className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nome *">
             <Input aria-label="Nome do usuário" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Ex.: Maria da Silva" />
@@ -362,10 +362,10 @@ function UserEditor({ user, db, onClose, onSaved }: {
         </>}
         {user && <label className="flex items-center gap-2 text-sm"><Switch checked={active} disabled={user.id === ctx.userId || user.id === 'usr-admin'} onCheckedChange={setActive} /> Usuário ativo</label>}
         {mutation.error && <ErrorBox error={mutation.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
           <button className="btn-primary" disabled={mutation.isPending || !name.trim() || !email.trim() || (!user && !unitId)}>Salvar</button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );
@@ -394,7 +394,7 @@ function UserImportDialog({ db, onClose }: { db: Database; onClose: () => void }
   };
 
   return <Dialog title="Importar usuários por CSV" onClose={onClose} wide>
-    <div className="space-y-4">
+    <><DialogBody className="space-y-4">
       <p className="text-sm text-slate-600 dark:text-slate-300">Cadastre até 1000 usuários por vez. Use <strong>sim</strong> ou <strong>não</strong> em ativo e criar_pessoa. A unidade será atribuída depois no botão <strong>Unidades</strong>.</p>
       <a className="btn-secondary inline-flex" href="/examples/usuarios.csv" download="usuarios.csv"><Download size={16} /> Baixar CSV de exemplo</a>
       <Field label="Arquivo CSV *">
@@ -416,8 +416,8 @@ function UserImportDialog({ db, onClose }: { db: Database; onClose: () => void }
         {result.rows.length > 20 && <p className="text-xs text-slate-500">Mostrando as primeiras 20 linhas. Todas serão validadas e importadas.</p>}
       </>}
       {mutation.error && <ErrorBox error={mutation.error} />}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button type="button" className="btn-primary" disabled={mutation.isPending || !result?.rows.length || Boolean(result.errors.length)} onClick={() => mutation.mutate()}>Importar usuários</button></div>
-    </div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button type="button" className="btn-primary" disabled={mutation.isPending || !result?.rows.length || Boolean(result.errors.length)} onClick={() => mutation.mutate()}>Importar usuários</button></DialogFooter>
+    </>
   </Dialog>;
 }
 
@@ -447,7 +447,7 @@ function AccessEditor({ user, membership, db, onClose, onSaved }: {
 
   return (
     <Dialog title={membership ? 'Editar acesso à unidade' : 'Adicionar unidade'} onClose={onClose} wide>
-      <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
+      <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><DialogBody className="space-y-4">
         <Field label="Unidade organizacional *">
           <Select aria-label="Unidade organizacional" value={unitId} disabled={Boolean(membership)} onChange={(event) => setUnitId(event.target.value)}>
             {availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unitPath(db.units, unit.id)}</option>)}
@@ -459,10 +459,10 @@ function AccessEditor({ user, membership, db, onClose, onSaved }: {
         </Field>
         {selectedProfile?.isAdmin ? <p className="text-sm text-violet-700 dark:text-violet-300">Administrador: todas as permissões nesta unidade.</p> : <><p className="text-xs text-slate-500 dark:text-slate-400">O perfil preenche as permissões iniciais. Você pode adicionar ou remover permissões para esta unidade.</p><div className="max-h-[45vh] overflow-y-auto pr-1"><PermissionGrid value={permissions} onChange={setPermissions}/></div></>}
         {mutation.error && <ErrorBox error={mutation.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
           <button className="btn-primary" disabled={mutation.isPending || !unitId}>Salvar acesso</button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );

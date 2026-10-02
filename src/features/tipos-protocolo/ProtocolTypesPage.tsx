@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, GitBranch, ListChecks, MoreHorizontal, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Sparkles, Trash2 } from 'lucide-react'
 import type { AppUser, Attachment, ChecklistQuestion, FlowMode, ProcessCategory, ProtocolFlow, ProtocolPhase, ProtocolType, SituationType, Unit } from '../../domain/model'
@@ -7,7 +7,7 @@ import { sortUnitsByPath, unitPath } from '../../domain/units'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Switch } from '../../components/ui/Switch'
@@ -16,6 +16,8 @@ import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedbac
 import { ListPagination, paginateItems } from '../../components/ui/ListPagination'
 import { IconGlyph, IconSelect } from '../../components/ui/IconSelect'
 import { AiProtocolTypeDialog } from './AiProtocolTypeDialog'
+import { PhaseEditor } from '../fases/PhasesPage'
+import { SituationEditor } from '../situacoes/SituationsPage'
 export function ProtocolTypesPage() {
   const ctx = useSession()
   const { data: db, isLoading } = useDb()
@@ -151,15 +153,15 @@ function TypesList({ types, categories, flowPhases, attachments, editable, canCr
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="tipos de processo"/>
 
     {filtersOpen && <Dialog title="Filtros" onClose={() => setFiltersOpen(false)}>
-      <div className="space-y-4">
+      <><DialogBody className="space-y-4">
         <Field label="Fluxo"><Select value={flowFilter} onChange={(event) => { setFlowFilter(event.target.value as 'ALL' | FlowMode); setPage(1) }}><option value="ALL">Todos os fluxos</option><option value="NONE">Fluxo livre</option><option value="SUGGESTED">Fluxo sugerido</option><option value="REQUIRED">Fluxo obrigatório</option></Select></Field>
         <Field label="Requisitos"><Select value={requirementFilter} onChange={(event) => { setRequirementFilter(event.target.value); setPage(1) }}><option value="">Selecionar...</option><option value="tramitacao">Tem tramitação</option><option value="credor">Tem credor</option><option value="interessado">Tem interessado</option><option value="responsavel">Tem responsável</option><option value="assunto">Tem assunto</option><option value="arquivos">Tem arquivos</option><option value="amount">Tem valor</option><option value="portal">Tem portal do cidadão</option></Select></Field>
         <Field label="Situação"><Select value={situationFilter} onChange={(event) => { setSituationFilter(event.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE'); setPage(1) }}><option value="ALL">Todas as situações</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></Select></Field>
-        <div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setFiltersOpen(false)}>Cancelar</button><button className="button-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
-      </div>
+        </DialogBody><DialogFooter><button className="button-secondary" onClick={() => setFiltersOpen(false)}>Cancelar</button><button className="button-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></DialogFooter>
+      </>
     </Dialog>}
     {deleteOpen && <Dialog title="Excluir todos os tipos de processo" onClose={() => setDeleteOpen(false)}>
-      <div className="space-y-4"><p className="text-sm text-muted-foreground">Esta ação remove todos os tipos de processo. Ela só será permitida se não houver processos vinculados.</p>{deleteAll.error && <ErrorBox error={deleteAll.error} />}<div className="flex justify-end gap-2"><button className="button-secondary" onClick={() => setDeleteOpen(false)}>Cancelar</button><button className="button-primary bg-destructive hover:bg-destructive/90" onClick={() => deleteAll.mutate()} disabled={deleteAll.isPending}>Excluir todos</button></div></div>
+      <><DialogBody className="space-y-4"><p className="text-sm text-muted-foreground">Esta ação remove todos os tipos de processo. Ela só será permitida se não houver processos vinculados.</p>{deleteAll.error && <ErrorBox error={deleteAll.error} />}</DialogBody><DialogFooter><button className="button-secondary" onClick={() => setDeleteOpen(false)}>Cancelar</button><button className="button-primary bg-destructive hover:bg-destructive/90" onClick={() => deleteAll.mutate()} disabled={deleteAll.isPending}>Excluir todos</button></DialogFooter></>
     </Dialog>}
   </div>
 }
@@ -302,12 +304,12 @@ function TypeAttachmentsDialog({ type, attachments, editable, onClose }: { type:
   const remove = useMutation({ mutationFn: (attachmentId: string) => api.removeProtocolTypeAttachment(ctx, attachmentId), onSuccess: () => invalidateAll(client) })
 
   return <Dialog title={`Arquivos — ${type.name}`} onClose={onClose}>
-    <div className="space-y-4">
+    <><DialogBody className="space-y-4">
       {editable && <div className="flex justify-end"><input ref={inputRef} className="sr-only" type="file" multiple accept="application/pdf,image/png,image/jpeg,text/plain" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) add.mutate(files); event.currentTarget.value = '' }} /><button type="button" className="btn-primary" disabled={add.isPending} onClick={() => inputRef.current?.click()}><Paperclip size={16} />{add.isPending ? 'Anexando…' : 'Anexar arquivos'}</button></div>}
       {add.error && <ErrorBox error={add.error} />}{remove.error && <ErrorBox error={remove.error} />}
       {attachments.length ? <div className="divide-y rounded-lg border">{attachments.map((attachment) => <div className="flex items-center justify-between gap-3 px-3 py-3" key={attachment.id}><div className="min-w-0"><strong className="block truncate text-sm">{attachment.filename}</strong><small className="text-slate-500 dark:text-slate-400">{Math.ceil(attachment.sizeBytes / 1024)} KB · {attachment.mimeType}</small></div>{editable && <button type="button" className="btn-secondary !p-2 text-red-600" aria-label={`Remover ${attachment.filename}`} disabled={remove.isPending} onClick={() => remove.mutate(attachment.id)}><Trash2 size={16} /></button>}</div>)}</div> : <p className="rounded-lg border border-dashed p-5 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum arquivo associado a este tipo.</p>}
-      <div className="flex justify-end"><button type="button" className="btn-secondary" onClick={onClose}>Fechar</button></div>
-    </div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Fechar</button></DialogFooter>
+    </>
   </Dialog>
 }
 function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }: { type?: ProtocolType; categories: ProcessCategory[]; users: AppUser[]; units: Unit[]; onClose: () => void; onSaved: () => void }) {
@@ -351,7 +353,7 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
 
   return <>
     <Dialog title={type ? 'Editar tipo de processo' : 'Novo tipo de processo'} onClose={onClose} wide>
-      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+      <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><DialogBody className="space-y-5">
         <div className="space-y-5 lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
           <section className="rounded-lg border p-4 lg:col-span-12">
             <h3 className="label mb-3">Identidade</h3>
@@ -407,7 +409,7 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
         </div>
         {type && <label className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Tipo ativo</label>}
         {mutation.error && <ErrorBox error={mutation.error}/>}
-        <div className="sticky bottom-0 z-[130] flex justify-end gap-2 border-t border-border bg-white py-3 shadow-[0_-8px_16px_-16px_rgba(15,23,42,.6)] dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !categoryId}>Salvar</button></div>
+        </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !categoryId}>Salvar</button></DialogFooter>
       </form>
     </Dialog>
   </>
@@ -415,10 +417,10 @@ function ProtocolTypeEditor({ type, categories, users, units, onClose, onSaved }
 function ChecklistEditor({ title, questions, onChange, onClose }: { title: string; questions: ChecklistQuestion[]; onChange: (questions: ChecklistQuestion[]) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<ChecklistQuestion | 'new' | null>(null); const ordered = questions.slice().sort((a, b) => a.order - b.order)
   const save = (question: ChecklistQuestion) => { const exists = questions.some((item) => item.id === question.id); onChange((exists ? questions.map((item) => item.id === question.id ? question : item) : [...questions, question]).sort((a, b) => a.order - b.order)); setEditing(null) }
-  return <><Dialog title={title} onClose={onClose}><div className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}<div className="pt-3 text-right"><button className="btn-secondary" onClick={onClose}>Fechar</button></div></div></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save} stacked/>}</>
+  return <><Dialog title={title} onClose={onClose}><><DialogBody className="space-y-2"><div className="mb-4 flex justify-end"><button className="btn-primary" onClick={() => setEditing('new')}><Plus size={16}/>Nova pergunta</button></div>{ordered.length ? ordered.map((question) => <article key={question.id} className="flex items-center gap-3 rounded-lg border p-3"><span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-xs dark:bg-slate-800">{question.order}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{question.text}</p><p className="mt-1 text-xs text-slate-500">{question.required && 'Obrigatório'}{question.requiresDate && ' · Data'}{question.requiresAttachment && ' · Anexo'}{question.requiresObservation && ' · Observação'}</p></div><button className="btn-secondary !p-2" aria-label="Editar pergunta" onClick={() => setEditing(question)}>Editar</button><button className="btn-secondary !p-2" aria-label="Excluir pergunta" onClick={() => onChange(ordered.filter((item) => item.id !== question.id).map((item, index) => ({ ...item, order: index + 1 })))}>Excluir</button></article>) : <p className="rounded border border-dashed p-5 text-center text-sm text-slate-500">Nenhuma pergunta cadastrada.</p>}</DialogBody><DialogFooter><button className="btn-secondary" onClick={onClose}>Fechar</button></DialogFooter></></Dialog>{editing && <QuestionEditor question={editing === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editing} onClose={() => setEditing(null)} onSave={save} stacked/>}</>
 }
 function QuestionEditor({ question, onClose, onSave, stacked }: { question: ChecklistQuestion; onClose: () => void; onSave: (question: ChecklistQuestion) => void; stacked?: boolean }) {
-  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose} stacked={stacked}><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} placeholder="Ex.: Os documentos foram conferidos?"/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })} placeholder="Ex.: 1"/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></div></form></Dialog>
+  const [draft, setDraft] = useState(question); return <Dialog title="Nova pergunta" onClose={onClose} stacked={stacked}><form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); onSave(draft) }}><DialogBody className="space-y-4"><Field label="Pergunta *"><Input autoFocus className="field" value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} placeholder="Ex.: Os documentos foram conferidos?"/></Field><Field label="Ordem"><Input className="field max-w-28" type="number" min="1" value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })} placeholder="Ex.: 1"/><small className="text-slate-500">Ordens em uso: 1, 2, 3</small></Field><div className="grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2 text-sm"><Switch checked={draft.required} onChange={(event) => setDraft({ ...draft, required: event.target.checked })}/> Obrigatório</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresAttachment} onChange={(event) => setDraft({ ...draft, requiresAttachment: event.target.checked })}/> Exige anexo</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresDate} onChange={(event) => setDraft({ ...draft, requiresDate: event.target.checked })}/> Exige data</label><label className="flex items-center gap-2 text-sm"><Switch checked={draft.requiresObservation} onChange={(event) => setDraft({ ...draft, requiresObservation: event.target.checked })}/> Exige observação</label></div></DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={!draft.text.trim()}>Salvar</button></DialogFooter></form></Dialog>
 }
 
 function StageEditor({ draft, phases, situations, units, order, saving, onClose, onSave }: {
@@ -454,6 +456,13 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
   }) => void
 }) {
   const [stage, setStage] = useState(draft)
+  const ctx = useSession()
+  const { data: db } = useDb()
+  const phaseSelectId = useId()
+  const situationSelectId = useId()
+  const [creatingPhase, setCreatingPhase] = useState(false)
+  const [creatingSituation, setCreatingSituation] = useState(false)
+  const canCreateWorkflow = Boolean(db && hasPermission(db, ctx, 'workflow.create'))
   const [editingQuestion, setEditingQuestion] = useState<ChecklistQuestion | 'new' | null>(null)
   const selectedSituation = situations.find((situation) => situation.id === stage.situationTypeId)
   const questions = (stage.checklistQuestions ?? []).slice().sort((left, right) => left.order - right.order)
@@ -465,17 +474,19 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
   }
 
   return <>
-    <Dialog title="Nova etapa do fluxo" onClose={onClose}>
-      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); onSave({ ...stage, checklistQuestions: stage.requiresChecklist ? questions : [] }) }}>
+    <Dialog title="Nova etapa do fluxo" onClose={onClose} size="large">
+      <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); onSave({ ...stage, checklistQuestions: stage.requiresChecklist ? questions : [] }) }}><DialogBody className="space-y-5">
         <section className="rounded border p-4">
           <h3 className="label mb-3">Fase e situação</h3>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Fase *">
-              <Select aria-label="Fase *" className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active || phase.id === stage.phaseId).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select>
-            </Field>
-            <Field label="Situação">
-              <Select aria-label="Situação" className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select>
-            </Field>
+            <div>
+              <div className="flex items-center justify-between gap-2"><label className="label !mb-0" htmlFor={phaseSelectId}>Fase *</label>{canCreateWorkflow && <button type="button" aria-label="Nova fase" className="text-xs font-semibold text-[var(--ui-accent)] hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-accent)]" onClick={() => setCreatingPhase(true)}>+ Novo</button>}</div>
+              <Select id={phaseSelectId} aria-label="Fase *" className="field" value={stage.phaseId} onChange={(event) => setStage({ ...stage, phaseId: event.target.value })}><option value="">Selecione...</option>{phases.filter((phase) => phase.active || phase.id === stage.phaseId).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}</option>)}</Select>
+            </div>
+            <div>
+              <div className="flex items-center justify-between gap-2"><label className="label !mb-0" htmlFor={situationSelectId}>Situação</label>{canCreateWorkflow && <button type="button" aria-label="Nova situação" className="text-xs font-semibold text-[var(--ui-accent)] hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-accent)]" onClick={() => setCreatingSituation(true)}>+ Novo</button>}</div>
+              <Select id={situationSelectId} aria-label="Situação" className="field" value={stage.situationTypeId ?? ''} onChange={(event) => setStage({ ...stage, situationTypeId: event.target.value || undefined })}><option value="">Sem situação definida</option>{situations.filter((situation) => situation.active || situation.id === stage.situationTypeId).map((situation) => <option key={situation.id} value={situation.id}>{situation.name}</option>)}</Select>
+            </div>
           </div>
           {selectedSituation && <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold" style={{ backgroundColor: selectedSituation.color + '18', borderColor: selectedSituation.color + '55', color: selectedSituation.color }}><IconGlyph name={selectedSituation.icon} size={14}/>{selectedSituation.name}</div>}
         </section>
@@ -490,9 +501,11 @@ function StageEditor({ draft, phases, situations, units, order, saving, onClose,
         </section>}
         <section className="rounded border p-4"><h3 className="label mb-3">Observação</h3><textarea className="field min-h-20" value={stage.observation ?? ''} onChange={(event) => setStage({ ...stage, observation: event.target.value || undefined })} placeholder="Oriente a execução desta etapa..."/></section>
         <section className="rounded border p-4"><h3 className="label mb-3">Aparência da etapa</h3><div className="grid gap-3 sm:grid-cols-2"><Field label="Cor"><Input className="field h-10 p-1" type="color" value={stage.color ?? '#3498db'} onChange={(event) => setStage({ ...stage, color: event.target.value })}/></Field><Field label="Ícone"><IconSelect value={stage.icon ?? 'ArrowRight'} onChange={(event) => setStage({ ...stage, icon: event.target.value })}/></Field></div></section>
-        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></div>
+        </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={saving || !stage.phaseId}>{saving ? 'Salvando…' : 'Salvar'}</button></DialogFooter>
       </form>
     </Dialog>
     {editingQuestion && <QuestionEditor stacked question={editingQuestion === 'new' ? { id: crypto.randomUUID(), text: '', order: questions.length + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false } : editingQuestion} onClose={() => setEditingQuestion(null)} onSave={saveQuestion}/>}
+    {creatingPhase && <PhaseEditor stacked onClose={() => setCreatingPhase(false)} onSaved={(phase) => { setStage((current) => ({ ...current, phaseId: phase.id })); setCreatingPhase(false) }}/>}
+    {creatingSituation && <SituationEditor stacked onClose={() => setCreatingSituation(false)} onSaved={(situation) => { setStage((current) => ({ ...current, situationTypeId: situation.id })); setCreatingSituation(false) }}/>}
   </>
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog } from './Dialog'
+import { Dialog, DialogBody, DialogFooter } from './Dialog'
 import { ErrorBox, Loading } from './Feedback'
 
 export function PdfViewerDialog({ title, url, blob, downloadFilename, downloadLabel = 'Baixar PDF', error, onClose }: { title: string; url?: string; blob?: Blob; downloadFilename?: string; downloadLabel?: string; error?: unknown; onClose: () => void }) {
@@ -12,9 +12,9 @@ export function PdfViewerDialog({ title, url, blob, downloadFilename, downloadLa
   }, [blob])
   const source = url ?? temporaryUrl
   return <Dialog title={title} onClose={onClose} wide>
-    {error ? <ErrorBox error={error}/> : source ? <>
+    <DialogBody>{error ? <ErrorBox error={error}/> : source ? <>
       <iframe className="h-[65vh] w-full rounded-md border" src={source} title={`Pré-visualização de ${title}`}/>
-      {downloadFilename && <div className="mt-4 flex justify-end"><a className="btn-primary" href={source} download={downloadFilename}>{downloadLabel}</a></div>}
-    </> : <Loading/>}
+    </> : <Loading/>}</DialogBody>
+    <DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Fechar</button>{source && !error && downloadFilename && <a className="btn-primary" href={source} download={downloadFilename}>{downloadLabel}</a>}</DialogFooter>
   </Dialog>
 }

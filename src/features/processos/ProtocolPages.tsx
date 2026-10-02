@@ -93,7 +93,7 @@ import {
 import { useSession } from "../../app/session";
 import { invalidateAll, useDb } from "../../app/queries";
 import { navigateWithLoading } from "../../app/routeLoading";
-import { Dialog } from "../../components/ui/Dialog";
+import { Dialog, DialogBody, DialogFooter } from "../../components/ui/Dialog";
 import { PdfViewerDialog } from "../../components/ui/PdfViewerDialog";
 import { DocumentBody } from "../documents/DocumentBody";
 import { Input } from "../../components/ui/Input";
@@ -476,8 +476,8 @@ function AdvancedProcessFilterDialog({
           event.preventDefault();
           apply();
         }}
-        className="process-advanced-form"
-      >
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
+      ><DialogBody className="process-advanced-form">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Tipo de processo">
             <Select
@@ -630,7 +630,7 @@ function AdvancedProcessFilterDialog({
             ))}
           </div>
         </fieldset>
-        <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+        </DialogBody><DialogFooter>
           <button
             type="button"
             className="btn-secondary !border-0"
@@ -645,7 +645,7 @@ function AdvancedProcessFilterDialog({
             <Search size={16} />
             Buscar
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );
@@ -1438,8 +1438,8 @@ function PersonQuickDialog({
           e.preventDefault();
           create.mutate();
         }}
-        className="space-y-4"
-      >
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
+      ><DialogBody className="space-y-4">
         <Field label="Tipo">
           <Select
             className="field"
@@ -1483,14 +1483,14 @@ function PersonQuickDialog({
           </label>
         </div>
         {create.error && <ErrorBox error={create.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancelar
           </button>
           <button className="btn-primary" disabled={create.isPending}>
             Salvar pessoa
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );
@@ -2144,16 +2144,16 @@ export function ProtocolDetail() {
         />
       )}{" "}
       {showForwardPending && (
-        <Dialog title="Pendências para tramitar" onClose={() => setShowForwardPending(false)}>
+        <Dialog title="Pendências para tramitar" onClose={() => setShowForwardPending(false)}><DialogBody>
           <p className="text-sm text-muted-foreground">
             Resolva os itens abaixo na movimentação atual antes de tramitar o processo.
           </p>
           <ul className="mt-4 list-disc space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 pl-8 text-sm text-amber-900 marker:text-amber-600 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
             {forwardIssues.map((issue) => <li key={issue}>{issue}</li>)}
           </ul>
-          <div className="mt-5 flex justify-end">
+          </DialogBody><DialogFooter>
             <button type="button" className="btn-primary" onClick={() => { setShowForwardPending(false); setTab("progress"); }}>Voltar ao processo</button>
-          </div>
+          </DialogFooter>
         </Dialog>
       )}{" "}
       {confirmAcknowledge && (
@@ -2620,12 +2620,12 @@ function EditProtocolDialog({
   return (
     <Dialog title="Editar processo" onClose={onClose}>
       <form
-        className="space-y-4"
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
         onSubmit={(event) => {
           event.preventDefault();
           update.mutate();
         }}
-      >
+      ><DialogBody className="space-y-4">
         <Field label="Assunto *">
           <Input
             className="field"
@@ -2653,14 +2653,14 @@ function EditProtocolDialog({
           />
         </Field>
         {update.error && <ErrorBox error={update.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancelar
           </button>
           <button className="btn-primary" disabled={update.isPending}>
             Salvar
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );
@@ -3761,13 +3761,13 @@ function MoveDialog({
     <>
       <Dialog title={title} onClose={onClose}>
         <form
-          className="space-y-5"
+          className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
           onSubmit={(event) => {
             event.preventDefault();
             if (reopen) submitForward();
             else setConfirmActivity(true);
           }}
-        >
+        ><DialogBody className="space-y-5">
           {!reopen && (
             <section className="rounded-lg border p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -3951,7 +3951,7 @@ function MoveDialog({
           )}
           {Boolean(fileError) && <ErrorBox error={fileError} />}{" "}
           {mutation.error && <ErrorBox error={mutation.error} />}
-          <div className="flex justify-end gap-2">
+          </DialogBody><DialogFooter>
             <button type="button" className="btn-secondary" onClick={onClose}>
               Cancelar
             </button>
@@ -3965,7 +3965,7 @@ function MoveDialog({
                   ? "Reabrir"
                   : "Tramitar"}
             </button>
-          </div>
+          </DialogFooter>
         </form>
       </Dialog>
 
@@ -3974,7 +3974,7 @@ function MoveDialog({
           title="Registrar atividade?"
           onClose={() => setConfirmActivity(false)}
           stacked
-        >
+        ><DialogBody>
           <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
             Deseja registrar a atividade desenvolvida e o resultado entregue
             nessa tramitação?
@@ -3984,7 +3984,7 @@ function MoveDialog({
               <ErrorBox error={mutation.error} />
             </div>
           )}
-          <div className="mt-6 flex flex-wrap justify-end gap-2">
+          </DialogBody><DialogFooter>
             <button
               type="button"
               className="btn-secondary"
@@ -4003,7 +4003,7 @@ function MoveDialog({
             >
               Sim, registrar
             </button>
-          </div>
+          </DialogFooter>
         </Dialog>
       )}
 
@@ -4014,7 +4014,7 @@ function MoveDialog({
           stacked
         >
           <form
-            className="space-y-4"
+            className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
             onSubmit={(event) => {
               event.preventDefault();
               submitForward({
@@ -4022,7 +4022,7 @@ function MoveDialog({
                 result: result.trim(),
               });
             }}
-          >
+          ><DialogBody className="space-y-4">
             <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Registre a atividade desenvolvida e o resultado entregue nessa
               tramitação. Essas informações serão incluídas no Relatório de
@@ -4047,7 +4047,7 @@ function MoveDialog({
               />
             </Field>
             {mutation.error && <ErrorBox error={mutation.error} />}
-            <div className="flex flex-wrap justify-end gap-2">
+            </DialogBody><DialogFooter>
               <button
                 type="button"
                 className="btn-secondary"
@@ -4064,7 +4064,7 @@ function MoveDialog({
               >
                 Salvar e continuar
               </button>
-            </div>
+            </DialogFooter>
           </form>
         </Dialog>
       )}
@@ -4090,12 +4090,12 @@ function CompleteDialog({
   return (
     <Dialog title="Concluir processo" onClose={onClose}>
       <form
-        className="space-y-4"
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
         onSubmit={(e) => {
           e.preventDefault();
           mutation.mutate();
         }}
-      >
+      ><DialogBody className="space-y-4">
         <Field label="Resultado da conclusão *">
           <textarea
             className="field min-h-28"
@@ -4105,12 +4105,12 @@ function CompleteDialog({
           />
         </Field>
         {mutation.error && <ErrorBox error={mutation.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancelar
           </button>
           <button className="btn-primary">Concluir</button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );
@@ -4162,14 +4162,14 @@ function ConfirmDialog({
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
   return (
-    <Dialog title={title} onClose={onClose}>
+    <Dialog title={title} onClose={onClose}><DialogBody>
       <div className="text-sm text-slate-600 dark:text-slate-300">{body}</div>
       {Boolean(error) && (
         <div className="mt-3">
           <ErrorBox error={error} />
         </div>
       )}
-      <div className="mt-5 flex justify-end gap-2">
+      </DialogBody><DialogFooter>
         <button className="btn-secondary" onClick={onClose}>
           Cancelar
         </button>
@@ -4192,7 +4192,7 @@ function ConfirmDialog({
         >
           {pending ? "Aguarde…" : label}
         </button>
-      </div>
+      </DialogFooter>
     </Dialog>
   );
 }
@@ -4486,12 +4486,12 @@ function AssignDialog({
   return (
     <Dialog title="Designar responsável" onClose={onClose}>
       <form
-        className="space-y-4"
+        className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
         onSubmit={(event) => {
           event.preventDefault();
           mutation.mutate();
         }}
-      >
+      ><DialogBody className="space-y-4">
         <p className="text-sm text-slate-600 dark:text-slate-300">
           A troca mantém a movimentação atual e exige nova ciência do responsável
           escolhido.
@@ -4511,7 +4511,7 @@ function AssignDialog({
           </Select>
         </Field>
         {mutation.error && <ErrorBox error={mutation.error} />}
-        <div className="flex justify-end gap-2">
+        </DialogBody><DialogFooter>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancelar
           </button>
@@ -4521,7 +4521,7 @@ function AssignDialog({
           >
             {mutation.isPending ? "Designando…" : "Designar"}
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );

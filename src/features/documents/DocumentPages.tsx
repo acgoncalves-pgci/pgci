@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Eye, FilePlus2, FileText, ListFilter, Pencil, Plus, Printer, Search, Trash2 } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Empty, ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { PdfViewerDialog } from '../../components/ui/PdfViewerDialog'
 import { Input } from '../../components/ui/Input'
 import { RichTextEditor } from '../../components/ui/RichTextEditor'
@@ -59,7 +59,7 @@ export function Documents() {
     </div>
     {data.items.length ? <div className="space-y-2">{paginated.items.map((document) => <DocumentRow key={document.id} document={document} db={data.db} ctx={ctx} onDelete={() => setDeleting(document)}/>)}</div> : <Empty title="Nenhum documento encontrado" detail="Comece redigindo um documento em formato A4."/>}
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="documentos"/>
-    {deleting && <Dialog title="Excluir documento?" onClose={() => setDeleting(null)}><div className="space-y-4 p-5"><p className="text-sm">O documento <strong>{deleting.number}</strong> será excluído. Esta ação não pode ser desfeita.</p>{remove.error && <ErrorBox error={remove.error}/>}<div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir documento'}</button></div></div></Dialog>}
+    {deleting && <Dialog title="Excluir documento?" onClose={() => setDeleting(null)}><><DialogBody className="space-y-4"><p className="text-sm">O documento <strong>{deleting.number}</strong> será excluído. Esta ação não pode ser desfeita.</p>{remove.error && <ErrorBox error={remove.error}/>}</DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir documento'}</button></DialogFooter></></Dialog>}
   </>
 }
 

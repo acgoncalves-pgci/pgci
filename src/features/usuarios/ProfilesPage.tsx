@@ -8,7 +8,7 @@ import { allPermissions, hasPermission } from '../../domain/permissions'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Switch } from '../../components/ui/Switch'
 import { Empty, ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
@@ -36,7 +36,7 @@ export function ProfilesPage() {
       </article>)}
     </section>
     {editing && <ProfileEditor profile={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
-    {removing && <Dialog title="Excluir perfil?" onClose={() => setRemoving(null)}><p className="text-sm">O modelo “{removing.name}” será excluído. As permissões já concedidas aos usuários serão mantidas.</p>{remove.error && <div className="mt-3"><ErrorBox error={remove.error}/></div>}<div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setRemoving(null)}>Cancelar</button><button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={remove.isPending} onClick={() => remove.mutate(removing.id)}>Excluir perfil</button></div></Dialog>}
+    {removing && <Dialog title="Excluir perfil?" onClose={() => setRemoving(null)}><DialogBody><p className="text-sm">O modelo “{removing.name}” será excluído. As permissões já concedidas aos usuários serão mantidas.</p>{remove.error && <div className="mt-3"><ErrorBox error={remove.error}/></div>}</DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => setRemoving(null)}>Cancelar</button><button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={remove.isPending} onClick={() => remove.mutate(removing.id)}>Excluir perfil</button></DialogFooter></Dialog>}
   </div>
 }
 
@@ -55,13 +55,13 @@ function ProfileEditor({ profile, onClose }: { profile?: AccessProfile; onClose:
     onSuccess: () => { invalidateAll(client); onClose() },
   })
   return <Dialog title={profile ? 'Editar perfil' : 'Novo perfil'} onClose={onClose} wide>
-    <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+    <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><DialogBody className="space-y-4">
       <Field label="Nome *"><Input aria-label="Nome do perfil" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Operador da Plataforma" /></Field>
       <Field label="Descrição"><Input aria-label="Descrição do perfil" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Uso deste perfil" /></Field>
       <label className="flex items-center gap-2 text-sm"><Switch aria-label="Perfil administrador" checked={isAdmin} disabled={profile?.id === 'profile-admin'} onCheckedChange={setIsAdmin}/> Administrador com todas as permissões</label>
       {!isAdmin && <><p className="text-xs text-slate-500 dark:text-slate-400">Selecione as permissões iniciais. Elas poderão ser ajustadas em cada unidade.</p><div className="max-h-[55vh] overflow-y-auto pr-1"><PermissionGrid value={permissions} onChange={setPermissions}/></div></>}
       {mutation.error && <ErrorBox error={mutation.error}/>}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar perfil</button></div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button type="submit" className="btn-primary" disabled={mutation.isPending || !name.trim()}>Salvar perfil</button></DialogFooter>
     </form>
   </Dialog>
 }

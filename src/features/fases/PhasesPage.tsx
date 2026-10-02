@@ -6,7 +6,7 @@ import { hasPermission } from '../../domain/permissions'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
@@ -86,22 +86,23 @@ export function PhasesPage() {
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="fases"/>
 
     {editing && <PhaseEditor phase={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>}
-    {filtersOpen && <Dialog title="Filtros de fases" onClose={() => setFiltersOpen(false)}><div className="space-y-4">
+    {filtersOpen && <Dialog title="Filtros de fases" onClose={() => setFiltersOpen(false)}><><DialogBody className="space-y-4">
       <label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => { setActiveOnly(event.target.checked); setPage(1) }}/> Mostrar somente fases ativas</label>
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => { setActiveOnly(true); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div>
-    </div></Dialog>}
-    {deleting && <Dialog title="Excluir tipo de fase" onClose={() => setDeleting(null)}>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => { setActiveOnly(true); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></DialogFooter>
+    </></Dialog>}
+    {deleting && <Dialog title="Excluir tipo de fase" onClose={() => setDeleting(null)}><DialogBody>
       <p className="text-sm text-muted-foreground">Deseja excluir a fase <strong>{deleting.name}</strong>? Ela só poderá ser removida se não estiver sendo usada em um fluxo.</p>
       {remove.error && <div className="mt-4"><ErrorBox error={remove.error}/></div>}
-      <div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></DialogFooter>
     </Dialog>}
   </>
 }
 
-function PhaseEditor({ phase, onClose, onSaved }: {
+export function PhaseEditor({ phase, onClose, onSaved, stacked = false }: {
   phase?: ProtocolPhase
   onClose: () => void
-  onSaved: () => void
+  onSaved: (phase: ProtocolPhase) => void
+  stacked?: boolean
 }) {
   const ctx = useSession()
   const client = useQueryClient()
@@ -127,21 +128,21 @@ function PhaseEditor({ phase, onClose, onSaved }: {
       }
       return phase ? api.updatePhase(ctx, phase.id, input) : api.createPhase(ctx, input)
     },
-    onSuccess: () => {
-      invalidateAll(client)
-      onSaved()
+    onSuccess: async (savedPhase) => {
+      await invalidateAll(client)
+      onSaved(savedPhase)
     },
   })
 
-  return <Dialog title={phase ? 'Editar Tipo de Fase' : 'Novo Tipo de Fase'} onClose={onClose}>
-    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+  return <Dialog title={phase ? 'Editar Tipo de Fase' : 'Novo Tipo de Fase'} onClose={onClose} stacked={stacked}>
+    <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><DialogBody className="space-y-5">
       <Field label="Descrição *"><Input autoFocus className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} placeholder="Ex.: Análise técnica"/></Field>
       <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7} placeholder="#2563EB"/></div></Field>
       <Field label="Ícone"><IconSelect value={icon} onChange={(event) => setIcon(event.target.value)}/></Field>
       <Field label="Observação"><textarea className="field min-h-24" maxLength={500} value={observation} onChange={(event) => setObservation(event.target.value)} placeholder="Descreva o objetivo desta fase..."/></Field>
       {phase && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Fase ativa</label>}
       {mutation.error && <ErrorBox error={mutation.error}/>}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></DialogFooter>
     </form>
   </Dialog>
 }

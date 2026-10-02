@@ -6,7 +6,7 @@ import { hasPermission } from '../../domain/permissions'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
 import { api } from '../../services/api'
-import { Dialog } from '../../components/ui/Dialog'
+import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
 import { Switch } from '../../components/ui/Switch'
 import { ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
@@ -71,8 +71,8 @@ export function ProcessCategoriesPage({ embedded = false }: { embedded?: boolean
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="categorias de processo"/>
 
     {editing && <CategoryEditor category={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)}/>} 
-    {filtersOpen && <Dialog title="Filtros de categorias" onClose={() => setFiltersOpen(false)}><div className="space-y-4"><label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => { setActiveOnly(event.target.checked); setPage(1) }}/> Mostrar somente categorias ativas</label><div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => { setActiveOnly(true); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></div></div></Dialog>}
-    {deleting && <Dialog title="Excluir categoria de processo" onClose={() => setDeleting(null)}><p className="text-sm text-muted-foreground">Deseja excluir a categoria <strong>{deleting.name}</strong>? Ela só poderá ser removida se não estiver vinculada a um tipo de processo.</p>{remove.error && <div className="mt-4"><ErrorBox error={remove.error}/></div>}<div className="mt-5 flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></div></Dialog>}
+    {filtersOpen && <Dialog title="Filtros de categorias" onClose={() => setFiltersOpen(false)}><><DialogBody className="space-y-4"><label className="flex items-center gap-2 text-sm"><Switch checked={activeOnly} onChange={(event) => { setActiveOnly(event.target.checked); setPage(1) }}/> Mostrar somente categorias ativas</label></DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => { setActiveOnly(true); setPage(1) }}>Limpar</button><button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>Aplicar</button></DialogFooter></></Dialog>}
+    {deleting && <Dialog title="Excluir categoria de processo" onClose={() => setDeleting(null)}><DialogBody><p className="text-sm text-muted-foreground">Deseja excluir a categoria <strong>{deleting.name}</strong>? Ela só poderá ser removida se não estiver vinculada a um tipo de processo.</p>{remove.error && <div className="mt-4"><ErrorBox error={remove.error}/></div>}</DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir'}</button></DialogFooter></Dialog>}
   </>
 }
 
@@ -94,7 +94,7 @@ export function CategoryEditor({ category, onClose, onSaved, stacked = false }: 
   })
 
   return <Dialog title={category ? 'Editar Categoria de Processo' : 'Nova Categoria de Processo'} onClose={onClose} stacked={stacked}>
-    <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+    <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}><DialogBody className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-[9rem_1fr]"><Field label="Código *"><Input autoFocus className="field font-mono" value={code} onChange={(event) => setCode(event.target.value)} maxLength={20} placeholder="00"/></Field><Field label="Nome *"><Input className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} placeholder="Ex.: Atendimento ao cidadão"/></Field></div>
       {!stacked && <>
         <Field label="Cor"><div className="flex max-w-52 items-center gap-2 rounded-lg border border-border bg-background p-1.5"><Input aria-label="Selecionar cor" className="!mt-0 size-8 shrink-0 cursor-pointer border-0 p-0" type="color" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())}/><Input aria-label="Cor hexadecimal" className="!mt-0 border-0 bg-transparent px-1 font-mono text-sm font-semibold shadow-none" value={color} onChange={(event) => setColor(event.target.value.toLocaleUpperCase())} maxLength={7} placeholder="#17628B"/></div></Field>
@@ -103,7 +103,7 @@ export function CategoryEditor({ category, onClose, onSaved, stacked = false }: 
       </>}
       {category && <label className="flex items-center gap-2 text-sm"><Switch checked={active} onChange={(event) => setActive(event.target.checked)}/> Categoria ativa</label>}
       {mutation.error && <ErrorBox error={mutation.error}/>} 
-      <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-border bg-white py-3 dark:bg-slate-900"><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !code.trim() || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></div>
+      </DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button><button className="btn-primary" disabled={mutation.isPending || !code.trim() || !name.trim()}>{mutation.isPending ? 'Salvando…' : 'Salvar'}</button></DialogFooter>
     </form>
   </Dialog>
 }
