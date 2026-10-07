@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Unit } from './model'
-import { sortUnitsByPath, unitPath } from './units'
+import { canReparentUnit, sortUnitsByPath, unitPath } from './units'
 
 const units: Unit[] = [
   { id: 'root', name: 'Prefeitura', abbreviation: 'PM', active: true },
@@ -22,5 +22,21 @@ describe('caminhos de unidades organizacionais', () => {
       'finance',
       'legal',
     ])
+  })
+
+  it('permite outro pai ou o nível principal e impede ciclos em qualquer profundidade', () => {
+    expect(canReparentUnit(units, 'finance', 'legal')).toBe(true)
+    expect(canReparentUnit(units, 'finance')).toBe(true)
+    expect(canReparentUnit(units, 'admin', 'admin')).toBe(false)
+    expect(canReparentUnit(units, 'root', 'finance')).toBe(false)
+    expect(canReparentUnit(units, 'admin', 'finance')).toBe(false)
+    expect(canReparentUnit(units, 'finance', 'missing')).toBe(false)
+    expect(canReparentUnit(units, 'finance', 'root')).toBe(true)
+    expect(canReparentUnit(units.map((unit) => unit.id === 'legal' ? { ...unit, active: false } : unit), 'finance', 'legal')).toBe(false)
+  })
+
+  it('termina e rejeita um pai com ciclo pré-existente', () => {
+    const cyclic = units.map((unit) => unit.id === 'root' ? { ...unit, parentId: 'admin' } : unit)
+    expect(canReparentUnit(cyclic, 'legal', 'finance')).toBe(false)
   })
 })

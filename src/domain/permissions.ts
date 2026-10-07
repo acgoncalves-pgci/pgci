@@ -8,7 +8,7 @@ export const permissionGroups = [
   { label: 'Tipos de documento', items: [['documentTypes.view', 'Visualizar'], ['documentTypes.create', 'Criar'], ['documentTypes.edit', 'Editar']] },
   { label: 'Situações e fases', items: [['workflow.view', 'Visualizar'], ['workflow.create', 'Criar'], ['workflow.edit', 'Editar'], ['workflow.delete', 'Excluir']] },
   { label: 'Processos', items: [['processes.view', 'Visualizar'], ['processes.create', 'Criar'], ['processes.act', 'Movimentar'], ['processes.assign', 'Designar responsável'], ['processes.edit', 'Editar'], ['processes.delete', 'Excluir']] },
-  { label: 'Documentos e anexos', items: [['documents.view', 'Visualizar'], ['documents.create', 'Criar'], ['documents.edit', 'Editar'], ['documents.delete', 'Excluir'], ['attachments.create', 'Anexar'], ['attachments.delete', 'Excluir anexo']] },
+  { label: 'Documentos e anexos', items: [['documents.view', 'Visualizar'], ['documents.create', 'Criar'], ['documents.edit', 'Editar'], ['documents.delete', 'Excluir'], ['attachments.create', 'Anexar'], ['attachments.edit', 'Editar anexo'], ['attachments.delete', 'Excluir anexo']] },
   { label: 'Relatórios', items: [['reports.view', 'Acessar relatórios'], ['reports.export', 'Exportar PDF'], ['reports.productivity', 'Ver produtividade']] },
   { label: 'Administração', items: [['settings.manage', 'Configurações'], ['audit.view', 'Ver auditoria']] },
 ] as const
@@ -18,8 +18,8 @@ export const allPermissions: Permission[] = permissionGroups.flatMap((group) => 
 
 const roleDefaults: Record<Role, Permission[]> = {
   ADMIN: allPermissions,
-  GESTOR: ['people.view', 'structure.view', 'users.view', 'protocolTypes.view', 'documentTypes.view', 'workflow.view', 'processes.view', 'processes.create', 'processes.act', 'processes.assign', 'documents.view', 'documents.create', 'documents.edit', 'attachments.create', 'reports.view', 'reports.export', 'reports.productivity'],
-  OPERADOR: ['people.view', 'structure.view', 'users.view', 'protocolTypes.view', 'documentTypes.view', 'workflow.view', 'processes.view', 'processes.create', 'processes.act', 'documents.view', 'documents.create', 'documents.edit', 'documents.delete', 'attachments.create', 'attachments.delete', 'reports.view', 'reports.export', 'reports.productivity', 'audit.view'],
+  GESTOR: ['people.view', 'structure.view', 'users.view', 'protocolTypes.view', 'documentTypes.view', 'workflow.view', 'processes.view', 'processes.create', 'processes.act', 'processes.assign', 'documents.view', 'documents.create', 'documents.edit', 'attachments.create', 'attachments.edit', 'reports.view', 'reports.export', 'reports.productivity'],
+  OPERADOR: ['people.view', 'structure.view', 'users.view', 'protocolTypes.view', 'documentTypes.view', 'workflow.view', 'processes.view', 'processes.create', 'processes.act', 'documents.view', 'documents.create', 'documents.edit', 'documents.delete', 'attachments.create', 'attachments.edit', 'attachments.delete', 'reports.view', 'reports.export', 'reports.productivity', 'audit.view'],
   LEITOR: ['people.view', 'structure.view', 'users.view', 'protocolTypes.view', 'documentTypes.view', 'workflow.view', 'processes.view', 'documents.view', 'reports.view'],
 }
 

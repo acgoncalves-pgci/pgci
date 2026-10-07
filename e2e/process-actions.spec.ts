@@ -1,10 +1,15 @@
+import { demoText } from './helpers/demo'
+import { downloadPreview, expectPdfReady, readPreview } from './helpers/pdf'
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
+import { configureDemoSession } from './helpers/session'
+configureDemoSession()
 
 test('responsável atual dá ciência pela lista sem abrir o processo', async ({ page, isMobile }) => {
-  await page.goto('/processos?tab=all&search=2026.000019')
-  await expect(page.getByRole('button', { name: 'Dar ciência do processo 2026.000019' })).toHaveCount(0)
+  await page.goto('/processos?tab=all')
+  await page.getByLabel('Buscar processos').fill(await demoText(page, '2026.000019'))
+  await expect(page.getByRole('button', { name: await demoText(page, 'Dar ciência do processo 2026.000019') })).toHaveCount(0)
 
   await page.evaluate(() => {
     localStorage.setItem('fluxo-publico:user', 'usr-bruno')
@@ -13,9 +18,9 @@ test('responsável atual dá ciência pela lista sem abrir o processo', async ({
   })
   await page.reload()
 
-  const card = page.locator('.process-card').filter({ hasText: '2026.000019' })
-  const view = card.getByRole('link', { name: 'Visualizar processo 2026.000019' })
-  const acknowledge = card.getByRole('button', { name: 'Dar ciência do processo 2026.000019' })
+  const card = page.locator('.process-card').filter({ hasText: await demoText(page, '2026.000019') })
+  const view = card.getByRole('link', { name: await demoText(page, 'Visualizar processo 2026.000019') })
+  const acknowledge = card.getByRole('button', { name: await demoText(page, 'Dar ciência do processo 2026.000019') })
   await expect(view).toBeVisible()
   await expect(acknowledge).toBeVisible()
   await expect(acknowledge).toHaveClass(/process-card-action-button--pulse/)
@@ -33,7 +38,7 @@ test('responsável atual dá ciência pela lista sem abrir o processo', async ({
   await confirmation.getByRole('button', { name: 'Confirmar ciência' }).click()
 
   await expect(confirmation).toBeHidden()
-  const registered = card.getByRole('button', { name: 'Ciência registrada no processo 2026.000019' })
+  const registered = card.getByRole('button', { name: await demoText(page, 'Ciência registrada no processo 2026.000019') })
   await expect(registered).toBeVisible()
   await expect(registered).toBeDisabled()
   await expect(registered).toHaveClass(/process-card-action-button--done/)
@@ -47,10 +52,11 @@ test('usuário da unidade assume e dá ciência pela lista após confirmar', asy
     localStorage.setItem('fluxo-publico:unit', 'u-fin')
     localStorage.setItem('fluxo-publico:scope-unit', 'u-fin')
   })
-  await page.goto('/processos?tab=all&search=2026.000018')
+  await page.goto('/processos?tab=all')
+  await page.getByLabel('Buscar processos').fill(await demoText(page, '2026.000018'))
 
-  const card = page.locator('.process-card').filter({ hasText: '2026.000018' })
-  const assume = card.getByRole('button', { name: 'Assumir e dar ciência do processo 2026.000018' })
+  const card = page.locator('.process-card').filter({ hasText: await demoText(page, '2026.000018') })
+  const assume = card.getByRole('button', { name: await demoText(page, 'Assumir e dar ciência do processo 2026.000018') })
   await expect(assume).toBeVisible()
   await assume.click()
 
@@ -65,7 +71,7 @@ test('usuário da unidade assume e dá ciência pela lista após confirmar', asy
   await assume.click()
   await confirmation.getByRole('button', { name: 'Assumir responsabilidade' }).click()
   await expect(confirmation).toBeHidden()
-  const registered = card.getByRole('button', { name: 'Ciência registrada no processo 2026.000018' })
+  const registered = card.getByRole('button', { name: await demoText(page, 'Ciência registrada no processo 2026.000018') })
   await expect(registered).toBeDisabled()
   const saved = await page.evaluate(() => {
     const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
@@ -121,10 +127,10 @@ test('lista compacta mostra anexos e menu de impressão completo', async ({ page
   await expect(menu.getByRole('menuitem', { name: 'Imprimir comprovante' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Imprimir etiqueta' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Imprimir detalhamento' })).toBeVisible()
-
-  const downloadPromise = page.waitForEvent('download')
   await menu.getByRole('menuitem', { name: 'Imprimir comprovante' }).click()
-  const download = await downloadPromise
+  const download = await downloadPreview(page)
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
   expect(download.suggestedFilename()).toMatch(/^comprovante_protocolo_.*\.pdf$/)
 })
 
@@ -178,16 +184,16 @@ test('lista exporta o comprovante do protocolo', async ({ page }) => {
   await page.goto('/processos?tab=all')
   const firstCard = page.locator('.process-card').first()
   await firstCard.getByRole('button', { name: /Imprimir processo/ }).click()
-
-  const downloadPromise = page.waitForEvent('download')
   await page.getByRole('menu').getByRole('menuitem', { name: 'Imprimir comprovante' }).click()
-  const download = await downloadPromise
+  const download = await downloadPreview(page)
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
   expect(download.suggestedFilename()).toMatch(/^comprovante_protocolo_.*\.pdf$/)
 })
 test('detalhe exporta os mesmos quatro PDFs da listagem', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Validação dos quatro downloads executada no projeto desktop.')
   await page.goto('/processos/pr-10')
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000010' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000010') })).toBeVisible()
 
   const actions = [
     ['Imprimir capa', /^capa_.*\.pdf$/],
@@ -198,32 +204,33 @@ test('detalhe exporta os mesmos quatro PDFs da listagem', async ({ page }, testI
 
   for (const [label, filename] of actions) {
     await page.getByRole('button', { name: 'Ações', exact: true }).click()
-    const downloadPromise = page.waitForEvent('download')
     await page.getByRole('menuitem', { name: label, exact: true }).click()
-    const download = await downloadPromise
+    const download = await downloadPreview(page)
+    await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
     expect(download.suggestedFilename()).toMatch(filename)
     if (label === 'Imprimir comprovante' || label === 'Imprimir detalhamento') {
       const downloadedPath = await download.path()
       expect(downloadedPath).not.toBeNull()
       const document = await PDFDocument.load(await readFile(downloadedPath!))
       expect(document.getTitle()).toBe(label === 'Imprimir comprovante'
-        ? 'Comprovante de protocolo 2026.000010'
-        : 'Detalhamento do processo 2026.000010')
+        ? await demoText(page, 'Comprovante de protocolo 2026.000010')
+        : await demoText(page, 'Detalhamento do processo 2026.000010'))
     }
   }
 })
 test('comprovante da movimentação continua separado do comprovante do protocolo', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Validação do arquivo baixado executada no projeto desktop.')
   await page.goto('/processos/pr-10')
-
-  const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Comprovante', exact: true }).first().click()
-  const download = await downloadPromise
+  const download = await downloadPreview(page)
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
   expect(download.suggestedFilename()).toMatch(/^comprovante_tramitacao_.*\.pdf$/)
   const downloadedPath = await download.path()
   expect(downloadedPath).not.toBeNull()
   const receipt = await PDFDocument.load(await readFile(downloadedPath!))
-  expect(receipt.getTitle()).toBe('Comprovante de tramitação 2026.000010')
+  expect(receipt.getTitle()).toBe(await demoText(page, 'Comprovante de tramitação 2026.000010'))
 })
 test('processo concluído não permite edição', async ({ page }) => {
   await page.goto('/processos/pr-10')
@@ -244,10 +251,10 @@ test('etiqueta usa uma página no formato 150 por 100 mm', async ({ page }, test
   const firstCard = page.locator('.process-card').first()
   await expect(firstCard).toBeVisible()
   await firstCard.getByRole('button', { name: /Imprimir processo/ }).click()
-
-  const downloadPromise = page.waitForEvent('download')
   await page.getByRole('menuitem', { name: 'Imprimir etiqueta' }).click()
-  const download = await downloadPromise
+  const download = await downloadPreview(page)
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
   expect(download.suggestedFilename()).toMatch(/^etiqueta_.*\.pdf$/)
 
   const downloadedPath = await download.path()
@@ -262,7 +269,7 @@ test('avança a fase configurada somente pela tramitação', async ({ page }, te
   test.skip(testInfo.project.name === 'mobile', 'Regressão funcional coberta no projeto desktop.')
   await page.goto('/processos/pr-1')
 
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000001') })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Avançar fase' })).toHaveCount(0)
 
   const forward = page.getByRole('button', { name: 'Tramitar', exact: true })
@@ -313,7 +320,7 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
     localStorage.setItem('fluxo-publico:unit', 'u-adm')
   })
   await page.goto('/processos/pr-19')
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000019' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000019') })).toBeVisible()
 
   const movementToggles = page.locator('button[aria-controls^="timeline-content-"]')
   const movementCount = await movementToggles.count()
@@ -361,10 +368,10 @@ test('abre os requisitos do checklist ao marcar e identifica data, anexo e obser
     localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
   })
   await page.goto('/processos/pr-9')
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000009' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000009') })).toBeVisible()
   await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
   const assumeConfirmation = page.getByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
-  await expect(assumeConfirmation).toContainText('2026.000009')
+  await expect(assumeConfirmation).toContainText(await demoText(page, '2026.000009'))
   await assumeConfirmation.getByRole('button', { name: 'Cancelar' }).click()
   await expect(page.getByRole('button', { name: 'Assumir e dar ciência' })).toBeVisible()
   await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
@@ -406,7 +413,7 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await page.getByRole('button', { name: 'Abrir menu do perfil' }).click()
   await page.getByRole('button', { name: 'Trocar usuário' }).click()
   await page.getByRole('button', { name: /Trocar para Marina Duarte/ }).click()
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000001') })).toBeVisible()
 
   await page.getByRole('button', { name: 'Escolher outro responsável' }).click()
   await expect(page.getByRole('button', { name: 'Escolher outro responsável' })).not.toHaveClass(/timeline-icon-action--pulse/)
@@ -438,7 +445,7 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await expect(page.getByText('anexo-com-duas-paginas.pdf', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Visualizar anexo anexo-integrado.pdf' }).click()
   const pdfViewer = page.getByRole('dialog', { name: 'anexo-integrado.pdf' })
-  await expect(pdfViewer.getByTitle('Pré-visualização de anexo-integrado.pdf')).toBeVisible()
+  await expectPdfReady(pdfViewer)
   await pdfViewer.getByRole('button', { name: 'Fechar diálogo' }).click()
   await expect(pdfViewer).toBeHidden()
   const dossierButton = page.getByRole('button', { name: 'Dossiê' })
@@ -448,11 +455,9 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   const dialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
   await expect(dialog).toContainText('anexos em PDF')
   await dialog.getByRole('button', { name: 'Gerar dossiê' }).click()
-  const dossierPreview = page.getByRole('dialog', { name: /dossie_2026\.000001_.*\.pdf/ })
-  await expect(dossierPreview.getByTitle(/Pré-visualização de dossie_2026\.000001_/)).toBeVisible()
-  const downloadPromise = page.waitForEvent('download')
-  await dossierPreview.getByRole('link', { name: 'Baixar dossiê' }).click()
-  const download = await downloadPromise
+  const dossierPreview = page.getByRole('dialog', { name: await demoText(page, 'Dossiê do processo — 2026.000001') })
+  await expectPdfReady(dossierPreview)
+  const download = await downloadPreview(page, dossierPreview)
   const downloadedPath = await download.path()
   expect(downloadedPath).not.toBeNull()
   const dossier = await PDFDocument.load(await readFile(downloadedPath!))
@@ -466,11 +471,9 @@ test('responsável abre a designação e o dossiê incorpora anexos PDF', async 
   await dossierButton.click()
   const secondDialog = page.getByRole('dialog', { name: 'Gerar dossiê do processo?' })
   await secondDialog.getByRole('button', { name: 'Gerar dossiê' }).click()
-  const secondPreview = page.getByRole('dialog', { name: /dossie_2026\.000001_.*\.pdf/ })
-  await expect(secondPreview.getByRole('link', { name: 'Baixar dossiê' })).toBeVisible()
-  const secondDownloadPromise = page.waitForEvent('download')
-  await secondPreview.getByRole('link', { name: 'Baixar dossiê' }).click()
-  const secondDownload = await secondDownloadPromise
+  const secondPreview = page.getByRole('dialog', { name: await demoText(page, 'Dossiê do processo — 2026.000001') })
+  await expectPdfReady(secondPreview)
+  const secondDownload = await downloadPreview(page, secondPreview)
   const secondDownloadedPath = await secondDownload.path()
   expect(secondDownloadedPath).not.toBeNull()
   const secondDossier = await PDFDocument.load(await readFile(secondDownloadedPath!))
@@ -491,10 +494,10 @@ test('responsável exclui documento e arquivo vinculados ao processo', async ({ 
   await page.getByRole('button', { name: 'Abrir menu do perfil' }).click()
   await page.getByRole('button', { name: 'Trocar usuário' }).click()
   await page.getByRole('button', { name: /Trocar para Marina Duarte/ }).click()
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000001' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000001') })).toBeVisible()
 
-  const documentPreview = page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })
-  const documentDelete = page.getByRole('button', { name: 'Excluir documento DOC-2026.000001' })
+  const documentPreview = page.getByRole('button', { name: await demoText(page, 'Visualizar documento DOC-2026.000001') })
+  const documentDelete = page.getByRole('button', { name: await demoText(page, 'Ações do documento DOC-2026.000001') })
   const previewBox = await documentPreview.boundingBox()
   const deleteBox = await documentDelete.boundingBox()
   expect(previewBox).not.toBeNull()
@@ -503,12 +506,14 @@ test('responsável exclui documento e arquivo vinculados ao processo', async ({ 
   expect(previewBox!.height).toBe(deleteBox!.height)
   await expect(documentDelete).toHaveCSS('border-top-width', '0px')
 
-  await page.getByRole('button', { name: 'Excluir documento DOC-2026.000001' }).click()
+  await documentDelete.click()
+  await page.getByRole('menuitem', { name: 'Excluir', exact: true }).click()
   const documentConfirmation = page.getByRole('dialog', { name: 'Excluir documento?' })
   await documentConfirmation.getByRole('button', { name: 'Excluir documento' }).click()
-  await expect(page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: await demoText(page, 'Visualizar documento DOC-2026.000001') })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Excluir arquivo comprovante-demo.txt' }).click()
+  await page.getByRole('button', { name: 'Ações do anexo comprovante-demo.txt' }).click()
+  await page.getByRole('menuitem', { name: 'Excluir', exact: true }).click()
   const attachmentConfirmation = page.getByRole('dialog', { name: 'Excluir arquivo?' })
   await attachmentConfirmation.getByRole('button', { name: 'Excluir arquivo' }).click()
   await expect(page.getByRole('button', { name: 'Visualizar anexo comprovante-demo.txt' })).toHaveCount(0)
@@ -540,21 +545,15 @@ test('resumo separa informações do processo e tramitação atual', async ({ pa
 test('documentos da movimentação abrem diretamente o visualizador de PDF', async ({ page }) => {
   await page.goto('/processos/pr-1')
 
-  const documentButton = page.getByRole('button', { name: 'Visualizar documento DOC-2026.000001' })
+  const documentButton = page.getByRole('button', { name: await demoText(page, 'Visualizar documento DOC-2026.000001') })
   await expect(documentButton).toBeVisible()
   await documentButton.locator('xpath=../preceding-sibling::div').click()
-  await expect(page.getByRole('dialog', { name: 'DOC-2026.000001.pdf' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: await demoText(page, 'DOC-2026.000001.pdf') })).toHaveCount(0)
   await documentButton.click()
 
-  const documentDialog = page.getByRole('dialog', { name: 'DOC-2026.000001.pdf' })
+  const documentDialog = page.getByRole('dialog', { name: await demoText(page, 'DOC-2026.000001.pdf') })
   await expect(documentDialog).toBeVisible()
-  const viewer = documentDialog.getByTitle('Pré-visualização de DOC-2026.000001.pdf')
-  await expect(viewer).toBeVisible({ timeout: 15_000 })
-  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
-    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
-    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
-  })
-  expect((await PDFDocument.load(Buffer.from(encoded, 'base64'))).getPageCount()).toBeGreaterThan(0)
+  expect((await PDFDocument.load(await readPreview(page, documentDialog))).getPageCount()).toBeGreaterThan(0)
   await documentDialog.getByRole('button', { name: 'Fechar diálogo' }).click()
   await expect(documentDialog).toBeHidden()
 
@@ -580,7 +579,8 @@ test('documento formatado da movimentação mantém HTML renderizado na prévia 
     element.dispatchEvent(new InputEvent('input', { bubbles: true }))
   })
   await page.getByRole('button', { name: 'Salvar documento' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Documento formatado da movimentação' })).toBeVisible()
+  await expect(page).toHaveURL(/\/documentos$/)
+  await expect(page.getByRole('heading', { name: 'Documento formatado da movimentação', exact: true })).toBeVisible()
 
   await page.goto('/processos/pr-1')
   const documentButton = page.getByText('Documento formatado da movimentação', { exact: false })
@@ -592,13 +592,15 @@ test('documento formatado da movimentação mantém HTML renderizado na prévia 
   const dialog = page.getByRole('dialog', { name: `${number}.pdf` })
   await expect(dialog).toBeVisible()
   await expect(page.locator('article.document-page[aria-hidden="true"] strong').first()).toHaveText('formatado')
-  const viewer = dialog.getByTitle(`Pré-visualização de ${number}.pdf`)
-  await expect(viewer).toBeVisible({ timeout: 15_000 })
-  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
-    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
-    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
-  })
-  expect((await PDFDocument.load(Buffer.from(encoded, 'base64'))).getPageCount()).toBeGreaterThan(0)
+  expect((await PDFDocument.load(await readPreview(page, dialog))).getPageCount()).toBeGreaterThan(0)
+  await dialog.getByRole('button', { name: 'Fechar diálogo' }).click()
+  await page.getByRole('button', { name: /^Documentos\b/ }).click()
+  const documentRow = page.getByText('Documento formatado da movimentação', { exact: true }).locator('xpath=ancestor::div[contains(@class,"items-center")][1]')
+  await documentRow.getByText('Documento formatado da movimentação', { exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await documentRow.getByRole('button', { name: `Visualizar documento ${number}` }).click()
+  await expect(page).toHaveURL(/\/processos\/pr-1$/)
+  await expectPdfReady(dialog)
 })
 
 

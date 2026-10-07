@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { configureDemoSession } from './helpers/session'
+import { demoText } from './helpers/demo'
+configureDemoSession()
 
 const documentStyle = async (page: import('@playwright/test').Page, selector: string) =>
   page.locator(selector).first().evaluate((element) => {
@@ -27,7 +30,8 @@ test('cada fonte da interface mantém os textos de processos no mínimo em peso 
 })
 
 test('fonte e tamanho da interface preservam a tipografia do editor, do documento e da impressão', async ({ page }) => {
-  await page.goto('/documentos/doc-8')
+  await page.goto('/documentos')
+  await page.getByRole('button', { name: await demoText(page, 'Visualizar DOC-2026.000008'), exact: true }).click()
   const documentBefore = await documentStyle(page, '.document-page')
   await page.goto('/documentos/novo')
   const editorBefore = await documentStyle(page, '.rich-editor-content')
@@ -36,7 +40,8 @@ test('fonte e tamanho da interface preservam a tipografia do editor, do document
   await page.getByRole('tab', { name: 'Aparência' }).click()
   await page.getByRole('button', { name: 'Sora Aa Bb 123' }).click()
   await page.getByRole('button', { name: /Extra grande · Aumenta a leitura em 37,5%/ }).click()
-  await page.goto('/documentos/doc-8')
+  await page.goto('/documentos')
+  await page.getByRole('button', { name: await demoText(page, 'Visualizar DOC-2026.000008'), exact: true }).click()
   expect(await documentStyle(page, '.document-page')).toEqual(documentBefore)
   await page.emulateMedia({ media: 'print' })
   expect(await documentStyle(page, '.document-page')).toEqual(documentBefore)

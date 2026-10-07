@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { downloadPreview } from './helpers/pdf';
+import { configureDemoSession } from './helpers/session';
+configureDemoSession();
 
 test('select permanece alinhado ao elemento âncora com zoom reduzido', async ({ page }) => {
   await page.addInitScript(() => {
@@ -33,29 +36,32 @@ test('relatórios exibem filtros em abas e geram os três PDFs', async ({ page }
   await expect(page.getByLabel('Agrupar por')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('relatorios-claro.png'), fullPage: true });
-  const listDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Gerar PDF', exact: true }).click();
-  const list = await listDownload;
+  const list = await downloadPreview(page);
   expect(list.suggestedFilename()).toBe('relatorio_processos.pdf');
   await list.saveAs(testInfo.outputPath('processos.pdf'));
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
   const number = await page.evaluate(() => JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).protocols[0].number as string);
   await page.getByRole('tab', { name: 'Relatório Individual', exact: true }).click();
   await expect(page.getByLabel('Agrupar por')).toHaveCount(0);
   await page.getByLabel('Número do processo').fill(number);
-  const coverDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Gerar PDF', exact: true }).click();
-  const cover = await coverDownload;
+  const cover = await downloadPreview(page);
   expect(cover.suggestedFilename()).toBe(`capa_${number}.pdf`);
   await cover.saveAs(testInfo.outputPath('capa.pdf'));
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
   await page.getByRole('tab', { name: 'Relatório de Produtividade', exact: true }).click();
   await page.getByLabel('Servidor', { exact: true }).click();
   await page.getByRole('option').nth(1).click();
   await page.getByLabel('Dificuldades ou impedimentos encontrados').fill('Sem impedimentos.');
-  const productivityDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Gerar PDF', exact: true }).click();
-  const productivity = await productivityDownload;
+  const productivity = await downloadPreview(page);
   expect(productivity.suggestedFilename()).toBe('relatorio_produtividade.pdf');
   await productivity.saveAs(testInfo.outputPath('produtividade.pdf'));
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
   await page.getByRole('button', { name: 'Ativar tema escuro' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.screenshot({ path: testInfo.outputPath('relatorios-escuro.png'), fullPage: true });
@@ -101,26 +107,56 @@ test('configuração persiste a logo e o endereço de consulta e gera capa pela 
   await expect(page.getByLabel('Endereço público')).toHaveValue('https://portal.entidade.gov.br/consulta');
   await page.goto('/processos/pr-1');
   await page.getByRole('button', { name: 'Ações', exact: true }).click();
-  const download = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Imprimir capa', exact: true }).click();
-  await (await download).saveAs(testInfo.outputPath('capa-timbrada.pdf'));
+  await (await downloadPreview(page)).saveAs(testInfo.outputPath('capa-timbrada.pdf'));
 });
 
-test('capa mantém o modelo de página única mesmo com descrição e movimentações extensas', async ({ page }, testInfo) => {
+test('capa preserva os dados e continua o histórico extenso em páginas A4', async ({ page }, testInfo) => {
   await page.goto('/relatorios');
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
   const pdf = await page.evaluate(async () => {
     const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!);
     const protocol = db.protocols[0];
-    protocol.description = ('Informação complementar extensa para verificar a paginação e a preservação dos dados. '.repeat(8) + '\n').repeat(18) + 'FIM DAS INFORMAÇÕES COMPLEMENTARES';
+    protocol.subject = 'atualização cadastral com descrição de assunto extensa para conferir quebra de linha e preservação integral até o fim do assunto';
+    protocol.description = ('Informação complementar extensa para verificar a paginação e a preservação dos dados. '.repeat(3) + '\n').repeat(5) + 'FIM DAS INFORMAÇÕES COMPLEMENTARES';
     db.events = Array.from({ length: 45 }, (_, index) => ({ ...db.events[0], id: `stress-${index}`, protocolId: protocol.id, message: `Movimentação ${index + 1}: ` + 'Descrição detalhada da atividade realizada pelo servidor responsável. '.repeat(7), createdAt: new Date(Date.UTC(2026, 8, 1, 12, index)).toISOString() }));
     db.events[44].message += ' FIM DAS MOVIMENTAÇÕES';
+    db.events.reverse();
     const modulePath = '/src/features/relatorios/reportPdf.ts';
     const { createCoverPdf } = await import(modulePath);
     const doc = await createCoverPdf(db, protocol);
     return { pages: doc.getNumberOfPages(), base64: doc.output('datauristring').split(',')[1] };
   });
-  expect(pdf.pages).toBe(1);
+  expect(pdf.pages).toBeGreaterThan(1);
+  const { PDFDocument } = await import('pdf-lib');
+  const document = await PDFDocument.load(Buffer.from(pdf.base64, 'base64'));
+  for (const sheet of document.getPages()) {
+    expect(sheet.getWidth()).toBeCloseTo(595.28, 1);
+    expect(sheet.getHeight()).toBeCloseTo(841.89, 1);
+  }
   const { writeFile } = await import('node:fs/promises');
   await writeFile(testInfo.outputPath('capa-extensa.pdf'), Buffer.from(pdf.base64, 'base64'));
+});
+
+test('capa apresenta campos opcionais e ausência de movimentações sem alterar o cadastro', async ({ page }, testInfo) => {
+  await page.goto('/relatorios');
+  await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
+  const pdf = await page.evaluate(async () => {
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!);
+    const protocol = db.protocols[0];
+    protocol.subject = 'análise de documentação';
+    for (const field of ['contractNumber', 'biddingNumber', 'legalProcessNumber', 'referenceNumber']) {
+      protocol.typeConfigSnapshot[field] = { enabled: true, required: false };
+      protocol[field] = 'referência jurídica abc-2026';
+    }
+    db.events = db.events.filter((event: { protocolId: string }) => event.protocolId !== protocol.id);
+    const modulePath = '/src/features/relatorios/reportPdf.ts';
+    const { createCoverPdf } = await import(modulePath);
+    const doc = await createCoverPdf(db, protocol);
+    return { pages: doc.getNumberOfPages(), subject: protocol.subject, base64: doc.output('datauristring').split(',')[1] };
+  });
+  expect(pdf.pages).toBe(1);
+  expect(pdf.subject).toBe('análise de documentação');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(testInfo.outputPath('capa-sem-movimentos.pdf'), Buffer.from(pdf.base64, 'base64'));
 });

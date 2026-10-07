@@ -6,7 +6,6 @@ import {
   useState,
 } from "react";
 import type { MouseEvent, ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
@@ -22,7 +21,7 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  RefreshCcw,
+  LogOut,
   Settings,
   Settings2,
   ShieldCheck,
@@ -30,8 +29,7 @@ import {
   Tags,
   Users,
 } from "lucide-react";
-import { resetDb } from "../../storage/database";
-import { invalidateAll, useDb } from "../queries";
+import { useDb } from "../queries";
 import { useSession } from "../session";
 import { ROUTE_LOADING_EVENT, navigateWithLoading } from "../routeLoading";
 import { ProfileMenu } from "./ProfileMenu";
@@ -104,14 +102,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     toggleTheme,
     appearance,
     setAppearance,
+    signOut,
   } = useSession();
   const { data: sessionDb } = useDb();
   const compactSidebar = appearance.sidebar === 'compact';
   const [sidebarDismissed, setSidebarDismissed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [organizationDetails, setOrganizationDetails] = useState<OrganizationHeaderDetails>(readOrganizationHeaderDetails);
-  const [resetting, setResetting] = useState(false);
-  const queryClient = useQueryClient();
   useEffect(() => {
     const syncOrganizationDetails = () => setOrganizationDetails(readOrganizationHeaderDetails());
     window.addEventListener("fluxo-publico:settings-general", syncOrganizationDetails);
@@ -248,22 +245,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           </section>
         ))}
       </nav>
-      <div className="mt-auto shrink-0 border-t border-slate-300 px-6 py-5 dark:border-slate-700">
-        <button
-          className="pgci-nav-link w-full text-left"
-          onClick={async () => {
-            if (!confirm("Restaurar todos os dados fictícios da demonstração?"))
-              return;
-            setResetting(true);
-            await resetDb();
-            await invalidateAll(queryClient);
-            setResetting(false);
-            navigateWithLoading(navigate, "/dashboard");
-          }}
-          disabled={resetting}
-        >
-          <RefreshCcw size={16} />
-          <span className="sidebar-label">{resetting ? "Restaurando…" : "Restaurar demonstração"}</span>
+      <div className="mt-auto shrink-0 px-6 py-3">
+        <button type="button" className="pgci-nav-link w-full text-left" aria-label="Sair" onClick={() => {
+          setMobile(false);
+          signOut();
+          navigate('/login', { replace: true });
+        }}>
+          <LogOut size={17}/><span className="sidebar-label">Sair</span>
         </button>
       </div>
     </aside>

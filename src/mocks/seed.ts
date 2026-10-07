@@ -1,3 +1,4 @@
+import { normalizeDemoNumbers } from './normalizeDemoNumbers';
 import type { AppDocument, Assignment, Database, FieldsConfig, Protocol, ProtocolEvent, ProtocolStatus } from '../domain/model';
 import { isoDaysFromNow } from '../lib/format';
 import { systemSituationTypes } from '../domain/situations';
@@ -41,7 +42,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
             profileId: profileIdForRole(user.role),
             permissions: defaultPermissions(user.role),
             title: user.role === 'ADMIN' ? 'Administrador geral' : 'Operador',
-            startsAt: now(),
+            startsAt: catalogStartedAt,
             active: true,
         }));
     });
@@ -237,7 +238,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         const currentPhaseIndex = orderedStages.length ? Math.min(stagePosition ?? inferredPosition, orderedStages.length - 1) : -1;
         const currentStage = currentPhaseIndex >= 0 ? orderedStages[currentPhaseIndex] : undefined;
         const transferred = unitId !== originUnitId;
-        const currentAssignmentStartedAt = isoDaysFromNow(-Math.max(ageDays * 0.22, 0.25));
+        const currentAssignmentStartedAt = transferred ? isoDaysFromNow(-Math.max(ageDays * 0.22, 0.25)) : createdAt;
         const openingAssignmentId = transferred ? `${assignmentId}-origin` : assignmentId;
         const completed = status === 'CONCLUIDO' || status === 'ARQUIVADO';
         const checklistFor = (stage: NonNullable<typeof currentStage>) => {
@@ -326,9 +327,9 @@ export function seedDatabase(options: SeedOptions = {}): Database {
                 id: index === 1 ? `ev-phase-analysis-${n}` : isLast ? `ev-phase-completion-${n}` : `ev-phase-${index + 1}-${n}`,
                 protocolId: id,
                 kind: 'FASE_AVANCADA',
-                actorUserId: index === currentPhaseIndex ? assigneeId ?? creator : creator,
-                actorUnitId: index === currentPhaseIndex ? unitId : originUnitId,
-                assignmentId: index === currentPhaseIndex ? assignmentId : openingAssignmentId,
+                actorUserId: creator,
+                actorUnitId: originUnitId,
+                assignmentId: openingAssignmentId,
                 phaseId: stage.phaseId,
                 message: `${previousStage.name} concluída; processo encaminhado para ${stage.name.toLowerCase()}.`,
                 previousStatus: index === 1 ? 'CADASTRADO' : 'EM_ANDAMENTO',
@@ -545,7 +546,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         createdAt: isoDaysFromNow(-1),
     });
     const documentSpecs: Array<{ typeId: string; protocolId?: string; movementEventId?: string; subject: string; body: string }> = [
-        { typeId: 'dt-memo', protocolId: 'pr-1', movementEventId: 'ev-open-1', subject: 'Justificativa para reposição do estoque', body: 'Documento de demonstração do Fluxo Público.\n\nA unidade solicitante informa que o estoque de papel, canetas e pastas atingiu o nível mínimo e solicita reposição para manter o atendimento regular.' },
+        { typeId: 'dt-memo', protocolId: 'pr-1', movementEventId: 'ev-open-1', subject: 'Justificativa para reposição do estoque', body: 'À unidade de Gestão de Processos,\n\nA unidade solicitante informa que o estoque de papel, canetas e pastas atingiu o nível mínimo e solicita reposição para manter o atendimento regular.' },
         { typeId: 'dt-despacho', protocolId: 'pr-2', movementEventId: 'ev-move-2', subject: 'Conferência preliminar da fatura de água', body: 'Conferidos o período de consumo, a unidade atendida e os dados do credor. O processo segue para regularização da pendência documental e liquidação.' },
         { typeId: 'dt-parecer', protocolId: 'pr-5', movementEventId: 'ev-5b', subject: 'Manifestação sobre o aditivo contratual', body: 'Após análise da justificativa, da vigência e dos limites contratuais, recomenda-se o prosseguimento condicionado à atualização da certidão indicada nos autos.' },
         { typeId: 'dt-purchase-request', protocolId: 'pr-9', movementEventId: 'ev-move-9', subject: 'Requisição da unidade demandante', body: 'A aquisição é necessária para garantir continuidade dos serviços internos. As especificações evitam indicação de marca e registram quantitativos compatíveis com o consumo estimado.' },
@@ -556,7 +557,10 @@ export function seedDatabase(options: SeedOptions = {}): Database {
     ];
     const documents: AppDocument[] = documentSpecs.map((spec, index) => {
         const protocol = spec.protocolId ? protocols.find((item) => item.id === spec.protocolId) : undefined;
-        return { id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: spec.typeId, protocolId: spec.protocolId, movementEventId: spec.movementEventId, subject: spec.subject, body: spec.body, unitId: protocol?.currentUnitId ?? 'u-prot', authorUserId: protocol?.currentAssigneeId ?? protocol?.createdById ?? 'usr-clara', createdAt: isoDaysFromNow(-index - 1) };
+        const linkedMovement = events.find((event) => event.id === spec.movementEventId);
+        const earliest = Math.max(Date.parse(protocol?.createdAt ?? '2000-01-01'), Date.parse(linkedMovement?.createdAt ?? '2000-01-01')) + 10 * 60_000;
+        const createdAt = new Date(Math.max(Date.parse(isoDaysFromNow(-index - 1)), earliest)).toISOString();
+        return { id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: spec.typeId, protocolId: spec.protocolId, movementEventId: spec.movementEventId, subject: spec.subject, body: spec.body, unitId: protocol?.currentUnitId ?? 'u-prot', authorUserId: protocol?.currentAssigneeId ?? protocol?.createdById ?? 'usr-clara', createdAt };
     });    documents.filter((d) => d.protocolId).forEach((d) => events.push({ id: `ev-doc-${d.id}`, protocolId: d.protocolId!, kind: 'DOCUMENTO_CRIADO', actorUserId: d.authorUserId, actorUnitId: d.unitId, relatedDocumentId: d.id, createdAt: d.createdAt }));
-    return { schemaVersion: 8, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: { 'protocol-2026': 20, 'document-2026': 8 }, units, users, memberships, profiles: defaultProfiles(), auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] };
+    return normalizeDemoNumbers({ schemaVersion: 8, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: {}, units, users, memberships, profiles: defaultProfiles(), auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] });
 }

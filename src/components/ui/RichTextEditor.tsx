@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Eraser, Italic, Link, List, ListOrdered, Redo2, Strikethrough, Underline, Undo2 } from 'lucide-react'
 import { sanitizeDocumentHtml } from '../../lib/richText'
+import { DocumentMarginSettings } from './DocumentMarginSettings'
+import { Tooltip } from './Tooltip'
+import { documentMarginsStyle } from '../../lib/documentMargins'
+import type { DocumentMargins } from '../../lib/documentMargins'
 
 const DEFAULT_FONT_SIZE = 15
 const FONT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 15, 16, 18, 20, 22, 24, 26, 28, 32, 36, 48, 60, 72, 96]
@@ -9,14 +13,16 @@ const FONT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 15, 16, 18, 20, 22, 24, 26, 28,
 type CommandButtonProps = { label: string; children: ReactNode; onRun: () => void }
 
 function CommandButton({ label, children, onRun }: CommandButtonProps) {
-  return <button type="button" className="rich-editor-button" title={label} aria-label={label} onMouseDown={(event) => event.preventDefault()} onClick={onRun}>{children}</button>
+  return <Tooltip content={label} className="inline-flex"><button type="button" className="rich-editor-button" aria-label={label} onMouseDown={(event) => event.preventDefault()} onClick={onRun}>{children}</button></Tooltip>
 }
 
-export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documento', minHeight = '297mm' }: {
+export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documento', minHeight = '297mm', pageMargins, onMarginsChange }: {
   value: string
   onChange: (value: string) => void
   ariaLabel?: string
   minHeight?: string
+  pageMargins?: DocumentMargins
+  onMarginsChange?: (value: DocumentMargins) => void
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const lastEmittedRef = useRef<string | null>(null)
@@ -293,12 +299,12 @@ export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documen
         <CommandButton label="Título 3" onRun={() => run('formatBlock', 'h3')}><span className="text-xs font-semibold">H3</span></CommandButton>
       </span>
       <span ref={fontSizeControlRef} className="rich-editor-group rich-editor-font-size" onKeyDown={(event) => { if (event.key === 'Escape') setShowFontSizes(false) }}>
-        <input ref={fontInputRef} type="text" inputMode="decimal" className="rich-editor-font-size-input" aria-label="Tamanho da fonte (px)" title="Tamanho da fonte em px (6 a 144)" placeholder="Ex.: 14" value={fontSizeInput} onChange={(event) => { fontInputDirtyRef.current = true; setFontSizeInput(event.target.value) }} onKeyDown={(event) => {
+        <Tooltip content="Tamanho da fonte em px (6 a 144)" className="inline-flex"><input ref={fontInputRef} type="text" inputMode="decimal" className="rich-editor-font-size-input" aria-label="Tamanho da fonte (px)" placeholder="Ex.: 14" value={fontSizeInput} onChange={(event) => { fontInputDirtyRef.current = true; setFontSizeInput(event.target.value) }} onKeyDown={(event) => {
           if (event.key === 'Enter') { event.preventDefault(); applyFontSize(fontSizeInput) }
           if (event.key === 'Escape') { fontInputDirtyRef.current = false; setFontSizeInput(String(DEFAULT_FONT_SIZE)); setShowFontSizes(false) }
-        }} onBlur={() => { if (fontInputDirtyRef.current) applyFontSize(fontSizeInput) }}/>
+        }} onBlur={() => { if (fontInputDirtyRef.current) applyFontSize(fontSizeInput) }}/></Tooltip>
         <span className="rich-editor-font-size-unit">px</span>
-        <button type="button" className="rich-editor-font-size-toggle" aria-label="Escolher tamanho da fonte" aria-expanded={showFontSizes} onMouseDown={(event) => event.preventDefault()} onClick={() => setShowFontSizes((open) => !open)}><ChevronDown size={14}/></button>
+        <Tooltip content="Escolher tamanho da fonte" className="inline-flex"><button type="button" className="rich-editor-font-size-toggle" aria-label="Escolher tamanho da fonte" aria-expanded={showFontSizes} onMouseDown={(event) => event.preventDefault()} onClick={() => setShowFontSizes((open) => !open)}><ChevronDown size={14}/></button></Tooltip>
         {showFontSizes && <div className="rich-editor-font-size-menu" role="group" aria-label="Tamanhos de fonte">
           <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFontSize(String(DEFAULT_FONT_SIZE))} aria-label="Padrão (15 px)">Padrão · 15 px</button>
           {FONT_SIZE_PRESETS.filter((size) => size !== DEFAULT_FONT_SIZE).map((size) => <button key={size} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFontSize(String(size))} aria-label={`Tamanho ${size} px`}>{size} px</button>)}
@@ -322,6 +328,7 @@ export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documen
         <CommandButton label="Inserir link" onRun={link}><Link size={16}/></CommandButton>
         <CommandButton label="Limpar formatação" onRun={clearFormatting}><Eraser size={16}/></CommandButton>
       </span>
+      {onMarginsChange && <span className="rich-editor-group"><DocumentMarginSettings value={pageMargins} onChange={onMarginsChange}/></span>}
     </div>
     <div className="a4-editor-viewport">
       <div
@@ -332,7 +339,7 @@ export function RichTextEditor({ value, onChange, ariaLabel = 'Editor do documen
         aria-label={`${ariaLabel} visual`}
         aria-multiline="true"
         data-placeholder="Comece a redigir o documento…"
-        style={{ height: minHeight }}
+        style={{ height: minHeight, ...documentMarginsStyle(pageMargins) }}
         suppressContentEditableWarning
         onKeyDown={startPlainParagraph}
         onInput={() => {

@@ -155,6 +155,47 @@ describe('validação de hierarquia', () => {
       name: 'Administração', abbreviation: 'ADM', parentId: 'u-fin', active: true
     })).rejects.toMatchObject({ code: 'VALIDATION' })
   })
+
+  it('move a unidade com seus filhos e preserva os vínculos e a aparência', async () => {
+    const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const parent = await api.createUnit(ctx, { name: 'Superintendência', abbreviation: 'SUP', color: '#abc123', icon: 'Network', active: true })
+    const child = await api.createUnit(ctx, { name: 'Divisão', abbreviation: 'DIV', parentId: parent.id, active: true })
+    const memberships = loadDb().memberships
+    await api.reparentUnit(ctx, parent.id, 'u-jur')
+    let db = loadDb()
+    expect(db.units.find((unit) => unit.id === parent.id)).toMatchObject({ parentId: 'u-jur', color: '#ABC123', icon: 'Network' })
+    expect(db.units.find((unit) => unit.id === child.id)?.parentId).toBe(parent.id)
+    expect(db.memberships).toEqual(memberships)
+    expect(db.auditEvents.at(-1)).toMatchObject({ action: 'UNIT_REPARENTED', targetId: parent.id })
+    await api.reparentUnit(ctx, parent.id)
+    db = loadDb()
+    expect(db.units.find((unit) => unit.id === parent.id)?.parentId).toBeUndefined()
+    expect(db.units.find((unit) => unit.id === child.id)?.parentId).toBe(parent.id)
+  })
+
+  it('recusa arraste para si, descendentes, unidades inativas ou sem permissão', async () => {
+    const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const root = await api.createUnit(ctx, { name: 'Raiz do teste', abbreviation: 'RAIZ', active: true })
+    const child = await api.createUnit(ctx, { name: 'Filha do teste', abbreviation: 'FILHA', parentId: root.id, active: true })
+    const grandchild = await api.createUnit(ctx, { name: 'Neta do teste', abbreviation: 'NETA', parentId: child.id, active: true })
+    const inactive = await api.createUnit(ctx, { name: 'Inativa do teste', abbreviation: 'INAT', active: false })
+    const before = loadDb()
+    for (const parentId of [root.id, grandchild.id, inactive.id, 'missing']) {
+      await expect(api.reparentUnit(ctx, root.id, parentId)).rejects.toMatchObject({ code: 'VALIDATION' })
+    }
+    await expect(api.reparentUnit({ userId: 'usr-clara', activeUnitId: 'u-prot' }, root.id, 'u-jur')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(loadDb()).toEqual(before)
+  })
+
+  it('salva aparência na edição e preserva-a quando apenas a hierarquia muda', async () => {
+    const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    const unit = await api.createUnit(ctx, { name: 'Visual do teste', abbreviation: 'VIS', active: true })
+    await api.updateUnit(ctx, unit.id, { ...unit, color: '#123abc', icon: 'Scale' })
+    await api.updateUnit(ctx, unit.id, { name: unit.name, abbreviation: unit.abbreviation, parentId: 'u-jur', active: true })
+    expect(loadDb().units.find((item) => item.id === unit.id)).toMatchObject({ color: '#123ABC', icon: 'Scale', parentId: 'u-jur' })
+    await expect(api.updateUnit(ctx, unit.id, { ...unit, color: 'red' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.createUnit(ctx, { name: 'Ícone inválido', abbreviation: 'ICINV', icon: '', active: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
 })
 
 describe('tipos de processo', () => {
@@ -508,7 +549,7 @@ describe('filtros avançados de processos', () => {
       statuses: ['EM_ANDAMENTO'],
       typeId: 'pt-pay',
       creditorId: 'p-9',
-      number: '000002',
+      number: loadDb().protocols.find((protocol) => protocol.id === 'pr-2')!.number,
       description: 'fornecimento de água',
       attachments: 'without',
     })
@@ -719,6 +760,52 @@ describe('cenários de aceite dos dados de demonstração', () => {
 })
 describe('regras avançadas de processo', () => {
   beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+
+  it('edita nome e descrição sem alterar arquivo, conteúdo ou vínculo e registra auditoria', async () => {
+    const before = loadDb()
+    const attachment = before.attachments.find((item) => item.protocolId === 'pr-1')!
+    const document = before.documents.find((item) => item.protocolId === 'pr-1')!
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+    await api.updateAttachment(ctx, attachment.id, { filename: ' Parecer revisado.txt ', description: ' Conferência realizada. ' })
+    await api.updateDocumentMetadata(ctx, document.id, { subject: ' Memorando revisado ', description: ' Encaminhamento para análise. ' })
+    const after = loadDb()
+    expect(after.attachments.find((item) => item.id === attachment.id)).toEqual({ ...attachment, filename: 'Parecer revisado.txt', description: 'Conferência realizada.' })
+    expect(after.documents.find((item) => item.id === document.id)).toEqual({ ...document, subject: 'Memorando revisado', description: 'Encaminhamento para análise.' })
+    expect(after.events).toEqual(before.events)
+    expect(after.auditEvents).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'ATTACHMENT_UPDATED' }), expect.objectContaining({ action: 'DOCUMENT_UPDATED' })]))
+  })
+
+  it('bloqueia edição de arquivos sem permissão, fora da unidade ou em processo concluído', async () => {
+    const db = loadDb()
+    const attachment = db.attachments.find((item) => item.protocolId === 'pr-1')!
+    const document = db.documents.find((item) => item.protocolId === 'pr-1')!
+    const foreign = { userId: 'usr-bruno', activeUnitId: 'u-adm' }
+    await expect(api.updateAttachment(foreign, attachment.id, { filename: 'inválido.txt' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(api.updateDocumentMetadata(foreign, document.id, { subject: 'Inválido' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const ctx = { userId: 'usr-clara', activeUnitId: 'u-prot' }
+    const membership = db.memberships.find((item) => item.userId === ctx.userId && item.unitId === ctx.activeUnitId)!
+    membership.permissions = membership.permissions!.filter((item) => item !== 'attachments.edit' && item !== 'documents.edit')
+    saveDb(db)
+    await expect(api.updateAttachment(ctx, attachment.id, { filename: 'inválido.txt' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(api.updateDocumentMetadata(ctx, document.id, { subject: 'Inválido' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    db.protocols.find((item) => item.id === 'pr-1')!.status = 'CONCLUIDO'
+    saveDb(db)
+    const admin = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    await expect(api.updateAttachment(admin, attachment.id, { filename: 'inválido.txt' })).rejects.toMatchObject({ code: 'INVALID_STATE' })
+    await expect(api.updateDocumentMetadata(admin, document.id, { subject: 'Inválido' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('valida nome e tamanho da descrição antes de alterar metadados', async () => {
+    const db = loadDb()
+    const attachment = db.attachments.find((item) => item.protocolId === 'pr-1')!
+    const document = db.documents.find((item) => item.protocolId === 'pr-1')!
+    const ctx = { userId: 'usr-admin', activeUnitId: 'u-prot' }
+    for (const filename of ['', 'pasta/arquivo.txt', 'pasta\\arquivo.txt']) await expect(api.updateAttachment(ctx, attachment.id, { filename })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.updateAttachment(ctx, attachment.id, { filename: 'teste.txt', description: 'a'.repeat(2001) })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(api.updateDocumentMetadata(ctx, document.id, { subject: ' ' })).rejects.toMatchObject({ code: 'VALIDATION' })
+    expect(loadDb().attachments.find((item) => item.id === attachment.id)).toEqual(attachment)
+    expect(loadDb().documents.find((item) => item.id === document.id)).toEqual(document)
+  })
 
   it('exclui arquivo e documento vinculados sem deixar referências, com auditoria do processo', async () => {
     const db = loadDb()

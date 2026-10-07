@@ -8,6 +8,8 @@ import { IconGlyph } from "../../components/ui/IconSelect";
 import { OverflowMarquee } from "../../components/ui/OverflowMarquee";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { dateTime } from "../../lib/format";
+import { PdfViewerDialog } from "../../components/ui/PdfViewerDialog";
+import type { PdfPreview } from "../relatorios/reportPdf";
 
 export const Name = ({ db, userId }: { db: Database; userId?: string }) => (
   <>{db.users.find((user) => user.id === userId)?.name ?? "—"}</>
@@ -47,6 +49,7 @@ function ProcessCard({
   const [printOpen, setPrintOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState("");
+  const [pdfPreview, setPdfPreview] = useState<PdfPreview>();
   const printRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!printOpen) return;
@@ -81,11 +84,7 @@ function ProcessCard({
     setPrinting(true);
     try {
       const pdf = await import("../relatorios/reportPdf");
-      if (action === "cover") await pdf.downloadCover(db, process);
-      if (action === "receipt")
-        await pdf.downloadProtocolReceipt(db, process);
-      if (action === "label") await pdf.downloadProcessLabel(db, process);
-      if (action === "details") await pdf.downloadProcessDetails(db, process);
+      setPdfPreview(await pdf.createProcessPdfPreview(db, process, action));
     } catch (error) {
       setPrintError(
         error instanceof Error
@@ -216,6 +215,7 @@ function ProcessCard({
         )}
       </div>
       <ArrowRight className="process-card-arrow" aria-hidden="true" size={16} />
+      {pdfPreview && <PdfViewerDialog title={pdfPreview.title} blob={pdfPreview.blob} downloadFilename={pdfPreview.filename} onClose={() => setPdfPreview(undefined)}/>}
     </article>
   );
 }

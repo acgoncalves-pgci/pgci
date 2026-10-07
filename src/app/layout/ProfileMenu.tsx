@@ -4,7 +4,6 @@ import {
   Building2,
   Check,
   ChevronDown,
-  LogOut,
   Mail,
   Settings,
   User,
@@ -197,24 +196,7 @@ export function ProfileMenu() {
               >
                 <UserCog size={17} aria-hidden="true" /> Trocar usuário
               </button>
-              <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 text-red-600 hover:!bg-red-50 dark:text-red-400 dark:hover:!bg-red-950/40"
-                onClick={() => {
-                  close();
-                  window.dispatchEvent(
-                    new CustomEvent("fluxo-publico:toast", {
-                      detail: {
-                        message:
-                          "A saída será habilitada com a autenticação definitiva.",
-                      },
-                    }),
-                  );
-                }}
-              >
-                <LogOut size={17} aria-hidden="true" /> Sair
-              </button>
+
             </div>
           )}
 

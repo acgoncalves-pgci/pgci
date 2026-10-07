@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { configureDemoSession } from './helpers/session'
+configureDemoSession()
 
 test('mantém a navegação e o conteúdo utilizáveis em cada viewport', async ({ page }) => {
   await page.goto('/dashboard')
@@ -41,6 +43,7 @@ test('alterna para o tema escuro pelo botão do novo header e volta ao claro', a
 
 test('exibe o SVG de carregamento somente na área de conteúdo durante a navegação', async ({ page }) => {
   await page.goto('/dashboard')
+  await expect(page.getByRole('heading', { name: 'Meus Processos' })).toBeVisible()
   const mobile = (page.viewportSize()?.width ?? 0) < 1024
   await page.evaluate(() => {
     const root = document.querySelector('[data-route-transition]')

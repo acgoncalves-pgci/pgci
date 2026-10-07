@@ -22,7 +22,7 @@ import {
   Clipboard,
   ClipboardList,
   Clock3,
-  Eye,
+  Download,
   FileArchive,
   FilePlus2,
   FileText,
@@ -85,6 +85,7 @@ import {
 import { ParticipantOptionContent } from "../../components/ui/ParticipantOptionContent";
 import { forwardPendingIssues } from "../../domain/protocolPending";
 import { currencyToCents, dateTime, money } from "../../lib/format";
+import { auditActionLabel } from "../../lib/audit";
 import {
   api,
   suggestedDeadline,
@@ -95,7 +96,8 @@ import { invalidateAll, useDb } from "../../app/queries";
 import { navigateWithLoading } from "../../app/routeLoading";
 import { Dialog, DialogBody, DialogFooter } from "../../components/ui/Dialog";
 import { PdfViewerDialog } from "../../components/ui/PdfViewerDialog";
-import { DocumentBody } from "../documents/DocumentBody";
+import { DocumentPreviewDialog } from "../documents/DocumentPreviewDialog";
+import { ProcessFileRow } from "./ProcessFileRow";
 import { Input } from "../../components/ui/Input";
 import { CurrencyInput } from "../../components/ui/CurrencyInput";
 import { Select } from "../../components/ui/Select";
@@ -1515,7 +1517,7 @@ export function ProtocolDetail() {
   const [confirmAssume, setConfirmAssume] = useState(false);
   const [showForwardPending, setShowForwardPending] = useState(false);
   const [dossierMovementId, setDossierMovementId] = useState<string>();
-  const [dossierPreview, setDossierPreview] = useState<{ blob: Blob; filename: string }>();
+  const [dossierPreview, setDossierPreview] = useState<{ blob: Blob; filename: string; title?: string }>();
   const [deletingLinkedItem, setDeletingLinkedItem] = useState<
     { kind: "attachment"; item: Attachment } | { kind: "document"; item: AppDocument }
   >();
@@ -1707,10 +1709,7 @@ export function ProtocolDetail() {
     setPrinting(true);
     try {
       const pdf = await import("../relatorios/reportPdf");
-      if (printAction === "cover") await pdf.downloadCover(db, p);
-      if (printAction === "receipt") await pdf.downloadProtocolReceipt(db, p);
-      if (printAction === "label") await pdf.downloadProcessLabel(db, p);
-      if (printAction === "details") await pdf.downloadProcessDetails(db, p);
+      setDossierPreview(await pdf.createProcessPdfPreview(db, p, printAction));
     } catch (error) {
       setCoverError(error);
     } finally {
@@ -1721,9 +1720,10 @@ export function ProtocolDetail() {
     setCoverError(undefined);
     setPdfBusy(true);
     try {
-      const { downloadMovementReceipt } =
+      const { createMovementReceiptPdf } =
         await import("../relatorios/reportPdf");
-      await downloadMovementReceipt(db, p, event);
+      const doc = await createMovementReceiptPdf(db, p, event);
+      setDossierPreview({ title: `Comprovante de tramitação — ${p.number}`, filename: `comprovante_tramitacao_${p.number}.pdf`, blob: doc.output('blob') });
     } catch (error) {
       setCoverError(error);
     } finally {
@@ -1737,7 +1737,7 @@ export function ProtocolDetail() {
       const dossier = await pdf.buildDossier(db, p);
       await api.recordDossierGeneration(ctx, p.id);
       setDossierMovementId(undefined);
-      setDossierPreview(dossier);
+      setDossierPreview({ ...dossier, title: `Dossiê do processo — ${p.number}` });
       refresh();
     } finally {
       setPdfBusy(false);
@@ -2179,10 +2179,9 @@ export function ProtocolDetail() {
       )}{" "}
       {dossierPreview && (
         <PdfViewerDialog
-          title={dossierPreview.filename}
+          title={dossierPreview.title ?? dossierPreview.filename}
           blob={dossierPreview.blob}
           downloadFilename={dossierPreview.filename}
-          downloadLabel="Baixar dossiê"
           onClose={() => setDossierPreview(undefined)}
         />
       )}{" "}
@@ -2374,40 +2373,17 @@ function AuditTimeline({
   auditEvents: AuditEvent[];
   db: Database;
 }) {
-  const labels: Record<string, string> = {
-    PROTOCOL_CREATED: "Processo criado",
-    PROTOCOL_UPDATED: "Dados do processo atualizados",
-    PROTOCOL_DELETED: "Processo excluído",
-    PROTOCOL_ASSUMED: "Responsabilidade assumida",
-    PROTOCOL_ACKNOWLEDGED: "Ciência registrada",
-    PROTOCOL_CHECKLIST_UPDATED: "Checklist atualizado",
-    PROTOCOL_ASSIGNEE_CHANGED: "Responsável alterado",
-    PROTOCOL_FORWARDED: "Processo tramitado",
-    PROTOCOL_COMPLETED: "Processo concluído",
-    PROTOCOL_PHASE_ADVANCED: "Fase avançada",
-    PROTOCOL_PHASE_RETURNED: "Fase devolvida",
-    PROTOCOL_ARCHIVED: "Processo arquivado",
-    PROTOCOL_REOPENED: "Processo reaberto",
-    PROTOCOL_DOSSIER_GENERATED: "Dossiê gerado",
-    ATTACHMENT_ADDED: "Arquivo anexado",
-    ATTACHMENT_DELETED: "Arquivo excluído",
-    DOCUMENT_CREATED: "Documento anexado",
-    DOCUMENT_DELETED: "Documento excluído",
-    DOCUMENT_TEMPLATE_CREATED: "Modelo de documento criado",
-    DOCUMENT_TEMPLATE_UPDATED: "Modelo de documento atualizado",
-    DOCUMENT_TEMPLATE_DELETED: "Modelo de documento excluído",
-  };
   const entries = [
     ...events.map((event) => ({
       id: event.id,
-      label: eventLabel[event.kind],
+      label: eventLabel[event.kind] ?? "Movimentação registrada",
       details: event.message,
       actorUserId: event.actorUserId,
       createdAt: event.createdAt,
     })),
     ...auditEvents.map((event) => ({
       id: event.id,
-      label: labels[event.action] ?? event.action,
+      label: auditActionLabel(event.action),
       details: event.details,
       actorUserId: event.actorUserId,
       createdAt: event.createdAt,
@@ -3182,7 +3158,7 @@ function TimelineRow({
               <MovementFiles
                 attachments={attachments}
                 documents={documents}
-                db={db}
+                readOnly={readOnly || !isLatest}
                 canDeleteDocument={canDeleteDocument && isLatest && !readOnly}
                 canDeleteAttachment={canDeleteAttachment && isLatest && !readOnly}
                 onDeleteAttachment={onDeleteAttachment}
@@ -3253,18 +3229,10 @@ function TimelineRow({
     </article>
   );
 }
-function MovementFiles({
-  attachments,
-  documents,
-  db,
-  canDeleteAttachment,
-  canDeleteDocument,
-  onDeleteAttachment,
-  onDeleteDocument,
-}: {
+function MovementFiles({ attachments, documents, readOnly, canDeleteAttachment, canDeleteDocument, onDeleteAttachment, onDeleteDocument }: {
   attachments: Attachment[];
   documents: AppDocument[];
-  db: Database;
+  readOnly: boolean;
   canDeleteAttachment: boolean;
   canDeleteDocument: boolean;
   onDeleteAttachment: (item: Attachment) => void;
@@ -3272,127 +3240,17 @@ function MovementFiles({
 }) {
   const [documentPreview, setDocumentPreview] = useState<AppDocument>();
   const [attachmentPreview, setAttachmentPreview] = useState<Attachment>();
-  return (
-    <>
-      <section className="border-t border-slate-100 px-3 py-3 dark:border-slate-800">
-        <p className="label flex items-center gap-1.5">
-          <Paperclip size={13} />
-          Anexos e documentos
-        </p>
-        <div className="mt-2 divide-y divide-border/70">
-          {documents.map((document) => (
-            <div key={document.id} className="flex items-center gap-2">
-              <div className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2.5">
-                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-                  <FileText size={16} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <strong className="block truncate text-sm">
-                    {document.number} — {document.subject}
-                  </strong>
-                  <small className="mt-0.5 block text-xs text-muted-foreground">
-                    Criado por <Name db={db} userId={document.authorUserId} /> em{" "}
-                    {dateTime(document.createdAt)}
-                  </small>
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" aria-label={`Visualizar documento ${document.number}`} onClick={() => setDocumentPreview(document)}>
-                  <Eye size={16} />
-                </button>
-                {canDeleteDocument && (
-                  <button type="button" className="grid size-8 place-items-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50" aria-label={`Excluir documento ${document.number}`} onClick={() => onDeleteDocument(document)}>
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-          {attachments.map((attachment) => (
-            <div key={attachment.id} className="flex items-center gap-2">
-              <div className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2.5">
-                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-                  {attachment.filename.toLowerCase().startsWith("dossie_") ? (
-                    <FileArchive size={16} />
-                  ) : (
-                    <Paperclip size={16} />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <strong className="block truncate text-sm">
-                    {attachment.filename}
-                  </strong>
-                  <small className="mt-0.5 block text-xs text-muted-foreground">
-                    Anexado por <Name db={db} userId={attachment.uploadedById} />{" "}
-                    em {dateTime(attachment.createdAt)} ·{" "}
-                    {Math.ceil(attachment.sizeBytes / 1024)} KB
-                  </small>
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" aria-label={`Visualizar anexo ${attachment.filename}`} onClick={() => setAttachmentPreview(attachment)}>
-                  <Eye size={16} />
-                </button>
-                {canDeleteAttachment && (
-                  <button type="button" className="grid size-8 place-items-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50" aria-label={`Excluir arquivo ${attachment.filename}`} onClick={() => onDeleteAttachment(attachment)}>
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      {documentPreview && (
-        <DocumentPreviewDialog
-          document={documentPreview}
-          onClose={() => setDocumentPreview(undefined)}
-        />
-      )}{" "}
-      {attachmentPreview && (
-        <AttachmentPreviewDialog
-          attachment={attachmentPreview}
-          onClose={() => setAttachmentPreview(undefined)}
-        />
-      )}
-    </>
-  );
-}
-
-function DocumentPreviewDialog({
-  document,
-  onClose,
-}: {
-  document: AppDocument;
-  onClose: () => void;
-}) {
-  const source = useRef<HTMLElement>(null);
-  const [blob, setBlob] = useState<Blob>();
-  const [error, setError] = useState<unknown>();
-  useEffect(() => {
-    if (!source.current) return;
-    const element = source.current;
-    let active = true;
-    const generate = async () => {
-      try {
-        const { createDocumentPreviewPdf } = await import("../documents/documentPdf");
-        const result = await createDocumentPreviewPdf(element, document.number);
-        if (active) setBlob(result);
-      } catch (failure) {
-        if (active) setError(failure);
-      }
-    };
-    void generate();
-    return () => { active = false; };
-  }, [document.id, document.number]);
-  return (
-    <>
-      <article ref={source} className="document-page" style={{ position: "fixed", left: -10000, top: 0, width: "210mm", visibility: "hidden", pointerEvents: "none" }} aria-hidden="true">
-        <DocumentBody document={document} />
-      </article>
-      <PdfViewerDialog title={`${document.number}.pdf`} blob={blob} error={error} onClose={onClose} />
-    </>
-  );
+  return <>
+    <section className="border-t border-slate-100 px-3 py-3 dark:border-slate-800">
+      <p className="label flex items-center gap-1.5"><Paperclip size={13}/>Anexos e documentos</p>
+      <div className="mt-2 divide-y divide-border/70">
+        {documents.map((document) => <ProcessFileRow key={document.id} file={{ kind: 'document', item: document }} readOnly={readOnly} onPreview={() => setDocumentPreview(document)} onDelete={canDeleteDocument ? () => onDeleteDocument(document) : undefined}/>)}
+        {attachments.map((attachment) => <ProcessFileRow key={attachment.id} file={{ kind: 'attachment', item: attachment }} readOnly={readOnly} onPreview={() => setAttachmentPreview(attachment)} onDelete={canDeleteAttachment ? () => onDeleteAttachment(attachment) : undefined}/>)}
+      </div>
+    </section>
+    {documentPreview && <DocumentPreviewDialog document={documentPreview} onClose={() => setDocumentPreview(undefined)}/>}
+    {attachmentPreview && <AttachmentPreviewDialog attachment={attachmentPreview} onClose={() => setAttachmentPreview(undefined)}/>}
+  </>;
 }
 
 function ChecklistTimeline({
@@ -3848,7 +3706,7 @@ function MoveDialog({
                   value={assigneeId}
                   onChange={(event) => setAssigneeId(event.target.value)}
                 >
-                  <option value="">Enviar para fila sem responsável</option>
+                  <option value="">Enviar para unidade</option>
                   {users.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.name}
@@ -4196,66 +4054,21 @@ function ConfirmDialog({
     </Dialog>
   );
 }
-function DocumentsInProtocol({
-  documents,
-  protocol,
-  canAct,
-  canDelete,
-  onDelete,
-}: {
+function DocumentsInProtocol({ documents, protocol, canAct, canDelete, onDelete }: {
   documents: AppDocument[];
   protocol: Protocol;
   canAct: boolean;
   canDelete: boolean;
   onDelete: (item: AppDocument) => void;
 }) {
-  return (
-    <section className="mt-4">
-      <div className="mb-3 flex justify-end">
-        {canAct &&
-          isActive(protocol) &&
-          protocol.typeConfigSnapshot.arquivos?.enabled && (
-            <Link
-              to={`/documentos/novo?protocolId=${protocol.id}`}
-              className="btn-primary"
-            >
-              <FilePlus2 size={16} />
-              Redigir documento
-            </Link>
-          )}
-      </div>
-      {documents.length ? (
-        <div className="panel divide-y">
-          {documents.map((d) => (
-            <div key={d.id} className="flex items-center gap-2 pr-5">
-              <Link
-                className="flex min-w-0 flex-1 items-center justify-between px-5 py-4 hover:bg-slate-50"
-                to={`/documentos/${d.id}`}
-              >
-                <span>
-                  <strong className="block text-sm">{d.subject}</strong>
-                  <small className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                    {d.number}
-                  </small>
-                </span>
-                <ChevronRight size={18} />
-              </Link>
-              {canDelete && isActive(protocol) && (
-                <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir documento ${d.number}`} onClick={() => onDelete(d)}>
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Empty
-          title="Sem documentos vinculados"
-          detail="Nenhum documento foi redigido neste processo."
-        />
-      )}
-    </section>
-  );
+  const [previewDocument, setPreviewDocument] = useState<AppDocument>();
+  return <section className="mt-4">
+    <div className="mb-3 flex justify-end">
+      {canAct && isActive(protocol) && protocol.typeConfigSnapshot.arquivos?.enabled && <Link to={`/documentos/novo?protocolId=${protocol.id}`} className="btn-primary"><FilePlus2 size={16}/>Redigir documento</Link>}
+    </div>
+    {documents.length ? <div className="panel divide-y">{documents.map((document) => <ProcessFileRow key={document.id} file={{ kind: 'document', item: document }} onPreview={() => setPreviewDocument(document)} onDelete={canDelete && isActive(protocol) ? () => onDelete(document) : undefined}/>)}</div> : <Empty title="Sem documentos vinculados" detail="Nenhum documento foi redigido neste processo."/>}
+    {previewDocument && <DocumentPreviewDialog key={previewDocument.id} document={previewDocument} onClose={() => setPreviewDocument(undefined)}/>}
+  </section>;
 }
 function AttachmentPreviewDialog({
   attachment,
@@ -4265,6 +4078,7 @@ function AttachmentPreviewDialog({
   onClose: () => void;
 }) {
   const kind = api.attachmentPreviewKind(attachment.mimeType);
+  const { data: previewDb } = useDb();
   const [url, setUrl] = useState<string>();
   const [text, setText] = useState<string>();
   const [error, setError] = useState<unknown>();
@@ -4279,15 +4093,15 @@ function AttachmentPreviewDialog({
       .then(async (blob) => {
         if (!blob)
           throw new Error("Arquivo não encontrado no armazenamento local.");
+        if (!kind)
+          throw new Error("Este tipo de arquivo não pode ser visualizado.");
+        temporaryUrl = URL.createObjectURL(blob);
+        if (alive) setUrl(temporaryUrl);
         if (kind === "text") {
           const content = await blob.text();
           if (alive) setText(content);
           return;
         }
-        if (!kind)
-          throw new Error("Este tipo de arquivo não pode ser visualizado.");
-        temporaryUrl = URL.createObjectURL(blob);
-        if (alive) setUrl(temporaryUrl);
       })
       .catch((reason: unknown) => {
         if (alive) setError(reason);
@@ -4298,9 +4112,10 @@ function AttachmentPreviewDialog({
     };
   }, [attachment.blobKey, kind]);
   if (kind === "pdf" && url)
-    return <PdfViewerDialog title={attachment.filename} url={url} onClose={onClose} />;
+    return <PdfViewerDialog title={attachment.filename} subtitle={`${previewDb?.users.find((item) => item.id === attachment.uploadedById)?.name ?? 'Usuário'} · ${dateTime(attachment.createdAt)}`} signingContext={`Anexo ${attachment.filename}${attachment.protocolId ? ` — Processo ${previewDb?.protocols.find((item) => item.id === attachment.protocolId)?.number ?? ''}` : ''}`} url={url} onClose={onClose} />;
   return (
     <Dialog title={attachment.filename} onClose={onClose} wide>
+      <DialogBody>
       {error ? (
         <ErrorBox error={error} />
       ) : (
@@ -4320,6 +4135,8 @@ function AttachmentPreviewDialog({
           )}{" "}
         </>
       )}
+      </DialogBody>
+      <DialogFooter><button type="button" className="btn-secondary" onClick={onClose}>Fechar</button><button type="button" className="btn-primary" disabled={!url || Boolean(error)} onClick={() => { if (url) { const link = document.createElement('a'); link.href = url; link.download = attachment.filename; link.click() } }}><Download size={16}/>Baixar</button></DialogFooter>
     </Dialog>
   );
 }
@@ -4350,19 +4167,6 @@ function Attachments({
     onSuccess: onChanged,
     onError: setError,
   });
-  const download = async (attachment: Attachment) => {
-    const blob = await api.getBlob(attachment.blobKey);
-    if (!blob) {
-      setError(new Error("Arquivo não encontrado no armazenamento local."));
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = attachment.filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
   return (
     <>
       <section className="mt-4">
@@ -4406,41 +4210,7 @@ function Attachments({
         )}
         {attachments.length ? (
           <div className="panel divide-y">
-            {attachments.map((attachment) => (
-              <div
-                className="flex items-center justify-between gap-3 px-5 py-4"
-                key={attachment.id}
-              >
-                <span className="min-w-0">
-                  <strong className="block truncate text-sm">
-                    {attachment.filename}
-                  </strong>
-                  <small className="text-slate-500 dark:text-slate-400">
-                    {Math.ceil(attachment.sizeBytes / 1024)} KB ·{" "}
-                    {dateTime(attachment.createdAt)}
-                  </small>
-                </span>
-                <span className="flex shrink-0 gap-2">
-                  <button
-                    className="btn-secondary"
-                    onClick={() => setPreview(attachment)}
-                  >
-                    Visualizar
-                  </button>
-                  {!readOnly && (
-                    <button
-                      className="btn-secondary"
-                      onClick={() => download(attachment)}
-                    >
-                      Baixar
-                    </button>
-                  )}
-                  {canDelete && isActive(protocol) && !readOnly && (
-                    <button type="button" className="btn-secondary !p-2 text-destructive" aria-label={`Excluir arquivo ${attachment.filename}`} onClick={() => onDelete(attachment)}><Trash2 size={16} /></button>
-                  )}
-                </span>
-              </div>
-            ))}
+            {attachments.map((attachment) => <ProcessFileRow key={attachment.id} file={{ kind: 'attachment', item: attachment }} readOnly={readOnly} onPreview={() => setPreview(attachment)} onDelete={canDelete && isActive(protocol) && !readOnly ? () => onDelete(attachment) : undefined}/>)}
           </div>
         ) : (
           <Empty

@@ -1,3 +1,4 @@
+import { documentMarginsSchema } from '../lib/documentMargins';
 import type { AccessProfile, AppDocument, AppUser, Attachment, AuditEvent, Context, Database, Person, Protocol, Unit, ProtocolType, DocumentType, DocumentTemplate, ProtocolEvent, ProtocolStatus, ProtocolPhase, ProtocolFlow, ChecklistAnswer, ChecklistQuestion, FlowPhase, Role, SituationType, UserUnitMembership, ProcessCategory } from '../domain/model';
 import { documentTemplateValues, replaceTemplateVariables, validateTemplateContent } from '../lib/documentTemplate';
 import { isActive, isLegacyAssumptionEvent, isMovementEvent } from '../domain/model';
@@ -7,15 +8,34 @@ import type { Permission } from '../domain/permissions';
 import { cleanupOrphanedBlobs, deleteBlob, getBlob, loadDb, putBlob, saveDb } from '../storage/database';
 import { isoDaysFromNow } from '../lib/format';
 import { currentProtocolSituation } from '../domain/situations';
-import { formatConfiguredNumber, numberingCounterKey, readNumberingSettings } from '../lib/numbering';
+import { configuredSequence, formatConfiguredNumber, numberingCounterKey, readNumberingSettings } from '../lib/numbering';
 import { documentText, sanitizeDocumentHtml } from '../lib/richText';
 import { isActiveParticipant, participantName } from '../domain/participants';
 import { forwardPendingIssues, phaseChecklistMovement } from '../domain/protocolPending';
 import { cpfDigits, validCpf } from '../lib/cpf';
+import { canReparentUnit } from '../domain/units';
 import { validateUserImportRows } from '../lib/userCsv';
 import type { UserImportRow } from '../lib/userCsv';
 const sleep = () => new Promise((resolve) => window.setTimeout(resolve, 110));
 const id = () => crypto.randomUUID();
+const unitAppearance = (input: Pick<Unit, 'color' | 'icon'>) => {
+    if (input.color !== undefined && !/^#[0-9a-f]{6}$/i.test(input.color))
+        throw new DomainError('VALIDATION', 'Informe uma cor hexadecimal válida para a unidade.');
+    if (input.icon !== undefined && !/^[A-Za-z][A-Za-z0-9]{0,79}$/.test(input.icon.trim()))
+        throw new DomainError('VALIDATION', 'Selecione um ícone válido para a unidade.');
+    return { ...(input.color !== undefined ? { color: input.color.toUpperCase() } : {}), ...(input.icon !== undefined ? { icon: input.icon.trim() } : {}) };
+};
+const setUnitParent = (db: Database, unit: Unit, parentId?: string) => {
+    if (parentId && !db.units.some((item) => item.id === parentId && item.active))
+        throw new DomainError('VALIDATION', 'Selecione uma unidade superior ativa.');
+    if (!canReparentUnit(db.units, unit.id, parentId))
+        throw new DomainError('VALIDATION', 'Uma unidade não pode ser subordinada a si mesma ou a uma descendente.');
+    if (unit.parentId !== parentId) {
+        const siblings = db.units.filter((item) => item.id !== unit.id && item.parentId === parentId);
+        unit.position = Math.max(-1, ...siblings.map((item) => item.position ?? 0)) + 1;
+        unit.parentId = parentId;
+    }
+};
 const event = (db: Database, data: Omit<ProtocolEvent, 'id' | 'createdAt'>) => {
     const created = { ...data, id: id(), createdAt: new Date().toISOString() };
     db.events.push(created);
@@ -80,7 +100,7 @@ const flowSnapshotFor = (db: Database, type: ProtocolType, useSuggestedFlow = tr
         throw new DomainError('VALIDATION', 'O fluxo obrigatório precisa possuir ao menos uma fase ativa.');
     }
     return { mode, snapshot: { flowId: flow.id, flowName: flow.name, version: flow.version, phases } };
-};const nextNumber = (db: Database, scope: 'protocol' | 'document') => { const now = new Date(); const settings = readNumberingSettings(); const key = numberingCounterKey(scope, settings, now); const existing = scope === 'protocol' ? db.protocols : db.documents; const lastSequence = existing.reduce((largest, item) => { const value = Number(item.number.match(/(\d+)$/)?.[1] ?? 0); return Math.max(largest, value); }, 0); db.counters[key] = Math.max(db.counters[key] ?? 0, lastSequence) + 1; return formatConfiguredNumber(scope, db.counters[key], settings, now); };
+};const nextNumber = (db: Database, scope: 'protocol' | 'document') => { const now = new Date(); const settings = readNumberingSettings(); const key = numberingCounterKey(scope, settings, now); const existing = scope === 'protocol' ? db.protocols : db.documents; const lastSequence = existing.reduce((largest, item) => { const value = configuredSequence(item.number, scope, settings, now) ?? 0; return Math.max(largest, value); }, 0); db.counters[key] = Math.max(db.counters[key] ?? 0, lastSequence) + 1; return formatConfiguredNumber(scope, db.counters[key], settings, now); };
 const bump = (p: Protocol) => { p.version += 1; p.updatedAt = new Date().toISOString(); };
 const currentPhase = (protocol: Protocol) => {
     const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
@@ -969,6 +989,38 @@ export const api = {
         await deleteBlob(blobKey).catch(() => undefined);
         return true;
     },
+    async updateAttachment(ctx: Context, attachmentId: string, input: { filename: string; description?: string }) {
+        return mutate((db) => {
+            const actor = requirePermission(db, ctx, 'attachments.edit');
+            const attachment = db.attachments.find((item) => item.id === attachmentId && item.protocolId);
+            if (!attachment) throw new DomainError('NOT_FOUND', 'Anexo do processo não encontrado.');
+            const protocol = getProtocol(db, attachment.protocolId!);
+            requireActive(protocol);
+            if (!canAct(db, protocol, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode editar anexos deste processo.');
+            const filename = input.filename.trim();
+            if (!filename || filename.length > 255 || /[\\/]/.test(filename) || [...filename].some((character) => character.charCodeAt(0) < 32)) throw new DomainError('VALIDATION', 'Informe um nome válido para o anexo, com até 255 caracteres.');
+            if ((input.description?.length ?? 0) > 2000) throw new DomainError('VALIDATION', 'A descrição deve ter até 2000 caracteres.');
+            attachment.filename = filename;
+            attachment.description = input.description?.trim() || undefined;
+            bump(protocol);
+            audit(db, { action: 'ATTACHMENT_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Nome e descrição do anexo “${filename}” atualizados no processo ${protocol.number}.` });
+            return attachment;
+        });
+    },
+    async updateDocumentMetadata(ctx: Context, documentId: string, input: { subject: string; description?: string }) {
+        return mutate((db) => {
+            const actor = requirePermission(db, ctx, 'documents.edit');
+            const document = db.documents.find((item) => item.id === documentId);
+            if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
+            if (!canManageDocument(db, document, ctx)) throw new DomainError('FORBIDDEN', 'Você não pode editar este documento.');
+            if (!input.subject.trim() || input.subject.trim().length > 255) throw new DomainError('VALIDATION', 'Informe um nome para o documento, com até 255 caracteres.');
+            if ((input.description?.length ?? 0) > 2000) throw new DomainError('VALIDATION', 'A descrição deve ter até 2000 caracteres.');
+            document.subject = input.subject.trim();
+            document.description = input.description?.trim() || undefined;
+            audit(db, { action: 'DOCUMENT_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Nome e descrição do documento ${document.number} atualizados.` });
+            return document;
+        });
+    },
     async recordDossierGeneration(ctx: Context, protocolId: string) {
         return mutate((db) => {
             const protocol = getProtocol(db, protocolId);
@@ -1018,8 +1070,9 @@ export const api = {
         throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
     const number = nextNumber(db, 'document');
     const values = documentTemplateValues(db, ctx, { ...input, unitId }, number);
+    if (input.pageMargins && !documentMarginsSchema.safeParse(input.pageMargins).success) throw new DomainError('VALIDATION', 'Informe margens entre 0 e 50 mm.');
     const doc: AppDocument = { ...input, movementEventId, id: id(), number, subject: replaceTemplateVariables(input.subject.trim(), values), body: sanitizeDocumentHtml(replaceTemplateVariables(input.body, values, true)), unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined, authorUserId: author.id, createdAt: new Date().toISOString() }; db.documents.push(doc); audit(db, { action: 'DOCUMENT_CREATED', actorUserId: author.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: doc.id, details: linkedProtocol ? `Documento ${doc.number} — “${doc.subject}” anexado à movimentação do processo ${linkedProtocol.number}.` : `Documento avulso ${doc.number} — “${doc.subject}” criado.` }); return doc; }); },
-    async updateDocument(ctx: Context, documentId: string, input: Pick<AppDocument, 'typeId' | 'subject' | 'body' | 'recipientPersonId' | 'unitId' | 'signerName' | 'signerTitle'>) { return mutate((db) => {
+    async updateDocument(ctx: Context, documentId: string, input: Pick<AppDocument, 'typeId' | 'subject' | 'body' | 'recipientPersonId' | 'unitId' | 'signerName' | 'signerTitle' | 'pageMargins'>) { return mutate((db) => {
         const actor = requirePermission(db, ctx, 'documents.edit');
         const document = db.documents.find((item) => item.id === documentId);
         if (!document) throw new DomainError('NOT_FOUND', 'Documento não encontrado.');
@@ -1031,7 +1084,8 @@ export const api = {
         const membership = findActiveMembershipForUnit(db, actor.id, input.unitId);
         if (document.protocolId ? input.unitId !== document.unitId : !db.units.some((unit) => unit.id === input.unitId && unit.active) || !membership || !effectivePermissions(membership).includes('documents.edit'))
             throw new DomainError('FORBIDDEN', 'Selecione uma lotação ativa em que você possa atuar.');
-        Object.assign(document, { typeId: input.typeId, subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), recipientPersonId: input.recipientPersonId || undefined, unitId: input.unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined });
+        if (input.pageMargins && !documentMarginsSchema.safeParse(input.pageMargins).success) throw new DomainError('VALIDATION', 'Informe margens entre 0 e 50 mm.');
+        Object.assign(document, { pageMargins: input.pageMargins ?? document.pageMargins, typeId: input.typeId, subject: input.subject.trim(), body: sanitizeDocumentHtml(input.body), recipientPersonId: input.recipientPersonId || undefined, unitId: input.unitId, signerName: input.signerName?.trim() || undefined, signerTitle: input.signerTitle?.trim() || undefined });
         audit(db, { action: 'DOCUMENT_UPDATED', actorUserId: actor.id, actorUnitId: ctx.activeUnitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento ${document.number} atualizado.` });
         return document;
     }); },
@@ -1055,28 +1109,31 @@ export const api = {
     async createUnit(ctx: Context, input: Omit<Unit, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'structure.create'); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
         throw new DomainError('VALIDATION', 'Informe nome e sigla da unidade.'); if (db.units.some((unit) => unit.name.toLocaleLowerCase() === name.toLocaleLowerCase() || unit.abbreviation.toLocaleLowerCase() === abbreviation.toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Nome ou sigla já está em uso.'); if (input.parentId && !db.units.some((unit) => unit.id === input.parentId && unit.active))
-        throw new DomainError('VALIDATION', 'Selecione uma unidade superior ativa.'); const unit: Unit = { id: id(), name, abbreviation, parentId: input.parentId, position: input.position ?? db.units.filter((item) => item.parentId === input.parentId).length, active: input.active }; db.units.push(unit); return unit; }); },
+        throw new DomainError('VALIDATION', 'Selecione uma unidade superior ativa.'); const unit: Unit = { id: id(), name, abbreviation, parentId: input.parentId, position: input.position ?? db.units.filter((item) => item.parentId === input.parentId).length, ...unitAppearance(input), active: input.active }; db.units.push(unit); return unit; }); },
     async updateUnit(ctx: Context, unitId: string, input: Omit<Unit, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'structure.edit'); const unit = db.units.find((item) => item.id === unitId); if (!unit)
         throw new DomainError('NOT_FOUND', 'Unidade não encontrada.'); const name = input.name.trim(); const abbreviation = input.abbreviation.trim().toUpperCase(); if (!name || !abbreviation)
         throw new DomainError('VALIDATION', 'Informe nome e sigla da unidade.'); if (db.units.some((item) => item.id !== unitId && (item.name.toLocaleLowerCase() === name.toLocaleLowerCase() || item.abbreviation.toLocaleLowerCase() === abbreviation.toLocaleLowerCase())))
-        throw new DomainError('VALIDATION', 'Nome ou sigla já está em uso.'); if (input.parentId) {
-        const parent = db.units.find((item) => item.id === input.parentId && item.active);
-        if (!parent)
-            throw new DomainError('VALIDATION', 'Selecione uma unidade superior ativa.');
-        let ancestor: Unit | undefined = parent;
-        while (ancestor) {
-            if (ancestor.id === unitId)
-                throw new DomainError('VALIDATION', 'Uma unidade não pode ser subordinada a si mesma ou a uma descendente.');
-            ancestor = ancestor.parentId ? db.units.find((item) => item.id === ancestor?.parentId) : undefined;
-        }
-    } if (!input.active) {
+        throw new DomainError('VALIDATION', 'Nome ou sigla já está em uso.'); const appearance = unitAppearance(input); setUnitParent(db, unit, input.parentId); if (!input.active) {
         if (db.units.some((item) => item.parentId === unitId && item.active))
             throw new DomainError('VALIDATION', 'Não é possível inativar unidade com filhos ativos.');
         if (db.memberships.some((membership) => membership.unitId === unitId && membership.active))
             throw new DomainError('VALIDATION', 'Não é possível inativar unidade com usuários ativos vinculados.');
         if (db.protocols.some((item) => item.currentUnitId === unitId && isActive(item)))
             throw new DomainError('VALIDATION', 'Não é possível inativar unidade com processos ativos.');
-    } Object.assign(unit, { name, abbreviation, parentId: input.parentId, active: input.active }); return unit; }); },
+    } Object.assign(unit, { name, abbreviation, ...appearance, active: input.active }); return unit; }); },
+    async reparentUnit(ctx: Context, unitId: string, parentId?: string) { return mutate((db) => {
+        requirePermission(db, ctx, 'structure.edit');
+        const unit = db.units.find((item) => item.id === unitId);
+        if (!unit) throw new DomainError('NOT_FOUND', 'Unidade não encontrada.');
+        const previousParentId = unit.parentId;
+        setUnitParent(db, unit, parentId || undefined);
+        if (previousParentId !== unit.parentId) audit(db, {
+            action: 'UNIT_REPARENTED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId,
+            targetType: 'UNIT', targetId: unit.id,
+            details: `Unidade “${unit.name}” movida de ${db.units.find((item) => item.id === previousParentId)?.name ?? 'nível principal'} para ${db.units.find((item) => item.id === unit.parentId)?.name ?? 'nível principal'}.`,
+        });
+        return unit;
+    }); },
     async deleteUnit(ctx: Context, unitId: string) { return mutate((db) => {
         requirePermission(db, ctx, 'structure.delete');
         const index = db.units.findIndex((item) => item.id === unitId);

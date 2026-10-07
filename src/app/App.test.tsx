@@ -12,6 +12,18 @@ vi.mock('../storage/database', async () => {
   return { ...actual, cleanupOrphanedBlobs: vi.fn().mockResolvedValue(undefined), deleteBlob: vi.fn().mockResolvedValue(undefined), getBlob: vi.fn().mockResolvedValue(undefined), putBlob: vi.fn().mockResolvedValue(undefined) }
 })
 
+const demoNumbers = new Map<string, string>()
+const demoText = (text: string) => {
+  if (!demoNumbers.size) {
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    for (const record of [...db.protocols, ...db.documents]) {
+      const match = record.id.match(/^(pr|doc)-(\d+)$/)
+      if (match) demoNumbers.set(`${match[1] === 'doc' ? 'DOC-' : ''}2026.${match[2].padStart(6, '0')}`, record.number)
+    }
+  }
+  return text.replace(/(?:DOC-)?2026\.\d{6}/g, (value) => demoNumbers.get(value) ?? value)
+}
+
 const renderApp = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}><ToastProvider><SessionProvider><App/></SessionProvider></ToastProvider></QueryClientProvider>)
@@ -32,7 +44,9 @@ const choose = async (label: string | RegExp, option: string, scope: Pick<typeof
 
 describe('jornada principal da interface', () => {
   beforeEach(() => {
+    demoNumbers.clear()
     localStorage.clear()
+    localStorage.setItem('fluxo-publico:user', 'usr-clara')
     saveDb(seedDatabase())
     window.history.replaceState({}, '', '/processos/novo')
   })
@@ -42,7 +56,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/dashboard')
     renderApp()
 
-    expect(screen.getByText('PGCI')).not.toBeNull()
+    expect(await screen.findByText('PGCI')).not.toBeNull()
     await screen.findByRole('heading', { name: 'Meus Processos' })
     expect(screen.getByRole('textbox', { name: 'Buscar processo' })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Na minha caixa/ })).not.toBeNull()
@@ -124,7 +138,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-5')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000005' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000005') })
     expect(screen.getByText('Somente leitura')).not.toBeNull()
     expect(screen.getByText(/Como você já participou dele/)).not.toBeNull()
     expect(screen.queryByRole('button', { name: /Alterar para/ })).toBeNull()
@@ -140,7 +154,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-19')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000019' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000019') })
     const lockedCheckbox = await screen.findByRole('checkbox', { name: 'Registrar despacho ou resultado' })
     expect(lockedCheckbox.hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('Dê ciência desta movimentação para preencher o checklist.')).not.toBeNull()
@@ -193,7 +207,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-19')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000019' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000019') })
     fireEvent.click(screen.getByRole('button', { name: 'Expandir conteúdo de Fase Análise' }))
 
     expect(screen.getAllByRole('checkbox', { name: 'Registrar despacho ou resultado' })).toHaveLength(1)
@@ -205,13 +219,15 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir documento DOC-2026.000001' }))
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
+    fireEvent.click(screen.getByRole('button', { name: demoText('Ações do documento DOC-2026.000001') }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Excluir' }))
     const documentConfirmation = await screen.findByRole('dialog', { name: 'Excluir documento?' })
     fireEvent.click(within(documentConfirmation).getByRole('button', { name: 'Excluir documento' }))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Visualizar documento DOC-2026.000001' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: demoText('Visualizar documento DOC-2026.000001') })).toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir arquivo comprovante-demo.txt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ações do anexo comprovante-demo.txt' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Excluir' }))
     const attachmentConfirmation = await screen.findByRole('dialog', { name: 'Excluir arquivo?' })
     fireEvent.click(within(attachmentConfirmation).getByRole('button', { name: 'Excluir arquivo' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Visualizar anexo comprovante-demo.txt' })).toBeNull())
@@ -236,7 +252,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
     const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
     expect(forwardButton.getAttribute('aria-disabled')).toBe('true')
@@ -292,7 +308,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-18')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000018' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000018') })
     expect(screen.getByText('Troque a unidade para continuar')).not.toBeNull()
     expect(screen.getByRole('status').textContent).toContain('Administração')
     const overview = screen.getByRole('region', { name: 'Tipo, responsabilidade e etapas do processo' })
@@ -342,7 +358,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-18')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000018' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000018') })
     expect(screen.getByText('Está com:').parentElement?.textContent).toContain('Financeiro')
     const movementHeader = screen.getByRole('button', { name: 'Recolher conteúdo de Fase Conclusão' })
     const movementCard = movementHeader.closest('section')!
@@ -402,7 +418,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-6')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000006' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000006') })
     fireEvent.click(screen.getByRole('button', { name: 'Escolher outro responsável' }))
     const assignDialog = await screen.findByRole('dialog')
     fireEvent.click(within(assignDialog).getByRole('combobox', { name: 'Responsável *' }))
@@ -440,7 +456,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(forwardDialog).getByText('Fluxo livre')).not.toBeNull()
@@ -479,7 +495,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     expect(screen.queryByRole('checkbox', { name: 'Conferir nota fiscal e dados bancários do credor' })).toBeNull()
     const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
     expect(forwardButton.getAttribute('aria-disabled')).toBe('false')
@@ -510,7 +526,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(forwardDialog).getByText('Fluxo sugerido')).not.toBeNull()
@@ -531,7 +547,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
     expect(forwardButton.disabled).toBe(true)
     expect(forwardButton.getAttribute('title')).toBe('Esta é a última fase do fluxo obrigatório. Conclua o processo.')
@@ -550,7 +566,7 @@ describe('jornada principal da interface', () => {
     window.history.replaceState({}, '', '/processos/pr-1')
     renderApp()
 
-    await screen.findByRole('heading', { name: 'Processo 2026.000001' })
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
     expect(forwardButton.disabled).toBe(false)
     fireEvent.click(forwardButton)
@@ -615,7 +631,7 @@ describe('jornada principal da interface', () => {
     fireEvent.change(screen.getByLabelText('Assunto *'), { target: { value: 'Fluxo integrado de teste' } })
     fireEvent.change(screen.getByLabelText('Descrição *'), { target: { value: 'Descrição para validar a jornada completa.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir processo' }))
-    await screen.findByRole('heading', { name: 'Fluxo integrado de teste' })
+    await screen.findByRole('heading', { name: 'Fluxo integrado de teste' }, { timeout: 3000 })
 
     const openingChecklist = screen.getByRole('checkbox', { name: 'Conferir dados de abertura' })
     fireEvent.click(openingChecklist)
@@ -649,8 +665,9 @@ describe('jornada principal da interface', () => {
     documentEditor.innerHTML = '<p>Corpo do documento de teste.</p>'
     fireEvent.input(documentEditor)
     fireEvent.click(screen.getByRole('button', { name: 'Salvar documento' }))
-    const linkedProcess = await screen.findByRole('link', { name: 'Abrir processo vinculado' })
-    await screen.findByText('Corpo do documento de teste.')
+    await screen.findByRole('heading', { name: 'Documentos' }, { timeout: 3000 })
+    const savedDocument = (await screen.findByRole('heading', { name: 'Memorando da jornada' })).closest('article')!
+    const linkedProcess = within(savedDocument).getByRole('link', { name: /^Processo / })
     fireEvent.click(linkedProcess)
     fireEvent.click(await screen.findByRole('button', { name: /^Anexos\b/ }))
     const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!

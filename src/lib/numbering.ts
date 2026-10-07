@@ -44,3 +44,12 @@ export const formatConfiguredNumber = (
   if (format.startsWith('Anual')) return `${prefix}${year}.${serial}`
   return `${prefix}${serial}`
 }
+
+export function configuredSequence(number: string, scope: NumberingScope, settings: NumberingSettings, date = new Date()): number | undefined {
+  const prefix = formatConfiguredNumber(scope, 0, settings, date).replace(/\d+$/, '')
+  if (!number.startsWith(prefix)) return undefined
+  const serial = number.slice(prefix.length)
+  if (!/^\d+$/.test(serial)) return undefined
+  const value = Number(serial)
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined
+}

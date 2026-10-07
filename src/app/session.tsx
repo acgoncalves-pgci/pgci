@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import type { AppUser, Context } from '../domain/model';
 import { api } from '../services/api';
+import { demoLoginUser, demoSessionUsers } from '../lib/demoAuth';
 import { readableAccentColor, readableTextColor } from '../lib/colorContrast';
 
 export type AppearancePalette = {
@@ -78,6 +79,10 @@ const readAppearance = (): AppearanceSettings => {
     }
 };
 interface SessionValue extends Context {
+    authenticated: boolean;
+    sessionLoading: boolean;
+    signIn: (email: string, password: string) => Promise<void>;
+    signOut: () => void;
     users: AppUser[];
     user?: AppUser;
     setUserId: (id: string) => void;
@@ -93,14 +98,24 @@ interface SessionValue extends Context {
 const Session = createContext<SessionValue | null>(null);
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
     const [users, setUsers] = useState<AppUser[]>([]);
-    const [userId, setUserIdState] = useState(() => localStorage.getItem('fluxo-publico:user') ?? 'usr-clara');
+    const [userId, setUserIdState] = useState(() => localStorage.getItem('fluxo-publico:user') ?? '');
+    const [sessionLoading, setSessionLoading] = useState(true);
     const [activeUnitId, setActiveUnitId] = useState(() => localStorage.getItem('fluxo-publico:unit') ?? 'u-prot');
     const [scopeUnitId, setScopeUnitId] = useState(() => localStorage.getItem('fluxo-publico:scope-unit') ?? 'ALL');
     const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('fluxo-publico:theme') as 'light' | 'dark' ?? 'light');
     const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearance);
-    useEffect(() => { const refresh = () => { api.listData().then((db) => setUsers(db.users.filter((u) => u.active && db.units.some((unit) => unit.id === u.unitId && unit.active) && db.memberships.some((membership) => membership.userId === u.id && membership.unitId === u.unitId && membership.active)))).catch(() => setUsers([])); }; refresh(); window.addEventListener('fluxo-publico:changed', refresh); return () => window.removeEventListener('fluxo-publico:changed', refresh); }, []);
+    useEffect(() => { let active = true; const refresh = () => { api.listData().then((db) => { if (active) setUsers(demoSessionUsers(db)); }).catch(() => { if (active) setUsers([]); }).finally(() => { if (active) setSessionLoading(false); }); }; refresh(); window.addEventListener('fluxo-publico:changed', refresh); return () => { active = false; window.removeEventListener('fluxo-publico:changed', refresh); }; }, []);
     const setUserId = useCallback((id: string) => { setUserIdState(id); const selected = users.find((u) => u.id === id); if (selected) { setActiveUnitId(selected.unitId); setScopeUnitId('ALL'); } }, [users]);
-    useEffect(() => { localStorage.setItem('fluxo-publico:user', userId); }, [userId]);
+    useEffect(() => { if (userId) localStorage.setItem('fluxo-publico:user', userId); else localStorage.removeItem('fluxo-publico:user'); }, [userId]);
+    const signIn = useCallback(async (email: string, password: string) => {
+        const db = await api.listData();
+        const selected = demoLoginUser(db, email, password);
+        setUsers(demoSessionUsers(db));
+        setUserIdState(selected.id);
+        setActiveUnitId(selected.unitId);
+        setScopeUnitId('ALL');
+    }, []);
+    const signOut = useCallback(() => { setUserIdState(''); setScopeUnitId('ALL'); localStorage.removeItem('fluxo-publico:user'); }, []);
     useEffect(() => { localStorage.setItem('fluxo-publico:unit', activeUnitId); }, [activeUnitId]);
     useEffect(() => { localStorage.setItem('fluxo-publico:scope-unit', scopeUnitId); }, [scopeUnitId]);
     useEffect(() => { const root = document.documentElement; localStorage.setItem('fluxo-publico:theme', theme); root.dataset.theme = theme; root.style.colorScheme = theme; root.classList.remove('dark', 'light'); root.classList.add(theme); }, [theme]);
@@ -130,7 +145,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         setTheme((current) => current === 'light' ? 'dark' : 'light');
     }, []);
     const user = users.find((u) => u.id === userId);
-    const value = useMemo(() => ({ userId, activeUnitId, scopeUnitId, users, user, setUserId, setActiveUnitId, setScopeUnitId, theme, setTheme, toggleTheme, appearance, setAppearance }), [userId, activeUnitId, scopeUnitId, user, users, theme, setUserId, toggleTheme, appearance]);
+    const authenticated = Boolean(user);
+    const value = useMemo(() => ({ authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, users, user, setUserId, setActiveUnitId, setScopeUnitId, theme, setTheme, toggleTheme, appearance, setAppearance }), [authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, user, users, theme, setUserId, toggleTheme, appearance]);
     return <Session.Provider value={value}>{children}</Session.Provider>;
 };
 export const useSession = () => { const value = useContext(Session); if (!value) throw new Error('Sessão indisponível'); return value; };

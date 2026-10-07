@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import type { UserOptions } from 'jspdf-autotable';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import type { Attachment, Database, Protocol, ProtocolEvent } from '../../domain/model';
@@ -10,6 +11,14 @@ import type { InstitutionSettings } from '../../lib/institution';
 import { consultationUrl } from './reportData';
 import { api } from '../../services/api';
 import { participantName } from '../../domain/participants';
+
+
+function identificationTable(doc: jsPDF, options: UserOptions) {
+  autoTable(doc, { ...options, didParseCell: (data) => {
+    data.cell.text = data.cell.text.map((text) => text.toLocaleUpperCase('pt-BR'));
+    options.didParseCell?.(data);
+  } });
+}
 
 const unitName = (db: Database, id?: string) => db.units.find((u) => u.id === id)?.name ?? 'Não informado';
 const userName = (db: Database, id?: string) => db.users.find((u) => u.id === id)?.name ?? 'Não designado';
@@ -35,21 +44,23 @@ async function newPdf(format: 'a4' | [number, number] = 'a4', orientation: 'port
   doc.setTextColor(20);
   return doc;
 }
-async function timbre(doc: jsPDF, db: Database, settings: InstitutionSettings) {
+async function timbre(doc: jsPDF, db: Database, settings: InstitutionSettings, compact = false) {
+  let logoBottom = 12;
   if (settings.logoDataUrl) {
     const properties = doc.getImageProperties(settings.logoDataUrl);
     const ratio = properties.width / properties.height;
     const height = Math.min(18, 28 / ratio);
     const width = height * ratio;
     doc.addImage(settings.logoDataUrl, 'PNG', (210 - width) / 2, 12, width, height);
+    logoBottom += height;
   }
   const name = settings.organizationName || db.organization.name;
-  autoTable(doc, { startY: 32, theme: 'plain', head: [[settings.shortName || name]],
+  autoTable(doc, { startY: compact ? logoBottom + 1.5 : 32, theme: 'plain', head: [[settings.shortName || name]],
     body: [[name], ...(settings.cnpj ? [[`CNPJ ${settings.cnpj}`]] : [])],
     styles: { font: 'Roboto', fontSize: 8, halign: 'center', textColor: 20, cellPadding: 0.8, lineWidth: 0 },
     headStyles: { fontStyle: 'bold', fontSize: 11, fillColor: [255, 255, 255], textColor: 20 },
     margin: { left: 21, right: 21, top: 20, bottom: 42 } });
-  return Math.max(53, tableEnd(doc) + 9);
+  return compact ? tableEnd(doc) + 6 : Math.max(53, tableEnd(doc) + 9);
 }
 
 const tableStyles = { font: 'Roboto', fontSize: 8, textColor: 20, cellPadding: 2.5, lineColor: 185, lineWidth: 0.2 };
@@ -107,29 +118,29 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
   const interested = participantName(db, protocol.interestedPersonId) ?? 'Não informado';
   const responsible = userName(db, protocol.currentAssigneeId);
   const sector = unitName(db, protocol.currentUnitId);
-  const organization = settings.shortName || settings.organizationName || db.organization.name;
   const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
   const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
   const barcodeCanvas = document.createElement('canvas');
   JsBarcode(barcodeCanvas, protocol.number, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
   const barcode = barcodeCanvas.toDataURL('image/png');
-  const coverValue = (value: string) => doc.splitTextToSize(value, 111)[0] ?? value;
+  const coverValue = (value: string) => value.toLocaleUpperCase('pt-BR');
+  const coverMargin = { left: 21, right: 21, top: 18, bottom: 17 };
 
   doc.setProperties({ title: `Capa do processo ${protocol.number}` });
-  const startY = await timbre(doc, db, settings);
-  autoTable(doc, {
+  const startY = await timbre(doc, db, settings, true);
+  identificationTable(doc, {
     startY,
     theme: 'grid',
     head: [['CAPA DO PROCESSO']],
-    body: [[`Número do protocolo: ${protocol.number}`]],
+    body: [[`NÚMERO DO PROTOCOLO: ${protocol.number}`]],
     styles: { ...tableStyles, halign: 'center', cellPadding: 2.5 },
     headStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold', fontSize: 10 },
-    margin: { left: 21, right: 21 },
+    margin: coverMargin,
   });
-  autoTable(doc, {
+  identificationTable(doc, {
     startY: tableEnd(doc),
     theme: 'grid',
-    styles: { ...tableStyles, cellPadding: 2.3 },
+    styles: { ...tableStyles, cellPadding: 1.5, overflow: 'linebreak', valign: 'top' },
     body: [
       ['Data/Hora:', dateTime(protocol.createdAt)],
       ['Tipo:', coverValue(type)],
@@ -143,64 +154,98 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
       ...(protocol.typeConfigSnapshot.biddingNumber?.enabled ? [['Número de licitação:', coverValue(protocol.biddingNumber ?? 'Não informado')]] : []),
       ...(protocol.typeConfigSnapshot.legalProcessNumber?.enabled ? [['Número de processo jurídico:', coverValue(protocol.legalProcessNumber ?? 'Não informado')]] : []),
       ...(protocol.typeConfigSnapshot.referenceNumber?.enabled ? [['Número:', coverValue(protocol.referenceNumber ?? 'Não informado')]] : []),
-    ],
-    columnStyles: { 0: { cellWidth: 53, halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 21, right: 21 },
+    ].map((row) => row.map(coverValue)),
+    columnStyles: { 0: { cellWidth: 38, halign: 'right', fontStyle: 'bold' } },
+    margin: coverMargin,
     rowPageBreak: 'avoid',
   });
 
-  const dividerY = 247;
-  let y = tableEnd(doc) + 9;
-  doc.setFont('Roboto', 'bold').setFontSize(10).setTextColor(20);
-  doc.text('Descrição do protocolo', 105, y, { align: 'center' });
-  y += 7;
-  doc.setFont('Roboto', 'normal').setFontSize(8);
-  const availableDescriptionLines = Math.max(1, Math.min(6, Math.floor((dividerY - 69 - y) / 3.7)));
-  const description = doc.splitTextToSize(protocol.description || 'Não informado', 174).slice(0, availableDescriptionLines);
-  doc.text(description, 105, y, { align: 'center' });
-  y += Math.max(4, description.length * 3.7) + 8;
+  autoTable(doc, {
+    startY: tableEnd(doc) + 5, theme: 'plain',
+    head: [['Descrição do protocolo']], body: [[protocol.description || 'Não informado']],
+    styles: { ...tableStyles, halign: 'center', lineWidth: 0, overflow: 'linebreak' },
+    headStyles: { fontStyle: 'bold', fontSize: 10, fillColor: [255, 255, 255], textColor: 20 },
+    margin: coverMargin,
+  });
+  autoTable(doc, {
+    startY: tableEnd(doc) + 4, theme: 'plain',
+    head: [['Consulte o andamento do seu protocolo no nosso site']],
+    body: [
+      ['1 - Para acessar a tramitação, informe o CPF/CNPJ do interessado e o número do protocolo acima na tela de consulta.'],
+      ['2 - O QR Code desta capa também pode ser usado para acompanhar o andamento do protocolo.'],
+    ],
+    styles: { ...tableStyles, fontSize: 7.2, cellPadding: 1, lineWidth: 0 },
+    headStyles: { fontStyle: 'bold', fontSize: 10, halign: 'center', fillColor: [255, 255, 255], textColor: 20 },
+    margin: coverMargin,
+  });
+  autoTable(doc, {
+    startY: tableEnd(doc) + 2, theme: 'plain', body: [['']],
+    styles: { ...tableStyles, lineWidth: 0, minCellHeight: 41 },
+    margin: coverMargin,
+    rowPageBreak: 'avoid',
+    didDrawCell: ({ cell }) => {
+      doc.addImage(qr, 'PNG', 93, cell.y + 1, 24, 24);
+      doc.addImage(barcode, 'PNG', 82, cell.y + 26, 46, 8);
+      doc.setFont('Roboto', 'normal').setFontSize(6.5).setTextColor(20);
+      doc.text(protocol.number, 105, cell.y + 38, { align: 'center' });
+    },
+  });
 
-  doc.setFont('Roboto', 'bold').setFontSize(10);
-  doc.text('Consulte o andamento do seu protocolo no nosso site', 105, y, { align: 'center' });
-  y += 6;
-  doc.setFont('Roboto', 'normal').setFontSize(7.2);
-  const accessInstructions = doc.splitTextToSize('1 - Para acessar a tramitação, informe o CPF/CNPJ do interessado e o número do protocolo acima na tela de consulta.', 184);
-  doc.text(accessInstructions, 13, y);
-  y += accessInstructions.length * 3.5 + 2;
-  const qrInstructions = doc.splitTextToSize('2 - O QR Code desta capa também pode ser usado para acompanhar o andamento do protocolo.', 184);
-  doc.text(qrInstructions, 13, y);
-  y += qrInstructions.length * 3.5 + 3;
-
-  const qrY = Math.min(y, dividerY - 39);
-  doc.addImage(qr, 'PNG', 93, qrY, 24, 24);
-  doc.addImage(barcode, 'PNG', 82, qrY + 25, 46, 8);
-  doc.setFontSize(6.5).text(protocol.number, 105, qrY + 36, { align: 'center' });
-
-  doc.setDrawColor(130).setLineWidth(0.2).setLineDashPattern([1.2, 1.2], 0).line(10, dividerY, 200, dividerY);
-  doc.setLineDashPattern([], 0);
-  doc.setFont('Roboto', 'bold').setFontSize(8);
-  doc.text(`PROTOCOLO: ${protocol.number} - ${organization}`, 105, dividerY + 6, { align: 'center' });
-  doc.addImage(qr, 'PNG', 11, dividerY + 10, 22, 22);
-  doc.setFont('Roboto', 'normal').setFontSize(6.7);
-  const stubDescription = doc.splitTextToSize(protocol.description || protocol.subject, 88)[0];
-  const stubRows = [
-    `Interessado: ${interested}`,
-    `Responsável: ${responsible}`,
-    ...(protocol.typeConfigSnapshot.amount.enabled ? [`Valor: ${money(protocol.amountCents)}`] : []),
-    `Setor: ${sector}`,
-    `Descrição: ${stubDescription}`,
-  ];
-  stubRows.forEach((row, index) => doc.text(row, 37, dividerY + 13 + index * 4));
-  doc.text(dateTime(protocol.createdAt), 198, dividerY + 13, { align: 'right' });
-  doc.addImage(barcode, 'PNG', 148, dividerY + 17, 50, 9);
-  doc.setFontSize(6).text(protocol.number, 173, dividerY + 31, { align: 'center' });
+  const events = processEvents(db, protocol);
+  const historyRows = events.map((event) => {
+      const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === event.phaseId);
+      const phaseName = phase?.name ?? db.phases.find((item) => item.id === event.phaseId)?.name;
+      return [
+        dateTime(event.createdAt),
+        [
+          `Origem: ${unitName(db, event.fromUnitId ?? event.actorUnitId)}`,
+          `Registrado por: ${userName(db, event.actorUserId)}`,
+          event.fromUserId && event.fromUserId !== event.actorUserId ? `Enviado por: ${userName(db, event.fromUserId)}` : '',
+          event.toUnitId ? `Destino: ${unitName(db, event.toUnitId)}` : '',
+          event.toUserId ? `Destinatário: ${userName(db, event.toUserId)}` : '',
+        ].filter(Boolean).join('\n'),
+        [
+          eventLabel[event.kind],
+          phaseName ? `Fase: ${phaseName}` : '',
+          event.nextStatus ? `Situação: ${phase?.situationType?.name ?? statusLabel[event.nextStatus]}` : '',
+          event.activity ? `Atividade: ${event.activity}` : '',
+          event.result ? `Resultado: ${event.result}` : '',
+          event.message || '',
+        ].filter(Boolean).join('\n'),
+      ];
+    });
+  let historyY = tableEnd(doc) + 5;
+  doc.setFont('Roboto', 'normal').setFontSize(7.5);
+  const columnWidths = [28, 51, 89];
+  const firstRowLines = Math.max(1, ...(historyRows[0] ?? []).map((text, index) =>
+    doc.splitTextToSize(text, columnWidths[index] - 4).length));
+  const firstRowHeight = firstRowLines * 7.5 * doc.getLineHeightFactor() / doc.internal.scaleFactor + 4;
+  // Keep the section heading with its first record, including on long covers.
+  if (historyY + 17 + Math.min(firstRowHeight, 245) > 280) {
+    doc.addPage();
+    historyY = coverMargin.top;
+  }
+  autoTable(doc, {
+    startY: historyY, theme: 'grid',
+    head: [
+      [{ content: 'MOVIMENTAÇÕES DO PROTOCOLO', colSpan: 3, styles: { halign: 'center', fontSize: 10 } }],
+      ['Data/Hora', 'Origem / Destino', 'Registro'],
+    ],
+    body: historyRows.length ? historyRows : [[{ content: 'Nenhuma movimentação registrada.', colSpan: 3 }]],
+    styles: { ...tableStyles, fontSize: 7.5, cellPadding: 2, valign: 'top', overflow: 'linebreak' },
+    headStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 51 }, 2: { cellWidth: 89 } },
+    margin: coverMargin,
+    rowPageBreak: 'avoid',
+  });
+  processDetailsFooter(doc, protocol);
   return doc;
 }
 export async function downloadCover(db: Database, protocol: Protocol) {
   const doc = await createCoverPdf(db, protocol);
   doc.save(`capa_${protocol.number}.pdf`);
 }
-export async function downloadList(db: Database, protocols: Protocol[], grouping: string, summary: boolean, period: string) {
+export async function createListPdf(db: Database, protocols: Protocol[], grouping: string, summary: boolean, period: string) {
   const settings = readInstitutionSettings();
   const doc = await newPdf();
   const startY = await timbre(doc, db, settings);
@@ -217,9 +262,9 @@ export async function downloadList(db: Database, protocols: Protocol[], grouping
     }
   }
   await footer(doc, settings);
-  doc.save('relatorio_processos.pdf');
+  return doc;
 }
-export async function downloadProductivity(db: Database, protocols: Protocol[], serverId: string, superiorId: string, from: string, to: string, difficulties: string, suggestions: string) {
+export async function createProductivityPdf(db: Database, protocols: Protocol[], serverId: string, superiorId: string, from: string, to: string, difficulties: string, suggestions: string) {
   const { inPeriod } = await import('./reportData');
   const settings = readInstitutionSettings();
   const doc = await newPdf();
@@ -231,7 +276,7 @@ export async function downloadProductivity(db: Database, protocols: Protocol[], 
   paragraph(doc, 'Dificuldades ou impedimentos encontrados', difficulties, tableEnd(doc) + 5);
   paragraph(doc, 'Sugestões para melhoria do desempenho e produtividade setorial', suggestions, tableEnd(doc) + 3);
   await footer(doc, settings);
-  doc.save('relatorio_produtividade.pdf');
+  return doc;
 }
 
 
@@ -272,7 +317,7 @@ export async function createMovementReceiptPdf(db: Database, protocol: Protocol,
   const doc = await newPdf();
   doc.setProperties({ title: `Comprovante de tramitação ${protocol.number}` });
   const startY = await timbre(doc, db, settings);
-  autoTable(doc, {
+  identificationTable(doc, {
     startY,
     theme: 'grid',
     head: [['COMPROVANTE DE TRAMITAÇÃO']],
@@ -283,7 +328,7 @@ export async function createMovementReceiptPdf(db: Database, protocol: Protocol,
   });
   const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
   const interested = participantName(db, protocol.interestedPersonId) ?? 'Não informado';
-  autoTable(doc, {
+  identificationTable(doc, {
     startY: tableEnd(doc),
     theme: 'grid',
     body: [
@@ -303,12 +348,14 @@ export async function createMovementReceiptPdf(db: Database, protocol: Protocol,
     },
     margin: { left: 12, right: 12, top: 18, bottom: 26 },
   });
-  const signatureY = Math.min(250, tableEnd(doc) + 14);
-  doc.setFontSize(7).setTextColor(40);
-  doc.text('Responsável pela tramitação', 12, signatureY);
-  doc.text('Recebido em ____/____/________', 112, signatureY);
+  let signatureY = tableEnd(doc) + 18;
+  if (signatureY > 260) { doc.addPage(); signatureY = 35; }
+  doc.setDrawColor(70).setLineWidth(0.2).line(20, signatureY, 97, signatureY);
+  doc.setFont('Roboto', 'normal').setFontSize(7).setTextColor(40);
+  doc.text('RESPONSÁVEL PELA TRAMITAÇÃO', 58.5, signatureY + 5, { align: 'center' });
+  doc.text('RECEBIDO EM ____/____/________', 151.5, signatureY + 5, { align: 'center' });
   doc.setTextColor(110).setFontSize(6.5);
-  doc.text('Documento gerado eletronicamente pelo sistema de processos.', 105, signatureY + 8, { align: 'center' });
+  doc.text('Documento gerado eletronicamente pelo sistema de processos.', 105, signatureY + 14, { align: 'center' });
   simplePageFooter(doc, protocol, dateTime(new Date().toISOString()));
   return doc;
 }
@@ -331,7 +378,7 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
 
   doc.setProperties({ title: `Comprovante de protocolo ${protocol.number}` });
   const startY = await timbre(doc, db, settings);
-  autoTable(doc, {
+  identificationTable(doc, {
     startY,
     theme: 'grid',
     head: [['COMPROVANTE DE PROTOCOLO']],
@@ -340,7 +387,7 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
     headStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold', fontSize: 10 },
     margin: { left: 21, right: 21 },
   });
-  autoTable(doc, {
+  identificationTable(doc, {
     startY: tableEnd(doc),
     theme: 'grid',
     body: [
@@ -500,14 +547,14 @@ export async function createProcessDetailsPdf(db: Database, protocol: Protocol) 
   const attachments = db.attachments.filter((attachment) => attachment.protocolId === protocol.id);
   doc.setProperties({ title: `Detalhamento do processo ${protocol.number}` });
   const startY = await timbre(doc, db, settings);
-  autoTable(doc, {
+  identificationTable(doc, {
     startY, theme: 'grid', head: [['MOVIMENTAÇÃO DO PROTOCOLO']],
     body: [[`NÚMERO DO PROTOCOLO: ${protocol.number}`]],
     styles: { ...tableStyles, halign: 'center' },
     headStyles: { fillColor: [58, 58, 58], textColor: 255, fontStyle: 'bold', fontSize: 11 },
     margin: { left: 12, right: 12, top: 18, bottom: 18 },
   });
-  autoTable(doc, {
+  identificationTable(doc, {
     startY: tableEnd(doc), theme: 'grid',
     body: [
       ['Data/Hora:', dateTime(protocol.createdAt), 'Assunto/Tipo:', db.protocolTypes.find((type) => type.id === protocol.typeId)?.name ?? 'Não informado'],
@@ -638,4 +685,14 @@ export async function downloadDossier(db: Database, protocol: Protocol) {
 export async function downloadProcessDetails(db: Database, protocol: Protocol) {
   const doc = await createProcessDetailsPdf(db, protocol);
   doc.save(`detalhamento_${protocol.number}.pdf`);
+}
+
+export type ProcessPdfKind = 'cover' | 'receipt' | 'label' | 'details';
+export interface PdfPreview { title: string; blob: Blob; filename: string }
+export async function createProcessPdfPreview(db: Database, protocol: Protocol, kind: ProcessPdfKind): Promise<PdfPreview> {
+  const builders = { cover: createCoverPdf, receipt: createProtocolReceiptPdf, label: createProcessLabelPdf, details: createProcessDetailsPdf };
+  const labels = { cover: 'Capa do processo', receipt: 'Comprovante de protocolo', label: 'Etiqueta do processo', details: 'Detalhamento do processo' };
+  const prefixes = { cover: 'capa', receipt: 'comprovante_protocolo', label: 'etiqueta', details: 'detalhamento' };
+  const doc = await builders[kind](db, protocol);
+  return { title: `${labels[kind]} — ${protocol.number}`, filename: `${prefixes[kind]}_${protocol.number}.pdf`, blob: doc.output('blob') };
 }

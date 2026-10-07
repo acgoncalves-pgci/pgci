@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test'
+import { demoText } from './helpers/demo'
+import { expectPdfReady, readPreview } from './helpers/pdf'
+import { expect, test, type Page } from '@playwright/test'
 import { PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib'
 import { writeFile } from 'node:fs/promises'
 
@@ -9,22 +11,86 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('prévia de impressão começa na primeira página e contém o documento', async ({ page }) => {
+async function savedDocumentRow(page: Page, subject: string) {
+  await expect(page).toHaveURL(/\/documentos$/)
+  await expect(page.getByRole('heading', { name: 'Documentos', exact: true })).toBeVisible()
+  const row = page.locator('article').filter({ has: page.getByRole('heading', { name: subject, exact: true }) })
+  await expect(row).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prévia de impressão' })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  return row
+}
+
+test('endereço antigo do documento retorna à lista sem exibir a página removida', async ({ page }) => {
   await page.goto('/documentos/doc-8')
-  await page.getByRole('button', { name: 'Prévia de impressão' }).click()
-  const modal = page.getByRole('dialog', { name: 'DOC-2026.000008.pdf' })
-  const viewer = modal.getByTitle('Pré-visualização de DOC-2026.000008.pdf')
-  await expect(viewer).toBeVisible({ timeout: 15_000 })
-  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
-    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
-    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
+  await expect(page).toHaveURL(/\/documentos$/)
+  await expect(page.getByRole('heading', { name: 'Documentos', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prévia de impressão' })).toHaveCount(0)
+  await expect(page.locator('article.document-page')).toHaveCount(0)
+})
+
+test('olho na lista abre o PDF em modal sem navegar e preserva o filtro ao fechar', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.toDataURL
+    HTMLCanvasElement.prototype.toDataURL = function (...args) {
+      if (args[0] === 'image/png' && this.width > 1000) {
+        const pixels = this.getContext('2d')?.getImageData(0, this.height - 1, this.width, 1).data
+        if (pixels) (window as Window & { __imageEdgeInk?: boolean[] }).__imageEdgeInk = [
+          ...((window as Window & { __imageEdgeInk?: boolean[] }).__imageEdgeInk ?? []),
+          pixels.some((value, index) => index % 4 !== 3 && value < 250),
+        ]
+      }
+      return original.apply(this, args)
+    }
   })
-  const pdf = await PDFDocument.load(Buffer.from(encoded, 'base64'))
+  await page.goto('/documentos')
+  const search = page.getByRole('textbox', { name: 'Buscar documentos' })
+  let downloads = 0
+  page.on('download', () => { downloads += 1 })
+  for (const oldNumber of ['DOC-2026.000008', 'DOC-2026.000001']) {
+    const number = await demoText(page, oldNumber)
+    await search.fill(number)
+    const view = page.getByRole('button', { name: `Visualizar ${number}`, exact: true })
+    await expect(view).toBeVisible()
+    const row = view.locator('xpath=ancestor::article')
+    await row.getByRole('heading').click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await view.click()
+    const modal = page.getByRole('dialog', { name: `${number}.pdf`, exact: true })
+    await expectPdfReady(modal)
+    await expect(page).toHaveURL(/\/documentos$/)
+    await expect(modal.getByRole('button', { name: 'Imprimir', exact: true })).toBeEnabled()
+    await expect(modal.getByRole('button', { name: 'Assinar', exact: true })).toBeEnabled()
+    expect(downloads).toBe(oldNumber.endsWith('000008') ? 0 : 1)
+    const pdf = await PDFDocument.load(await readPreview(page, modal))
+    expect(pdf.getTitle()).toBe(number)
+    expect(pdf.getPageCount()).toBeGreaterThan(0)
+    const croppedEdges = await page.evaluate(() => (window as Window & { __imageEdgeInk?: boolean[] }).__imageEdgeInk)
+    expect(croppedEdges?.length).toBeGreaterThan(0)
+    expect(croppedEdges?.some(Boolean)).toBe(false)
+    if (oldNumber.endsWith('000008')) await page.screenshot({ path: testInfo.outputPath('document-list-preview.png') })
+    await modal.getByRole('button', { name: 'Fechar diálogo' }).click()
+    await expect(modal).toBeHidden()
+    await expect(page).toHaveURL(/\/documentos$/)
+    await expect(search).toHaveValue(number)
+    await expect(view).toBeVisible()
+  }
+})
+
+test('prévia de impressão começa na primeira página e contém o documento', async ({ page }) => {
+  await page.goto('/documentos')
+  await page.evaluate(() => {
+    const create = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = (blob) => { const url = create(blob); if (blob instanceof Blob && blob.type === 'application/pdf') (window as Window & { __previewUrl?: string }).__previewUrl = url; return url }
+  })
+  await page.getByRole('button', { name: await demoText(page, 'Visualizar DOC-2026.000008'), exact: true }).click()
+  const modal = page.getByRole('dialog', { name: await demoText(page, 'DOC-2026.000008.pdf') })
+  const pdf = await PDFDocument.load(await readPreview(page, modal))
   expect(pdf.getPageCount()).toBe(1)
   const [width, height] = [pdf.getPage(0).getWidth(), pdf.getPage(0).getHeight()]
   expect(width).toBeCloseTo(595.28, 0)
   expect(height).toBeCloseTo(841.89, 0)
-  const objectUrl = await viewer.getAttribute('src')
+  const objectUrl = await page.evaluate(() => (window as Window & { __previewUrl?: string }).__previewUrl)
   await modal.getByRole('button', { name: 'Fechar diálogo' }).click()
   await expect(modal).toBeHidden()
   expect(await page.evaluate(async (url) => {
@@ -42,15 +108,9 @@ test('prévia PDF distribui conteúdo longo em folhas A4', async ({ page }, test
     element.dispatchEvent(new InputEvent('input', { bubbles: true }))
   })
   await page.getByRole('button', { name: 'Salvar documento' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Documento de várias páginas' })).toBeVisible()
-  await page.getByRole('button', { name: 'Prévia de impressão' }).click()
-  const viewer = page.getByRole('dialog').getByTitle(/Pré-visualização de .*\.pdf/)
-  await expect(viewer).toBeVisible({ timeout: 20_000 })
-  const encoded = await viewer.evaluate(async (frame: HTMLIFrameElement) => {
-    const bytes = new Uint8Array(await (await fetch(frame.src)).arrayBuffer())
-    return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
-  })
-  const bytes = Buffer.from(encoded, 'base64')
+  const row = await savedDocumentRow(page, 'Documento de várias páginas')
+  await row.getByRole('button', { name: /^Visualizar / }).click()
+  const bytes = await readPreview(page)
   if (process.env.CAPTURE_PDF_QA === '1') await writeFile(testInfo.outputPath('preview.pdf'), bytes)
   const pdf = await PDFDocument.load(bytes)
   expect(pdf.getPageCount()).toBeGreaterThan(1)
@@ -77,11 +137,7 @@ test('PDF reproduz o corpo redigido sem alterar negrito, espaços ou acrescentar
     weight: getComputedStyle(element).fontWeight,
   }))).toEqual({ font: 'Inter', weight: '400' })
   await page.getByRole('button', { name: 'Salvar documento' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Compra e venda' })).toBeVisible()
-  const sheet = page.locator('article.document-page')
-  await expect(sheet.locator('li strong')).toContainText('Pelo presente instrumento')
-  await expect(sheet.locator('header')).toHaveCount(0)
-  await expect(sheet.getByText('Marina Duarte', { exact: true })).toHaveCount(1)
+  const row = await savedDocumentRow(page, 'Compra e venda')
   const capture = async () => {
     await page.evaluate(() => {
       const state = window as Window & { __pdfStageParent?: string; __pdfStageObserver?: MutationObserver }
@@ -93,11 +149,13 @@ test('PDF reproduz o corpo redigido sem alterar negrito, espaços ou acrescentar
       })
       state.__pdfStageObserver.observe(document.documentElement, { childList: true, subtree: true })
     })
-    await page.getByRole('button', { name: 'Prévia de impressão' }).click()
+    await row.getByRole('button', { name: /^Visualizar / }).click()
     const modal = page.getByRole('dialog')
-    const viewer = modal.getByTitle(/Pré-visualização de .*\.pdf/)
-    await expect(viewer).toBeVisible({ timeout: 15_000 })
-    const bytes = await viewer.evaluate(async (frame: HTMLIFrameElement) => new Uint8Array(await (await fetch(frame.src)).arrayBuffer()))
+    const bytes = await readPreview(page, modal)
+    const sheet = page.locator('article.document-page[aria-hidden="true"]')
+    await expect(sheet.locator('li strong')).toContainText('Pelo presente instrumento')
+    await expect(sheet.locator('header')).toHaveCount(0)
+    await expect(sheet.getByText('Marina Duarte', { exact: true })).toHaveCount(1)
     const stageParent = await page.evaluate(() => {
       const state = window as Window & { __pdfStageParent?: string; __pdfStageObserver?: MutationObserver }
       state.__pdfStageObserver?.disconnect()
@@ -437,26 +495,40 @@ test('cria um modelo, aplica no editor A4 e salva o documento formatado', async 
   }
 
   await page.getByRole('button', { name: 'Salvar documento' }).click()
-  await expect(page).toHaveURL(/\/documentos\//)
-  await expect(page.getByRole('heading', { level: 1, name: 'Resposta para Ana Beatriz Costa' })).toBeVisible()
+  const savedRow = await savedDocumentRow(page, 'Resposta para Ana Beatriz Costa')
+  await savedRow.getByRole('button', { name: /^Visualizar / }).click()
+  await expectPdfReady(page.getByRole('dialog'))
   await expect(page.locator('.document-page')).toContainText('Prezado(a) Ana Beatriz Costa, nova resposta emitida por Gestão de Processos.')
   await expect(page.locator('.document-rich-content b, .document-rich-content strong')).toContainText('Prezado')
 })
 
 test('edita documento avulso e abre processo com o documento vinculado', async ({ page }) => {
   await page.goto('/documentos')
-  const number = 'DOC-2026.000008'
+  const number = await demoText(page, 'DOC-2026.000008')
   let row = page.locator('article').filter({ hasText: number })
   await expect(row.getByRole('button', { name: `Excluir ${number}` })).toBeEnabled()
+  await row.getByRole('link', { name: `Editar ${number}` }).click()
+  await page.getByRole('link', { name: 'Voltar aos documentos', exact: true }).click()
+  await expect(page).toHaveURL(/\/documentos$/)
+  await expect(page.getByRole('heading', { name: 'Documentos', exact: true })).toBeVisible()
+  await expect(row.getByRole('button', { name: `Visualizar ${number}` })).toBeVisible()
+  await row.getByRole('link', { name: `Editar ${number}` }).click()
+  await page.getByLabel('Assunto *').fill('Alteração descartada ao cancelar')
+  await page.getByRole('link', { name: 'Cancelar', exact: true }).click()
+  await expect(page).toHaveURL(/\/documentos$/)
+  await expect(row).not.toContainText('Alteração descartada ao cancelar')
   await row.getByRole('link', { name: `Editar ${number}` }).click()
   await page.getByLabel('Assunto *').fill('Circular revisada de responsáveis')
   await page.getByLabel('Cargo do assinante').fill('Coordenador de Protocolo')
   await page.getByRole('button', { name: 'Salvar documento' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Circular revisada de responsáveis' })).toBeVisible()
-  await expect(page.getByText(/Assinante cadastrado:.*Coordenador de Protocolo/)).toBeVisible()
+  row = await savedDocumentRow(page, 'Circular revisada de responsáveis')
+  await row.getByRole('button', { name: /^Visualizar / }).click()
+  await expectPdfReady(page.getByRole('dialog'))
   await expect(page.locator('.document-page')).not.toContainText('Coordenador de Protocolo')
-
-  await page.goto('/documentos')
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click()
+  await row.getByRole('link', { name: `Editar ${number}` }).click()
+  await expect(page.getByLabel('Cargo do assinante')).toHaveValue('Coordenador de Protocolo')
+  await page.getByRole('link', { name: 'Voltar aos documentos', exact: true }).click()
   row = page.locator('article').filter({ hasText: number })
   await row.getByRole('link', { name: `Abrir processo a partir de ${number}` }).click()
   await expect(page).toHaveURL(/\/processos\/novo\?documentId=doc-8/)
@@ -477,14 +549,14 @@ test('edita documento avulso e abre processo com o documento vinculado', async (
 
 test('exclui apenas documento sem processo vinculado', async ({ page }) => {
   await page.goto('/documentos')
-  const linked = page.locator('article').filter({ hasText: 'DOC-2026.000001' })
-  await expect(linked.getByRole('button', { name: 'Excluir DOC-2026.000001' })).toBeDisabled()
-  const standalone = page.locator('article').filter({ hasText: 'DOC-2026.000008' })
-  await standalone.getByRole('button', { name: 'Excluir DOC-2026.000008' }).click()
+  const linked = page.locator('article').filter({ hasText: await demoText(page, 'DOC-2026.000001') })
+  await expect(linked.getByRole('button', { name: await demoText(page, 'Excluir DOC-2026.000001') })).toBeDisabled()
+  const standalone = page.locator('article').filter({ hasText: await demoText(page, 'DOC-2026.000008') })
+  await standalone.getByRole('button', { name: await demoText(page, 'Excluir DOC-2026.000008') }).click()
   const confirmation = page.getByRole('dialog', { name: 'Excluir documento?' })
   await confirmation.getByRole('button', { name: 'Excluir documento' }).click()
   await expect(confirmation).toBeHidden()
-  await expect(page.locator('article').filter({ hasText: 'DOC-2026.000008' })).toHaveCount(0)
+  await expect(page.locator('article').filter({ hasText: await demoText(page, 'DOC-2026.000008') })).toHaveCount(0)
 })
 
 test('mantém a folha de edição nas dimensões A4 com conteúdo extenso', async ({ page }) => {

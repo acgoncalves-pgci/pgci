@@ -1,13 +1,13 @@
+import { documentMarginsSchema, readDocumentMargins } from '../../lib/documentMargins'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Eye, FilePlus2, FileText, ListFilter, Pencil, Plus, Printer, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, Eye, FilePlus2, FileText, ListFilter, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Empty, ErrorBox, Field, Loading, PageTitle } from '../../components/ui/Feedback'
 import { Dialog, DialogBody, DialogFooter } from '../../components/ui/Dialog'
-import { PdfViewerDialog } from '../../components/ui/PdfViewerDialog'
 import { Input } from '../../components/ui/Input'
 import { RichTextEditor } from '../../components/ui/RichTextEditor'
 import { Select } from '../../components/ui/Select'
@@ -16,10 +16,9 @@ import type { AppDocument, Database } from '../../domain/model'
 import { canManageDocument, canOpenProtocolType, canReceiveWorkInUnit } from '../../domain/rules'
 import { hasPermission } from '../../domain/permissions'
 import { unitPath } from '../../domain/units'
-import { dateOnly } from '../../lib/format'
 import { documentText } from '../../lib/richText'
 import { documentTemplateValues, replaceTemplateVariables } from '../../lib/documentTemplate'
-import { DocumentBody } from './DocumentBody'
+import { DocumentPreviewDialog } from './DocumentPreviewDialog'
 import { api } from '../../services/api'
 import { useSession } from '../../app/session'
 import { invalidateAll, useDb } from '../../app/queries'
@@ -33,6 +32,7 @@ const documentSchema = z.object({
   unitId: z.string().min(1, 'Selecione a lotação.'),
   signerName: z.string().optional(),
   signerTitle: z.string().optional(),
+  pageMargins: documentMarginsSchema,
 })
 type DocumentForm = z.infer<typeof documentSchema>
 
@@ -44,6 +44,7 @@ export function Documents() {
   const [typeId, setTypeId] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [deleting, setDeleting] = useState<AppDocument | null>(null)
+  const [previewDocument, setPreviewDocument] = useState<AppDocument>()
   const remove = useMutation({ mutationFn: (documentId: string) => api.deleteDocument(ctx, documentId), onSuccess: () => { setDeleting(null); invalidateAll(queryClient) } })
   const { data, isLoading, error } = useQuery({ queryKey: ['documents', ctx.userId, ctx.activeUnitId, search, typeId], queryFn: () => api.listDocuments(ctx, search, typeId) })
   if (isLoading) return <Loading variant="list"/>
@@ -57,13 +58,14 @@ export function Documents() {
       <button type="button" className="btn-secondary" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}><ListFilter size={16}/>Mais filtros</button>
       {showFilters && <Select aria-label="Filtrar por tipo de documento" className="field !mt-0 w-full sm:w-52" value={typeId} onChange={(event) => { setTypeId(event.target.value); setPage(1) }}><option value="">Todos os tipos</option>{data.db.documentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</Select>}
     </div>
-    {data.items.length ? <div className="space-y-2">{paginated.items.map((document) => <DocumentRow key={document.id} document={document} db={data.db} ctx={ctx} onDelete={() => setDeleting(document)}/>)}</div> : <Empty title="Nenhum documento encontrado" detail="Comece redigindo um documento em formato A4."/>}
+    {data.items.length ? <div className="space-y-2">{paginated.items.map((document) => <DocumentRow key={document.id} document={document} db={data.db} ctx={ctx} onPreview={() => setPreviewDocument(document)} onDelete={() => setDeleting(document)}/>)}</div> : <Empty title="Nenhum documento encontrado" detail="Comece redigindo um documento em formato A4."/>}
     <ListPagination page={paginated.page} total={paginated.total} onPage={setPage} label="documentos"/>
+    {previewDocument && <DocumentPreviewDialog key={previewDocument.id} document={previewDocument} onClose={() => setPreviewDocument(undefined)}/>}
     {deleting && <Dialog title="Excluir documento?" onClose={() => setDeleting(null)}><><DialogBody className="space-y-4"><p className="text-sm">O documento <strong>{deleting.number}</strong> será excluído. Esta ação não pode ser desfeita.</p>{remove.error && <ErrorBox error={remove.error}/>}</DialogBody><DialogFooter><button type="button" className="btn-secondary" onClick={() => setDeleting(null)}>Cancelar</button><button type="button" className="btn-primary" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Excluindo…' : 'Excluir documento'}</button></DialogFooter></></Dialog>}
   </>
 }
 
-function DocumentRow({ document, db, ctx, onDelete }: { document: AppDocument; db: Database; ctx: ReturnType<typeof useSession>; onDelete: () => void }) {
+function DocumentRow({ document, db, ctx, onPreview, onDelete }: { document: AppDocument; db: Database; ctx: ReturnType<typeof useSession>; onPreview: () => void; onDelete: () => void }) {
   const type = db.documentTypes.find((item) => item.id === document.typeId)
   const editable = canManageDocument(db, document, ctx) && hasPermission(db, ctx, 'documents.edit')
   const deletable = !document.protocolId && canManageDocument(db, document, ctx) && hasPermission(db, ctx, 'documents.delete')
@@ -74,7 +76,7 @@ function DocumentRow({ document, db, ctx, onDelete }: { document: AppDocument; d
     <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ color: type?.color || 'var(--ui-accent)', backgroundColor: `color-mix(in srgb, ${type?.color || 'var(--ui-accent)'} 12%, transparent)` }}><FileText size={17}/></span>
     <div className="min-w-0 flex-1"><p className="truncate text-xs text-muted-foreground"><span className="font-semibold" style={{ color: type?.color || 'var(--ui-accent)' }}>{type?.name ?? 'Documento'}</span> · {document.number} · {recipient ? `Para: ${recipient}` : 'Sem destinatário'}{protocol && <> · <Link className="text-public-700 hover:underline" to={`/processos/${protocol.id}`}>Processo {protocol.number}</Link></>}</p><h2 className="mt-0.5 truncate text-sm font-semibold" title={document.subject}>{document.subject}</h2></div>
     <div className="ml-auto flex shrink-0 gap-2">
-      <Link className="btn-secondary icon-button" to={`/documentos/${document.id}`} aria-label={`Visualizar ${document.number}`} title="Visualizar"><Eye size={16}/></Link>
+      <button type="button" className="btn-secondary icon-button" onClick={onPreview} aria-label={`Visualizar ${document.number}`} title="Visualizar"><Eye size={16}/></button>
       {canStartProtocol && <Link className="btn-secondary icon-button" to={`/processos/novo?documentId=${document.id}`} aria-label={`Abrir processo a partir de ${document.number}`} title="Abrir processo a partir"><FilePlus2 size={16}/></Link>}
       {editable ? <Link className="btn-secondary icon-button" to={`/documentos/${document.id}/editar`} aria-label={`Editar ${document.number}`} title="Editar"><Pencil size={16}/></Link> : <button type="button" className="btn-secondary icon-button" disabled aria-label={`Editar ${document.number}`} title="Sem permissão para editar"><Pencil size={16}/></button>}
       <button type="button" className="btn-secondary icon-button" disabled={!deletable} onClick={onDelete} aria-label={`Excluir ${document.number}`} title={deletable ? 'Excluir' : 'Sem permissão para excluir'}><Trash2 size={16}/></button>
@@ -93,20 +95,21 @@ export function NewDocument({ editing = false }: { editing?: boolean }) {
   const movementEventId = params.get('movementEventId') ?? undefined
   const [templateId, setTemplateId] = useState('')
   const initializedDocument = useRef('')
-  const form = useForm<DocumentForm>({ resolver: zodResolver(documentSchema), defaultValues: { typeId: '', subject: '', body: '', recipientPersonId: '', unitId: ctx.activeUnitId, signerName: ctx.user?.name ?? '', signerTitle: '' } })
+  const form = useForm<DocumentForm>({ resolver: zodResolver(documentSchema), defaultValues: { typeId: '', subject: '', body: '', recipientPersonId: '', unitId: ctx.activeUnitId, signerName: ctx.user?.name ?? '', signerTitle: '', pageMargins: readDocumentMargins() } })
   const document = editing ? db?.documents.find((item) => item.id === documentId) : undefined
   useEffect(() => {
     if (!editing || !document || initializedDocument.current === document.id) return
-    form.reset({ typeId: document.typeId, subject: document.subject, body: document.body, recipientPersonId: document.recipientPersonId ?? '', unitId: document.unitId, signerName: document.signerName ?? db?.users.find((user) => user.id === document.authorUserId)?.name ?? '', signerTitle: document.signerTitle ?? '' })
+    form.reset({ typeId: document.typeId, subject: document.subject, body: document.body, recipientPersonId: document.recipientPersonId ?? '', unitId: document.unitId, signerName: document.signerName ?? db?.users.find((user) => user.id === document.authorUserId)?.name ?? '', signerTitle: document.signerTitle ?? '', pageMargins: readDocumentMargins(document.pageMargins) })
     initializedDocument.current = document.id
   }, [db, document, editing, form])
   const typeId = form.watch('typeId')
   const body = form.watch('body')
+  const pageMargins = form.watch('pageMargins')
   const recipientPersonId = form.watch('recipientPersonId')
   const unitId = form.watch('unitId')
   const create = useMutation({ mutationFn: (value: DocumentForm) => editing && documentId
     ? api.updateDocument(ctx, documentId, { ...value, recipientPersonId: value.recipientPersonId || undefined })
-    : api.createDocument(ctx, { ...value, recipientPersonId: value.recipientPersonId || undefined, protocolId, movementEventId }), onSuccess: (saved) => { invalidateAll(queryClient); navigateWithLoading(navigate, `/documentos/${saved.id}`) } })
+    : api.createDocument(ctx, { ...value, recipientPersonId: value.recipientPersonId || undefined, protocolId, movementEventId }), onSuccess: () => { invalidateAll(queryClient); navigateWithLoading(navigate, '/documentos') } })
   if (isLoading || !db) return <Loading variant="detail"/>
   if (editing && !document) return <><PageTitle title="Documento não encontrado"/><Empty title="Documento não encontrado" detail="Ele pode ter sido excluído ou não estar disponível."/></>
   const protocol = protocolId ? db.protocols.find((item) => item.id === protocolId) : undefined
@@ -132,7 +135,7 @@ export function NewDocument({ editing = false }: { editing?: boolean }) {
     form.setValue('body', replaceTemplateVariables(draft.body, available, true), { shouldValidate: true })
   }
   return <>
-    <PageTitle title={editing ? 'Editar Documento' : 'Novo Documento'} detail={editing ? `Atualizar ${document?.number}` : 'Redigir novo documento'} icon={FilePlus2} action={<Link className="btn-secondary icon-button" aria-label="Voltar aos documentos" to={editing ? `/documentos/${documentId}` : '/documentos'}><ArrowLeft size={17}/></Link>} />
+    <PageTitle title={editing ? 'Editar Documento' : 'Novo Documento'} detail={editing ? `Atualizar ${document?.number}` : 'Redigir novo documento'} icon={FilePlus2} action={<Link className="btn-secondary icon-button" aria-label="Voltar aos documentos" to="/documentos"><ArrowLeft size={17}/></Link>} />
     <form className="mx-auto max-w-7xl space-y-5" onSubmit={form.handleSubmit((value) => create.mutate(value))}>
       <section className="panel p-5"><div className="grid gap-4 sm:grid-cols-2">
         <Field label="Tipo de documento *" error={form.formState.errors.typeId?.message}><Select className="field" value={typeId} onChange={(event) => { const nextTypeId = event.target.value; form.setValue('typeId', nextTypeId, { shouldValidate: true }); const defaultTemplate = !editing && db.documentTemplates.find((template) => template.typeId === nextTypeId && template.active && template.isDefault); if (defaultTemplate) applyTemplate(defaultTemplate.id, nextTypeId); else setTemplateId('') }}><option value="">Selecione</option>{db.documentTypes.filter((type) => type.active || type.id === document?.typeId).map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</Select></Field>
@@ -142,49 +145,13 @@ export function NewDocument({ editing = false }: { editing?: boolean }) {
         <Field label="Assunto *" error={form.formState.errors.subject?.message}><Input className="field" placeholder="Ex.: Encaminhamento de solicitação" {...form.register('subject')}/></Field>
         {(protocol || document?.protocolId) && <div className="sm:col-span-2"><Field label="Processo vinculado"><Input className="field bg-slate-50" value={protocol ? `${protocol.number} — ${protocol.subject}` : db.protocols.find((item) => item.id === document?.protocolId)?.number ?? ''} readOnly/></Field></div>}
       </div></section>
-      <div><span className="label mb-1 block">Corpo do documento *</span><RichTextEditor ariaLabel="Corpo do documento *" value={body} onChange={(value) => form.setValue('body', value, { shouldDirty: true, shouldValidate: true })}/>{form.formState.errors.body?.message && <span role="alert" className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{form.formState.errors.body.message}</span>}</div>
+      <div><span className="label mb-1 block">Corpo do documento *</span><RichTextEditor ariaLabel="Corpo do documento *" value={body} pageMargins={pageMargins} onMarginsChange={(value) => form.setValue('pageMargins', value, { shouldDirty: true })} onChange={(value) => form.setValue('body', value, { shouldDirty: true, shouldValidate: true })}/>{form.formState.errors.body?.message && <span role="alert" className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{form.formState.errors.body.message}</span>}</div>
       <div className="grid gap-4 sm:grid-cols-2"><Field label="Assinante"><Input className="field" placeholder="Nome de quem assinará o documento" {...form.register('signerName')}/></Field><Field label="Cargo do assinante"><Input className="field" placeholder="Ex.: Secretário municipal" {...form.register('signerTitle')}/></Field></div>
-      {create.error && <ErrorBox error={create.error}/>}<div className="flex justify-end gap-2 border-t pt-4"><Link className="btn-secondary" to={editing ? `/documentos/${documentId}` : '/documentos'}>Cancelar</Link><button className="btn-primary" disabled={create.isPending}>{create.isPending ? 'Salvando…' : 'Salvar documento'}</button></div>
+      {create.error && <ErrorBox error={create.error}/>}<div className="flex justify-end gap-2 border-t pt-4"><Link className="btn-secondary" to="/documentos">Cancelar</Link><button className="btn-primary" disabled={create.isPending}>{create.isPending ? 'Salvando…' : 'Salvar documento'}</button></div>
     </form>
   </>
 }
 
 export function EditDocument() {
   return <NewDocument editing/>
-}
-
-export function DocumentDetail() {
-  const { id = '' } = useParams()
-  const ctx = useSession()
-  const printSource = useRef<HTMLElement>(null)
-  const [previewBlob, setPreviewBlob] = useState<Blob>()
-  const [generatingPreview, setGeneratingPreview] = useState(false)
-  const [previewError, setPreviewError] = useState<unknown>()
-  const { data, isLoading } = useQuery({ queryKey: ['documents', ctx.userId, ctx.activeUnitId], queryFn: () => api.listDocuments(ctx) })
-  if (isLoading || !data) return <Loading variant="detail"/>
-  const document = data.items.find((item) => item.id === id)
-  if (!document) return <><PageTitle title="Registro não encontrado"/><Empty title="Documento não encontrado" detail="Ele pode não estar visível no seu contexto."/></>
-  const metadata = <p className="mt-2 text-sm text-muted-foreground">{data.db.documentTypes.find((type) => type.id === document.typeId)?.name} · {dateOnly(document.createdAt)}{document.recipientPersonId && <> · Destinatário: {data.db.people.find((person) => person.id === document.recipientPersonId)?.name ?? '—'}</>}</p>
-  const openPreview = async () => {
-    if (!printSource.current || generatingPreview) return
-    setPreviewError(undefined)
-    setGeneratingPreview(true)
-    try {
-      const { createDocumentPreviewPdf } = await import('./documentPdf')
-      setPreviewBlob(await createDocumentPreviewPdf(printSource.current, document.number))
-    } catch (error) {
-      setPreviewError(error)
-    } finally {
-      setGeneratingPreview(false)
-    }
-  }
-  return <>
-    <PageTitle eyebrow={document.number} title={document.subject} icon={FileText} action={<div className="flex flex-wrap items-center justify-end gap-2">{canManageDocument(data.db, document, ctx) && hasPermission(data.db, ctx, 'documents.edit') && <Link className="btn-secondary no-print" to={`/documentos/${document.id}/editar`}><Pencil size={16}/>Editar</Link>}<button className="btn-secondary no-print" disabled={generatingPreview} onClick={() => void openPreview()}><Printer size={16}/>{generatingPreview ? 'Gerando prévia…' : 'Prévia de impressão'}</button></div>}/>
-    {previewError && <ErrorBox error={previewError}/>}
-    <div className="mb-4 text-sm text-muted-foreground">{metadata}</div>
-    {document.signerName && <p className="mb-4 text-sm text-muted-foreground">Assinante cadastrado: {document.signerName}{document.signerTitle && ` · ${document.signerTitle}`}</p>}
-    <article ref={printSource} className="a4-page document-page print-shell"><DocumentBody document={document}/></article>
-    {document.protocolId && <div className="mt-4 no-print"><Link className="text-public-700 underline" to={`/processos/${document.protocolId}`}>Abrir processo vinculado</Link></div>}
-    {previewBlob && <PdfViewerDialog title={`${document.number}.pdf`} blob={previewBlob} onClose={() => setPreviewBlob(undefined)}/>}
-  </>
 }

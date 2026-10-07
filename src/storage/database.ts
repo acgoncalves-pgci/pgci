@@ -1,3 +1,4 @@
+import { normalizeDemoNumbers } from '../mocks/normalizeDemoNumbers';
 import type { Database } from '../domain/model';
 import { seedDatabase } from '../mocks/seed';
 import { migrateDatabase } from './migrations';
@@ -38,7 +39,7 @@ export const loadDb = (): Database => {
         return db;
     }
     try {
-        const migrated = migrateDatabase(JSON.parse(raw));
+        const migrated = normalizeDemoNumbers(migrateDatabase(JSON.parse(raw)));
         saveDb(migrated);
         return migrated;
     }

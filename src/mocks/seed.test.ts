@@ -93,7 +93,7 @@ describe('dados de demonstração', () => {
       expect(document.protocolId ? db.protocols.some((protocol) => protocol.id === document.protocolId) : true).toBe(true)
       expect(document.movementEventId ? db.events.some((event) => event.id === document.movementEventId) : true).toBe(true)
     }
-    expect(db.counters['document-2026']).toBe(db.documents.length)
+    expect(Object.entries(db.counters).filter(([key]) => key.startsWith('document-')).reduce((total, [, count]) => total + count, 0)).toBe(db.documents.length)
   })
   it('representa usuários com unidade principal e vínculos secundários', () => {
     const db = seedDatabase()

@@ -12,6 +12,8 @@ import { sortUnitsByPath, unitPath } from '../../domain/units';
 import { participantOptionLabel, participantOptions } from '../../domain/participants';
 import { ParticipantOptionContent } from '../../components/ui/ParticipantOptionContent';
 import { emptyFilters, filterProtocols, visibleProtocols } from './reportData';
+import { PdfViewerDialog } from '../../components/ui/PdfViewerDialog';
+import type { PdfPreview } from './reportPdf';
 import type { ReportFilters } from './reportData';
 
 const tabs = [
@@ -38,6 +40,7 @@ export function ReportsPage() {
   const [suggestions, setSuggestions] = useState('');
   const [busy, setBusy] = useState(false);
   const [generationError, setGenerationError] = useState<unknown>();
+  const [preview, setPreview] = useState<PdfPreview>();
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!db || !ctx.user) return null;
@@ -64,13 +67,15 @@ export function ReportsPage() {
       const pdf = await import('./reportPdf');
       if (tab === 'processes') {
         if (!filtered.length) throw new Error('Nenhum processo encontrado com os filtros informados.');
-        await pdf.downloadList(db, filtered, grouping, listTemplate === 'summary', `Período de abertura: ${filters.from || 'Todos'} a ${filters.to || 'Hoje'}`);
+        const doc = await pdf.createListPdf(db, filtered, grouping, listTemplate === 'summary', `Período de abertura: ${filters.from || 'Todos'} a ${filters.to || 'Hoje'}`);
+        setPreview({ title: 'Relatório de processos', filename: 'relatorio_processos.pdf', blob: doc.output('blob') });
       } else if (tab === 'individual') {
         if (!individual) throw new Error('Informe o número completo de um processo disponível para seu usuário.');
-        await pdf.downloadCover(db, individual);
+        setPreview(await pdf.createProcessPdfPreview(db, individual, 'cover'));
       } else {
         if (!server) throw new Error('Selecione o servidor.');
-        await pdf.downloadProductivity(db, protocols, server, superior, from, to, difficulties, suggestions);
+        const doc = await pdf.createProductivityPdf(db, protocols, server, superior, from, to, difficulties, suggestions);
+        setPreview({ title: 'Relatório de produtividade', filename: 'relatorio_produtividade.pdf', blob: doc.output('blob') });
       }
     } catch (cause) { setGenerationError(cause); }
     finally { setBusy(false); }
@@ -109,5 +114,6 @@ export function ReportsPage() {
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{tab === 'processes' ? `${filtered.length} processo(s) encontrado(s)` : <span className="inline-flex items-center gap-1.5"><BarChart3 size={14} />PDF com o timbre configurado</span>}</span><button type="submit" className="btn-primary" disabled={busy || !hasPermission(db, ctx, 'reports.export') || (tab === 'individual' && !individual) || (tab === 'productivity' && !server)}><Download size={16} />{busy ? 'Gerando PDF…' : 'Gerar PDF'}</button></div>
       </form>
     </section>
+    {preview && <PdfViewerDialog title={preview.title} blob={preview.blob} downloadFilename={preview.filename} onClose={() => setPreview(undefined)}/>}
   </div>;
 }

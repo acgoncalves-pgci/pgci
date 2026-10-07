@@ -1,4 +1,7 @@
+import { demoText } from './helpers/demo'
 import { expect, test } from '@playwright/test'
+import { configureDemoSession } from './helpers/session'
+configureDemoSession()
 
 test('lista compacta mantém textos legíveis e colunas dentro dos cartões', async ({ page }) => {
   for (const width of [1440, 1024, 390]) {
@@ -57,7 +60,7 @@ test('lista, filtros rápidos e filtro avançado de processos', async ({ page })
   await expect(page.getByRole('button', { name: /^Todos/ }).first()).toBeVisible()
   await expect(page.locator('.process-card')).toHaveCount(10)
 
-  await page.getByLabel('Buscar processos').fill('2026.000002')
+  await page.getByLabel('Buscar processos').fill(await demoText(page, '2026.000002'))
   await expect(page.locator('.process-card')).toHaveCount(1)
   await expect(page.locator('.process-card')).toContainText('Pagamento de fornecimento de água')
   await expect(page.locator('.process-card')).toContainText('Em tramitação')
@@ -115,7 +118,8 @@ test('cards e filtro avançado usam a situação configurada na fase atual', asy
     localStorage.setItem(key, JSON.stringify(database))
   })
 
-  await page.goto('/processos?tab=all&search=2026.000002')
+  await page.goto('/processos?tab=all')
+  await page.getByLabel('Buscar processos').fill(await demoText(page, '2026.000002'))
   const card = page.locator('.process-card')
   await expect(card).toHaveCount(1)
   await expect(card).toContainText('Aguardando parecer')
@@ -140,7 +144,7 @@ test('processo já tramitado abre somente para consulta fora da unidade atual', 
   })
   await page.goto('/processos/pr-5')
 
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000005' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000005') })).toBeVisible()
   await expect(page.getByText('Somente leitura')).toBeVisible()
   await expect(page.getByText(/Como você já participou dele/)).toBeVisible()
   await expect(page.getByRole('button', { name: /Alterar para/ })).toHaveCount(0)
@@ -157,7 +161,7 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   })
   await page.goto('/processos/pr-18')
 
-  await expect(page.getByRole('heading', { name: 'Processo 2026.000018' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000018') })).toBeVisible()
   await expect(page.getByText('Troque a unidade para continuar')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Alterar para Financeiro' })).toBeVisible()
   const overview = page.getByRole('region', { name: 'Tipo, responsabilidade e etapas do processo' })
