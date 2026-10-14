@@ -119,7 +119,7 @@ describe('jornada principal da interface', () => {
     expect(within(menu).getByText('clara.nunes@example.com')).not.toBeNull()
 
     fireEvent.click(within(menu).getByRole('button', { name: 'Meu perfil' }))
-    expect(within(menu).getByText('Operador')).not.toBeNull()
+    expect(within(menu).getByText('Agente de protocolo')).not.toBeNull()
 
     fireEvent.click(within(menu).getByRole('button', { name: 'Voltar' }))
     fireEvent.click(within(menu).getByRole('button', { name: 'Trocar usuário' }))
@@ -482,7 +482,7 @@ describe('jornada principal da interface', () => {
     expect(movement).toMatchObject({ phaseId: 'phase-analysis', activity: 'Conferência documental', result: 'Documentação conferida e encaminhada' })
   })
 
-  it('não mostra nem cobra checklist do fluxo sugerido dispensado ao tramitar para outra unidade', async () => {
+  it('recupera o roteiro sugerido antigo e permite tramitar para outra fase e unidade', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowModeSnapshot = 'SUGGESTED'
@@ -501,8 +501,8 @@ describe('jornada principal da interface', () => {
     expect(forwardButton.getAttribute('aria-disabled')).toBe('false')
     fireEvent.click(forwardButton)
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
-    expect(within(forwardDialog).getByText('Fluxo livre')).not.toBeNull()
-    expect(within(forwardDialog).getByText('O fluxo sugerido não foi aplicado a este processo — escolha livremente a fase de destino.')).not.toBeNull()
+    expect(within(forwardDialog).getByText('Fluxo sugerido')).not.toBeNull()
+    expect(within(forwardDialog).getByText(/Etapa recomendada:.*Você pode escolher outra fase e outra unidade/)).not.toBeNull()
     await choose('Fase *', 'Admissibilidade', within(forwardDialog))
     await choose('Unidade organizacional de destino *', 'Administração', within(forwardDialog))
     fireEvent.change(within(forwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para Administração.' } })
@@ -515,7 +515,7 @@ describe('jornada principal da interface', () => {
     expect(persisted.protocols.find((item: { id: string }) => item.id === protocol.id)).toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-citizen-screening' })
   })
 
-  it('bloqueia fase e destino previamente definidos pelo fluxo sugerido', async () => {
+  it('recomenda fase e destino pelo fluxo sugerido e permite mudar ambos', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowModeSnapshot = 'SUGGESTED'
@@ -532,10 +532,14 @@ describe('jornada principal da interface', () => {
     expect(within(forwardDialog).getByText('Fluxo sugerido')).not.toBeNull()
     const phaseSelect = within(forwardDialog).getByRole('combobox', { name: 'Fase *' })
     const destinationSelect = within(forwardDialog).getByRole('combobox', { name: 'Unidade organizacional de destino *' })
-    expect(phaseSelect.hasAttribute('disabled')).toBe(true)
-    expect(destinationSelect.hasAttribute('disabled')).toBe(true)
+    expect(phaseSelect.hasAttribute('disabled')).toBe(false)
+    expect(destinationSelect.hasAttribute('disabled')).toBe(false)
     expect(phaseSelect.textContent).toContain('Análise')
     expect(destinationSelect.textContent).toContain('Administração')
+    await choose('Fase *', 'Admissibilidade', within(forwardDialog))
+    await choose('Unidade organizacional de destino *', 'Jurídico', within(forwardDialog))
+    expect(phaseSelect.textContent).toContain('Admissibilidade')
+    expect(destinationSelect.textContent).toContain('Jurídico')
   })
   it('desabilita Tramitar na última fase obrigatória e mantém Concluir disponível', async () => {
     const db = seedDatabase()
@@ -571,7 +575,7 @@ describe('jornada principal da interface', () => {
     expect(forwardButton.disabled).toBe(false)
     fireEvent.click(forwardButton)
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
-    expect(within(forwardDialog).getByText('Esta é a etapa final sugerida. Você pode tramitar novamente ou concluir o processo.')).not.toBeNull()
+    expect(within(forwardDialog).getByText(/Etapa recomendada: Conclusão.*Você pode escolher outra fase e outra unidade/)).not.toBeNull()
   })
   it('revela somente os campos pedidos pelo tipo de processo selecionado', async () => {
     renderApp()

@@ -540,10 +540,10 @@ describe('filtros avançados de processos', () => {
   it('filtra processos pela unidade atual selecionada', async () => {
     const result = await api.listProtocols(admin, { tab: 'all', unitId: 'u-fin' })
     expect(result.items.every((process) => process.currentUnitId === 'u-fin')).toBe(true)
-    expect(result.total).toBe(4)
+    expect(result.total).toBe(loadDb().protocols.filter((protocol) => protocol.currentUnitId === 'u-fin').length)
   })
 
-  it('combina situação, tipo, credor, número, descrição e ausência de anexos', async () => {
+  it('combina situação, tipo, credor, número, descrição e presença de anexos', async () => {
     const result = await api.listProtocols(admin, {
       tab: 'all',
       statuses: ['EM_ANDAMENTO'],
@@ -551,14 +551,17 @@ describe('filtros avançados de processos', () => {
       creditorId: 'p-9',
       number: loadDb().protocols.find((protocol) => protocol.id === 'pr-2')!.number,
       description: 'fornecimento de água',
-      attachments: 'without',
+      attachments: 'with',
     })
     expect(result.items.map((process) => process.id)).toEqual(['pr-2'])
+    const without = await api.listProtocols(admin, { tab: 'all', number: loadDb().protocols.find((protocol) => protocol.id === 'pr-2')!.number, attachments: 'without' })
+    expect(without.items).toEqual([])
   })
 
   it('filtra processos com anexos e calcula a fila sem responsável da unidade', async () => {
-    const result = await api.listProtocols(admin, { tab: 'all', attachments: 'with' })
-    expect(result.items.map((process) => process.id)).toEqual(['pr-1'])
+    const result = await api.listProtocols(admin, { tab: 'all', attachments: 'with', pageSize: 50 })
+    const db = loadDb()
+    expect(result.items.map((process) => process.id).sort()).toEqual(db.protocols.filter((protocol) => db.attachments.some((attachment) => attachment.protocolId === protocol.id)).map((protocol) => protocol.id).sort())
     expect(result.unassignedInUnit).toBe(1)
   })
 
@@ -731,12 +734,12 @@ describe('contexto de unidade em processos', () => {
   })
 })
 describe('cenários de aceite dos dados de demonstração', () => {
-  it('oferece cerca de vinte processos e todos os estados de trabalho esperados', () => {
+  it('oferece os processos de demonstração e todos os estados de trabalho esperados', () => {
     const db = seedDatabase()
     const pendingAcknowledgement = db.protocols.find((protocol) => protocol.id === 'pr-19')!
     const pendingAssignment = db.assignments.find((assignment) => assignment.id === pendingAcknowledgement.currentAssignmentId)!
 
-    expect(db.protocols).toHaveLength(20)
+    expect(db.protocols.length).toBeGreaterThanOrEqual(26)
     expect(db.protocols.find((protocol) => protocol.id === 'pr-2')?.currentAssigneeId).toBeUndefined()
     expect(pendingAcknowledgement.currentAssigneeId).toBe('usr-bruno')
     expect(pendingAssignment.receivedAt).toBeUndefined()

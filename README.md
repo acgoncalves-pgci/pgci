@@ -33,13 +33,17 @@ O recorte de trabalho pendente, com prioridades e ordem recomendada, está em [p
 
 ## Demonstração
 
-A aplicação abre no painel operacional da usuária Clara (Processo Geral). Abra um processo, encaminhe-o ao Financeiro sem destinatário, troque o usuário do topo para Rafael, assuma e dê ciência. Crie um documento ou anexo, encaminhe ao Jurídico, dê ciência como Luísa e conclua. Depois, arquive e selecione Marina (admin) para reabrir.
+Abra **`/saomateusdomaranhao/`** e entre com **`marina.duarte@example.com`** e senha **`Pgci@2026`**. Marina é a administradora principal. Os demais usuários utilizam seus e-mails `@example.com` e a mesma senha demonstrativa.
 
-O menu lateral inclui **Restaurar demonstração**; a ação confirma antes de limpar somente os dados `fluxo-publico:*` da aplicação.
+O seed reúne **27 processos**, **9 unidades** com hierarquia, cores e ícones, **9 usuários**, **7 perfis**, **11 tipos de processo** com códigos por categoria e regras de arquivos, **12 documentos** e modelos próprios para cada tipo de documento. Há filas sem responsável, ciência pendente, prazos vencidos, processos concluídos e arquivados, compras com todas as etapas e fluxos sugeridos com movimentações livres.
+
+Os anexos PDF possuem conteúdo fictício e bytes disponíveis para visualização, impressão, download e teste da assinatura simulada. A numeração segue a configuração da prefeitura, com sequência diária por padrão. Consulte [docs/mock-seed.md](docs/mock-seed.md) para o roteiro e detalhes da massa.
+
+Novos ambientes recebem a massa atualizada. A leitura de bancos locais existentes preserva registros e arquivos; não restaura a demonstração automaticamente.
 
 ## Persistência
 
-Registros, histórico, numeração anual e contexto de demonstração ficam em `localStorage`, em um documento JSON versionado. Os bytes de anexos ficam em IndexedDB; metadados ficam no JSON. Em outra aba, eventos de armazenamento invalidam as consultas da aplicação. Isso é uma demonstração local por navegador, não colaboração em tempo real.
+Registros, histórico, numeração configurável e contexto de demonstração ficam em `localStorage`, em um documento JSON versionado e separado por prefeitura. Os bytes de anexos ficam em IndexedDB; metadados ficam no JSON. Em outra aba, eventos de armazenamento invalidam as consultas da aplicação. Isso é uma demonstração local por navegador, não colaboração em tempo real.
 
 ## Futuro backend Node.js
 
@@ -47,11 +51,11 @@ A interface depende de contratos assíncronos em `src/services/api.ts`. Para usa
 
 ## Limitações deliberadas
 
-A primeira entrega não implementa autenticação, assinatura, portal público, fluxos BPMN, integrações, ações em lote ou edição posterior de documentos. Os cadastros aparecem prontos para demonstração; sua manutenção administrativa extensa fica como próxima etapa.
+Login e assinatura são simulações locais. Perfis, permissões por unidade, manutenção dos cadastros, edição de documentos e consulta pública estão disponíveis na demonstração. Não há autenticação remota, assinatura definitiva, sincronização entre dispositivos, execução BPMN nem integrações externas. A retenção dos tipos de arquivo é uma configuração, sem eliminação automática.
 
 
 ## Relatórios e capa do processo
 
-O menu **Relatórios**, logo abaixo de **Dashboard**, reúne as abas de processos, relatório individual e produtividade. Os filtros respeitam o escopo do usuário e as datas de abertura no fuso de São Paulo. Os PDFs são gerados e baixados no navegador; a capa também está disponível em **Ações → Imprimir capa** no processo.
+O menu **Relatórios**, logo abaixo de **Dashboard**, reúne as abas de processos, relatório individual e produtividade. Os filtros respeitam o escopo do usuário e as datas de abertura no fuso de São Paulo. Os PDFs abrem no modal com controles de impressão, download e assinatura simulada; a capa também está disponível em **Ações → Imprimir capa** no processo.
 
-Em **Configurações → Geral**, envie e salve a logo e os dados do timbre. Em **Portal**, salve o endereço de consulta existente. O QR code usa esse endereço com o parâmetro `numero`; sem endereço, ou com consulta pública desabilitada, aponta para o detalhe do processo neste sistema. Essa configuração não publica nem cria um portal externo. A capa inclui dados do processo, informações complementares, movimentações, QR code, código de barras e paginação automática.
+Em **Configurações → Geral**, envie e salve a logo e os dados do timbre. QR code e código de barras levam à consulta pública da prefeitura, em **`/saomateusdomaranhao/consulta?numero=...`**, quando habilitada. O resumo exibe assunto, descrição e andamento, sem permitir edição. A capa inclui dados do processo, informações complementares, movimentações, códigos de consulta e paginação automática.

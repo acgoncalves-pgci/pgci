@@ -497,6 +497,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
     add({ n: 24, subject: 'Compra de pastas para o arquivo central', typeId: 'pt-purchase-request', unitId: 'u-prot', assigneeId: 'usr-clara', status: 'CONCLUIDO', stagePosition: 5, description: 'Aquisição de 200 pastas suspensas para organização do arquivo. Pesquisa de preços consolidada, dotação reservada, compra autorizada e entrega conferida sem divergências.' });
     add({ n: 25, subject: 'Conferência do pagamento de material de limpeza', typeId: 'pt-pay', unitId: 'u-fin', assigneeId: 'usr-pedro', status: 'EM_ANDAMENTO', dueDays: 2 });
     add({ n: 26, subject: 'Atendimento inicial sobre certidão de tempo de serviço', typeId: 'pt-admin', unitId: 'u-prot', assigneeId: 'usr-helena', status: 'CADASTRADO', dueDays: 7 });
+    add({ n: 27, subject: 'Relatório de acompanhamento dos contratos de fornecimento', typeId: 'pt-general-correspondence', unitId: 'u-control', status: 'EM_ANDAMENTO', creator: 'usr-admin', description: 'A Administração encaminha à Controladoria o relatório consolidado dos contratos de fornecimento vigentes, para consulta e acompanhamento dos prazos de execução.' });
     const pendingAcknowledgement = assignments.find((assignment) => assignment.id === 'as-19')!;
     pendingAcknowledgement.receivedAt = undefined;
     pendingAcknowledgement.receivedById = undefined;

@@ -1,4 +1,4 @@
-import type { Attachment, Database, ProtocolEvent } from '../domain/model'
+import type { Assignment, Attachment, Database, ProtocolEvent } from '../domain/model'
 import { isMovementEvent } from '../domain/model'
 import { defaultDocumentMargins } from '../lib/documentMargins'
 import { formatConfiguredNumber, numberingCounterKey, readNumberingSettings } from '../lib/numbering'
@@ -21,7 +21,7 @@ function seedDestinationHistory(db: Database) {
     const suffix = protocol.id.slice(3)
     db.events = db.events.filter((event) => event.protocolId !== protocol.id || !isMovementEvent(event) && event.kind !== 'RECEBIMENTO')
     db.assignments = db.assignments.filter((assignment) => assignment.protocolId !== protocol.id)
-    let previous = { id: `as-${suffix}-origin`, protocolId: protocol.id, unitId: protocol.originUnitId, assigneeId: protocol.createdById, startedAt: protocol.createdAt, receivedAt: protocol.createdAt, receivedById: protocol.createdById, endedAt: undefined as string | undefined }
+    let previous: Assignment = { id: `as-${suffix}-origin`, protocolId: protocol.id, unitId: protocol.originUnitId, assigneeId: protocol.createdById, startedAt: protocol.createdAt, receivedAt: protocol.createdAt, receivedById: protocol.createdById }
     db.assignments.push(previous)
     db.events.push({ id: `ev-open-${suffix}`, protocolId: protocol.id, kind: 'ABERTURA', actorUserId: protocol.createdById, actorUnitId: protocol.originUnitId, toUnitId: protocol.originUnitId, toUserId: protocol.createdById, assignmentId: previous.id, phaseId: stages[0].phaseId, nextStatus: 'CADASTRADO', createdAt: protocol.createdAt })
     for (let index = 0; index <= position; index++) {
@@ -41,7 +41,7 @@ function seedDestinationHistory(db: Database) {
       if (assigneeId) db.events.push({ id: final ? `ev-ack-${suffix}` : `ev-ack-stage-${index}-${suffix}`, protocolId: protocol.id, kind: 'RECEBIMENTO', actorUserId: assigneeId, actorUnitId: unitId, assignmentId: assignment.id, createdAt: assignment.receivedAt! })
       if (final) { protocol.currentUnitId = unitId; protocol.currentAssigneeId = assigneeId }
       // Keep the object stored in db.assignments, so the next step closes it.
-      previous = assignment as typeof previous
+      previous = assignment
     }
     if (protocol.completedAt) db.events.push({ id: `ev-done-${suffix}`, protocolId: protocol.id, kind: 'CONCLUSAO', actorUserId: protocol.currentAssigneeId ?? actorFor(protocol.currentUnitId), actorUnitId: protocol.currentUnitId, assignmentId: protocol.currentAssignmentId, phaseId: protocol.currentPhaseId, previousStatus: 'EM_ANDAMENTO', nextStatus: 'CONCLUIDO', message: 'Entrega conferida, resultado comunicado e processo concluído.', createdAt: protocol.completedAt })
   }
@@ -70,6 +70,7 @@ function numberSeed(db: Database) {
 
 export function completeSeed(db: Database): Database {
   seedDestinationHistory(db)
+  db.events = db.events.filter((event) => event.id !== 'ev-phase-analysis-21')
   for (const protocol of db.protocols) {
     if (protocol.typeConfigSnapshot.responsavel?.enabled) protocol.responsiblePersonId = 'p-1'
     if (protocol.typeId === 'pt-expense-reimbursement') { protocol.creditorPersonId = 'p-12'; protocol.interestedPersonId = 'p-12' }
@@ -82,6 +83,11 @@ export function completeSeed(db: Database): Database {
         if (answer.date) answer.date = event.createdAt.slice(0, 10)
       })
       if (assignment && event.createdAt < assignment.startedAt) event.createdAt = assignment.startedAt
+    }
+    if (protocol.completedAt) for (const stage of protocol.flowSnapshot?.phases ?? []) {
+      const movement = db.events.filter((event) => event.protocolId === protocol.id && event.phaseId === stage.phaseId && isMovementEvent(event)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1)
+      if (!movement) continue // Suggested flows can finish without visiting every stage.
+      movement.checklist = stage.checklistQuestions.map((question) => ({ questionId: question.id, text: question.text, checked: true, date: question.requiresDate ? movement.createdAt.slice(0, 10) : undefined, observation: question.requiresObservation ? `${stage.name}: resultado conferido e registrado pela unidade.` : undefined, attachmentProvided: question.requiresAttachment ? true : undefined }))
     }
   }
   for (const document of db.documents) {
@@ -111,12 +117,14 @@ export function completeSeed(db: Database): Database {
     const protocol = db.protocols.find((item) => item.id === movement.protocolId)!
     const stage = protocol.flowSnapshot?.phases.find((item) => item.phaseId === movement.phaseId)
     const openingRequired = movement.kind === 'ABERTURA' && protocol.typeConfigSnapshot.arquivos?.required
-    const stageFile = movement.kind === 'TRAMITACAO' && (stage?.requiresAttachment || movement.checklist?.some((answer) => answer.attachmentProvided))
-    const example = ['pr-2', 'pr-5', 'pr-21', 'pr-23', 'pr-25'].includes(protocol.id) && movement.kind === 'TRAMITACAO'
+    const stageFile = (movement.kind === 'TRAMITACAO' && stage?.requiresAttachment) || movement.checklist?.some((answer) => answer.attachmentProvided)
+    const example = ['pr-2', 'pr-5', 'pr-21', 'pr-23', 'pr-25', 'pr-27'].includes(protocol.id) && movement.kind === 'TRAMITACAO'
     if (!openingRequired && !stageFile && !example) continue
     const label = openingRequired ? 'Documentação inicial' : stage?.name ?? 'Relatório de vistoria'
     const id = `att-${movement.id}`
-    const attachment: Attachment = { id, protocolId: protocol.id, movementEventId: movement.id, filename: `${label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${protocol.number}.pdf`, description: `${label} — ${protocol.subject}. Evidência vinculada à movimentação para conferência da unidade.`, mimeType: 'application/pdf', sizeBytes: 0, blobKey: `seed-v2:${id}`, uploadedById: movement.toUserId ?? movement.actorUserId, createdAt: after(movement.createdAt, 20) }
+    const uploadUnitId = movement.toUnitId ?? movement.actorUnitId
+    const uploadedById = movement.toUserId ?? db.users.find((user) => user.active && user.unitId === uploadUnitId && db.memberships.some((membership) => membership.userId === user.id && membership.unitId === uploadUnitId && membership.active && (membership.role === 'ADMIN' || membership.permissions?.includes('attachments.create'))))?.id ?? 'usr-admin'
+    const attachment: Attachment = { id, protocolId: protocol.id, movementEventId: movement.id, filename: `${label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${protocol.number}.pdf`, description: `${label} — ${protocol.subject}. Evidência vinculada à movimentação para conferência da unidade.`, mimeType: 'application/pdf', sizeBytes: 0, blobKey: `seed-v2:${id}`, uploadedById, createdAt: after(movement.createdAt, 20) }
     attachment.sizeBytes = seedAttachmentBlob(attachment, db)!.size
     db.attachments.push(attachment)
   }
@@ -133,6 +141,8 @@ export function completeSeed(db: Database): Database {
     return [{ id: `audit-${event.id}`, action, actorUserId: event.actorUserId, actorUnitId: event.actorUnitId, targetType: targetType as 'DOCUMENT' | 'ATTACHMENT' | 'PROTOCOL', targetId: event.relatedDocumentId ?? event.relatedAttachmentId ?? protocol.id, details: event.message ?? `${action === 'ATTACHMENT_ADDED' ? 'Arquivo anexado' : action === 'DOCUMENT_CREATED' ? 'Documento criado' : action === 'PROTOCOL_ACKNOWLEDGED' ? 'Ciência registrada' : 'Registro de movimentação'} no processo ${protocol.number} — ${protocol.subject}.`, createdAt: event.createdAt }]
   })
   for (const profile of db.profiles.filter((item) => !item.system)) db.auditEvents.push({ id: `audit-${profile.id}`, action: 'PROFILE_CREATED', actorUserId: 'usr-admin', actorUnitId: 'u-prot', targetType: 'PROFILE', targetId: profile.id, details: `Perfil “${profile.name}” criado para concessão de permissões por unidade.`, createdAt: db.memberships[0].startsAt })
+  for (const document of db.documents.filter((item) => !item.protocolId)) db.auditEvents.push({ id: `audit-${document.id}`, action: 'DOCUMENT_CREATED', actorUserId: document.authorUserId, actorUnitId: document.unitId, targetType: 'DOCUMENT', targetId: document.id, details: `Documento avulso ${document.number} — ${document.subject}.`, createdAt: document.createdAt })
+  for (const membership of db.memberships.filter((item) => item.profileId?.startsWith('profile-reception'))) db.auditEvents.push({ id: `audit-${membership.id}`, action: 'USER_MEMBERSHIP_CREATED', actorUserId: 'usr-admin', actorUnitId: 'u-prot', targetType: 'USER', targetId: membership.userId, details: `Acesso à unidade ${db.units.find((unit) => unit.id === membership.unitId)!.name} concedido com perfil Atendimento e protocolo e permissões individuais.`, createdAt: membership.startsAt })
   db.events.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
   db.auditEvents.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
   for (const protocol of db.protocols) protocol.updatedAt = db.events.filter((event) => event.protocolId === protocol.id).at(-1)?.createdAt ?? protocol.createdAt

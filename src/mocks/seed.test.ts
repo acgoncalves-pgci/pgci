@@ -45,15 +45,15 @@ describe('dados de demonstração', () => {
       const type = db.protocolTypes.find((item) => item.id === protocol.typeId)!
       if (protocol.flowSnapshot) {
         expect(protocol.flowSnapshot.flowId).toBe(type.flowId)
-        expect(protocol.flowSnapshot.phases.some((phase) => phase.phaseId === protocol.currentPhaseId)).toBe(true)
+        if (protocol.flowModeSnapshot === 'REQUIRED') expect(protocol.flowSnapshot.phases.some((phase) => phase.phaseId === protocol.currentPhaseId)).toBe(true)
       }
 
       const checklistEvents = db.events.filter((event) => event.protocolId === protocol.id && event.checklist?.length)
       for (const event of checklistEvents) {
-        expect(event.kind).toBe('TRAMITACAO')
-        const stage = protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === event.phaseId)
-        expect(stage?.requiresChecklist || stage?.checklistQuestions.length).toBeTruthy()
-        expect(event.checklist?.map((answer) => answer.questionId)).toEqual(stage?.checklistQuestions.map((question) => question.id))
+        expect(['ABERTURA', 'TRAMITACAO', 'FASE_AVANCADA', 'CONCLUSAO']).toContain(event.kind)
+        const stage = protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === event.phaseId) ?? db.phases.find((phase) => phase.id === event.phaseId)
+        expect(stage?.checklistQuestions?.length).toBeTruthy()
+        expect(event.checklist?.map((answer) => answer.questionId)).toEqual(stage?.checklistQuestions?.map((question) => question.id))
       }
     }
   })
@@ -150,9 +150,7 @@ describe('dados de demonstração', () => {
 
   it('registra todas as fases concluídas no histórico dos processos encerrados', () => {
     const db = seedDatabase()
-    const finished = db.protocols.filter(
-      (protocol) => protocol.status === 'CONCLUIDO' || protocol.status === 'ARQUIVADO',
-    )
+    const finished = db.protocols.filter((protocol) => protocol.flowModeSnapshot === 'REQUIRED' && (protocol.status === 'CONCLUIDO' || protocol.status === 'ARQUIVADO'))
 
     expect(finished.length).toBeGreaterThan(0)
     for (const protocol of finished) {
@@ -161,11 +159,7 @@ describe('dados de demonstração', () => {
         .map((event) => event.phaseId)
 
       expect(protocol.currentPhaseId).toBe('phase-completion')
-      expect(phaseIds).toEqual(expect.arrayContaining([
-        'phase-triage',
-        'phase-analysis',
-        'phase-completion',
-      ]))
+      expect(phaseIds).toEqual(expect.arrayContaining(protocol.flowSnapshot!.phases.map((stage) => stage.phaseId)))
     }
   })
 

@@ -9,6 +9,16 @@ test.beforeEach(async ({ page }) => {
 
 test('Arquivos configura definições com extensões e retenção, sem pedir upload', async ({ page }, testInfo) => {
   await page.goto('/saomateusdomaranhao/tipos-processo')
+  await expect(page.getByRole('heading', { name: 'Tipos de processo', exact: true })).toBeVisible({ timeout: 15_000 })
+  // This scenario exercises an initially empty definition catalog independently
+  // of the populated demonstration fixtures.
+  await page.evaluate(() => {
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
+    const db = JSON.parse(localStorage.getItem(key)!)
+    db.protocolTypes.find((type: { id: string }) => type.id === 'pt-buy').fileTypes = []
+    localStorage.setItem(key, JSON.stringify(db))
+  })
+  await page.reload()
   await page.getByRole('button', { name: '0 tipo(s) de arquivo permitido(s) em Compra de material', exact: true }).click()
   const manager = page.getByRole('dialog', { name: 'Arquivos — Compra de material', exact: true })
   await expect(manager.locator('input[type="file"]')).toHaveCount(0)

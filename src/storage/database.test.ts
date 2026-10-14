@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { StorageError, cleanupOrphanedBlobs, deleteBlob, getBlob, putBlob, resetDb } from './database'
+import { DATABASE_KEY, StorageError, cleanupOrphanedBlobs, deleteBlob, getBlob, loadDb, putBlob, resetDb, saveDb } from './database'
 import { seedDatabase } from '../mocks/seed'
 import { migrateDatabase } from './migrations'
 
@@ -57,6 +57,21 @@ describe('restauração da demonstração', () => {
   })
 })
 describe('armazenamento de anexos', () => {
+  it('disponibiliza todos os arquivos do seed sem IndexedDB e preserva bancos existentes', async () => {
+    vi.stubGlobal('indexedDB', undefined)
+    const db = loadDb()
+    for (const attachment of db.attachments) {
+      const blob = await getBlob(attachment.blobKey)
+      expect(blob?.size).toBe(attachment.sizeBytes)
+      expect(blob?.type).toBe(attachment.mimeType)
+    }
+    db.protocols[0].subject = 'Assunto alterado pelo usuário'
+    db.attachments.push({ ...db.attachments[0], id: 'manual', filename: 'manual.pdf', blobKey: 'uploaded-user-file' })
+    saveDb(db)
+    expect(loadDb().protocols[0].subject).toBe('Assunto alterado pelo usuário')
+    expect(loadDb().attachments.some((attachment) => attachment.id === 'manual')).toBe(true)
+    expect(JSON.parse(localStorage.getItem(DATABASE_KEY)!).protocols).toHaveLength(db.protocols.length)
+  })
   it('persiste, recupera, remove e limpa arquivos órfãos no IndexedDB', async () => {
     const fake = createIndexedDb(); vi.stubGlobal('indexedDB', fake.indexedDb)
     const retained = new Blob(['manter'], { type: 'text/plain' })
@@ -103,7 +118,10 @@ describe('migração do banco local', () => {
     const migrated = migrateDatabase(legacy)
 
     expect(migrated.schemaVersion).toBe(8)
-    expect(migrated.units.map((unit) => unit.position)).toEqual([0, 1, 0, 2, 3])
+    for (const unit of migrated.units) {
+      const siblings = migrated.units.filter((item) => item.parentId === unit.parentId)
+      expect(unit.position).toBe(siblings.findIndex((item) => item.id === unit.id))
+    }
     expect(migrated.memberships).toHaveLength(migrated.users.length + migrated.units.filter((unit) => unit.active).length - 1)
     expect(migrated.memberships.find((membership) => membership.userId === 'usr-admin')).toMatchObject({
       unitId: 'u-prot',

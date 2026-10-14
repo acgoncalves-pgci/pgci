@@ -16,7 +16,12 @@ const actor = { userId: 'usr-clara', activeUnitId: 'u-prot' }
 const input = { name: 'Comprovante de residência', extensions: ['pdf', 'docx'], retentionYears: null, observation: 'Documento atualizado.', color: '#3498DB', icon: 'Paperclip' }
 
 describe('tipos de arquivo permitidos no processo', () => {
-  beforeEach(() => { localStorage.clear(); saveDb(seedDatabase()) })
+  beforeEach(() => {
+    localStorage.clear()
+    const db = seedDatabase()
+    db.protocolTypes.forEach((type) => { type.fileTypes = [] })
+    saveDb(db)
+  })
   it('cadastra, edita e exclui definições sem gravar uploads nem remover anexos', async () => {
     const before = loadDb()
     const typeId = before.protocols[0].typeId
