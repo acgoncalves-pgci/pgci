@@ -2,6 +2,8 @@ import { isMovementEvent } from '../domain/model'
 import type { AppUser, Database, DocumentTemplate, FlowPhase, ProtocolEvent, ProtocolFlow, ProtocolFlowSnapshot, ProtocolPhase, ProtocolStatus, ProtocolType, Unit } from '../domain/model'
 import { legacySituationTypeId, systemSituationTypes } from '../domain/situations'
 import { defaultProcessCategories } from '../domain/processCategories'
+import { normalizeProtocolTypeCodes } from '../domain/protocolTypeCodes'
+import { flowSnapshotFor } from '../domain/flows'
 import { defaultPermissions, defaultProfiles, profileIdForRole } from '../domain/permissions'
 
 type LegacyUser = AppUser & { personId?: string }
@@ -194,8 +196,17 @@ const relatedMovement = (database: Database, protocolId: string | undefined, cre
   return candidates.find((event) => legacyEvent?.assignmentId && event.assignmentId === legacyEvent.assignmentId)?.id ?? candidates[0]?.id
 }
 
-const normalizeProcessTerminology = (database: Database): Database => ({
+const normalizeProcessTerminology = (database: Database): Database => normalizeProtocolTypeCodes({
   ...database,
+  protocols: database.protocols.map((protocol) => {
+    if (protocol.flowModeSnapshot !== 'SUGGESTED' || protocol.flowSnapshot) return protocol
+    const type = database.protocolTypes.find((item) => item.id === protocol.typeId)
+    if (!type) return protocol
+    try {
+      const { snapshot } = flowSnapshotFor(database, { ...type, flowMode: 'SUGGESTED' })
+      return snapshot ? { ...protocol, flowSnapshot: snapshot } : protocol
+    } catch { return protocol }
+  }),
   units: database.units.map((unit) => unit.name === 'Protocolo Geral' || unit.name === 'Processo Geral'
     ? { ...unit, name: 'Gestão de Processos', abbreviation: 'GP' }
     : unit),

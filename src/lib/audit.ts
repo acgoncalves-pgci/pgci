@@ -14,7 +14,7 @@ const actionLabels: Record<string, string> = {
   PROTOCOL_REOPENED: 'Processo reaberto',
   PROTOCOL_DOSSIER_GENERATED: 'Dossiê gerado',
   ATTACHMENT_ADDED: 'Arquivo anexado',
-  ATTACHMENT_DELETED: 'Anexo excluído',
+  ATTACHMENT_DELETED: 'Arquivo excluído',
   ATTACHMENT_UPDATED: 'Anexo atualizado',
   DOCUMENT_CREATED: 'Documento criado',
   DOCUMENT_LINKED: 'Documento vinculado ao processo',

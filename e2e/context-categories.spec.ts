@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
-    localStorage.setItem('fluxo-publico:scope-unit', 'ALL')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'ALL')
   })
 })
 
@@ -28,8 +28,8 @@ test('troca entre uma estrutura vinculada e o contexto Todos', async ({ page, is
   await menu.getByRole('button', { name: 'Financeiro Administração', exact: true }).click()
 
   await expect.poll(() => page.evaluate(() => ({
-    unit: localStorage.getItem('fluxo-publico:unit'),
-    scope: localStorage.getItem('fluxo-publico:scope-unit'),
+    unit: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit'),
+    scope: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit'),
   }))).toEqual({ unit: 'u-fin', scope: 'u-fin' })
 
   await page.getByRole('link', { name: 'Processos', exact: true }).click()
@@ -47,8 +47,8 @@ test('troca entre uma estrutura vinculada e o contexto Todos', async ({ page, is
   await page.getByRole('dialog', { name: 'Contexto ativo' }).getByRole('button', { name: /Todos/ }).click()
 
   await expect.poll(() => page.evaluate(() => ({
-    unit: localStorage.getItem('fluxo-publico:unit'),
-    scope: localStorage.getItem('fluxo-publico:scope-unit'),
+    unit: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit'),
+    scope: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit'),
   }))).toEqual({ unit: 'u-fin', scope: 'ALL' })
 
   await expect.poll(async () => (await processUnits.allTextContents()).some((unit) => unit !== 'Financeiro')).toBe(true)

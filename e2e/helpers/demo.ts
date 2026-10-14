@@ -5,9 +5,9 @@ const numbers = new WeakMap<Page, Map<string, string>>()
 export async function demoText(page: Page, text: string): Promise<string> {
   let mapping = numbers.get(page)
   if (!mapping) {
-    await page.waitForFunction(() => Boolean(localStorage.getItem('fluxo-publico:database:v1')))
+    await page.waitForFunction(() => Boolean(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')))
     const entries = await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+      const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
       return [...db.protocols, ...db.documents].flatMap((record: { id: string; number: string }) => {
         const match = record.id.match(/^(pr|doc)-(\d+)$/)
         return match ? [[`${match[1] === 'doc' ? 'DOC-' : ''}2026.${match[2].padStart(6, '0')}`, record.number]] : []

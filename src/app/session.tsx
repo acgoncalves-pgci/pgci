@@ -4,6 +4,7 @@ import type { AppUser, Context } from '../domain/model';
 import { api } from '../services/api';
 import { demoLoginUser, demoSessionUsers } from '../lib/demoAuth';
 import { readableAccentColor, readableTextColor } from '../lib/colorContrast';
+import { getActiveTenant, tenantStorage } from '../saas/tenants';
 
 export type AppearancePalette = {
     accent: string;
@@ -52,7 +53,7 @@ const fontStacks: Record<AppearanceSettings['font'], string> = {
 const validColor = (value: unknown, fallback: string) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
 const readAppearance = (): AppearanceSettings => {
     try {
-        const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}') as Partial<AppearanceSettings>;
+        const saved = JSON.parse(tenantStorage.getItem(APPEARANCE_KEY) ?? '{}') as Partial<AppearanceSettings>;
         const hasDarkPalette = [saved.darkAccent, saved.darkSidebarColor, saved.darkHeaderColor, saved.darkBackgroundColor].every((color) => typeof color === 'string');
         const legacyUsesDarkPreset = !hasDarkPalette && (['accent', 'sidebarColor', 'headerColor', 'backgroundColor'] as const).every((key) => saved[key]?.toLowerCase() === darkAppearanceColors[key]);
         const legacy = saved as Partial<AppearanceSettings> & { footerBackgroundColor?: string };
@@ -98,15 +99,15 @@ interface SessionValue extends Context {
 const Session = createContext<SessionValue | null>(null);
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
     const [users, setUsers] = useState<AppUser[]>([]);
-    const [userId, setUserIdState] = useState(() => localStorage.getItem('fluxo-publico:user') ?? '');
+    const [userId, setUserIdState] = useState(() => tenantStorage.getItem('fluxo-publico:user') ?? '');
     const [sessionLoading, setSessionLoading] = useState(true);
-    const [activeUnitId, setActiveUnitId] = useState(() => localStorage.getItem('fluxo-publico:unit') ?? 'u-prot');
-    const [scopeUnitId, setScopeUnitId] = useState(() => localStorage.getItem('fluxo-publico:scope-unit') ?? 'ALL');
-    const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('fluxo-publico:theme') as 'light' | 'dark' ?? 'light');
+    const [activeUnitId, setActiveUnitId] = useState(() => tenantStorage.getItem('fluxo-publico:unit') ?? 'u-prot');
+    const [scopeUnitId, setScopeUnitId] = useState(() => tenantStorage.getItem('fluxo-publico:scope-unit') ?? 'ALL');
+    const [theme, setTheme] = useState<'light' | 'dark'>(() => tenantStorage.getItem('fluxo-publico:theme') as 'light' | 'dark' ?? 'light');
     const [appearance, setAppearance] = useState<AppearanceSettings>(readAppearance);
     useEffect(() => { let active = true; const refresh = () => { api.listData().then((db) => { if (active) setUsers(demoSessionUsers(db)); }).catch(() => { if (active) setUsers([]); }).finally(() => { if (active) setSessionLoading(false); }); }; refresh(); window.addEventListener('fluxo-publico:changed', refresh); return () => { active = false; window.removeEventListener('fluxo-publico:changed', refresh); }; }, []);
     const setUserId = useCallback((id: string) => { setUserIdState(id); const selected = users.find((u) => u.id === id); if (selected) { setActiveUnitId(selected.unitId); setScopeUnitId('ALL'); } }, [users]);
-    useEffect(() => { if (userId) localStorage.setItem('fluxo-publico:user', userId); else localStorage.removeItem('fluxo-publico:user'); }, [userId]);
+    useEffect(() => { if (userId) tenantStorage.setItem('fluxo-publico:user', userId); else tenantStorage.removeItem('fluxo-publico:user'); }, [userId]);
     const signIn = useCallback(async (email: string, password: string) => {
         const db = await api.listData();
         const selected = demoLoginUser(db, email, password);
@@ -115,16 +116,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         setActiveUnitId(selected.unitId);
         setScopeUnitId('ALL');
     }, []);
-    const signOut = useCallback(() => { setUserIdState(''); setScopeUnitId('ALL'); localStorage.removeItem('fluxo-publico:user'); }, []);
-    useEffect(() => { localStorage.setItem('fluxo-publico:unit', activeUnitId); }, [activeUnitId]);
-    useEffect(() => { localStorage.setItem('fluxo-publico:scope-unit', scopeUnitId); }, [scopeUnitId]);
-    useEffect(() => { const root = document.documentElement; localStorage.setItem('fluxo-publico:theme', theme); root.dataset.theme = theme; root.style.colorScheme = theme; root.classList.remove('dark', 'light'); root.classList.add(theme); }, [theme]);
+    const signOut = useCallback(() => { setUserIdState(''); setScopeUnitId('ALL'); tenantStorage.removeItem('fluxo-publico:user'); }, []);
+    useEffect(() => { tenantStorage.setItem('fluxo-publico:unit', activeUnitId); }, [activeUnitId]);
+    useEffect(() => { tenantStorage.setItem('fluxo-publico:scope-unit', scopeUnitId); }, [scopeUnitId]);
+    useEffect(() => { const root = document.documentElement; tenantStorage.setItem('fluxo-publico:theme', theme); root.dataset.theme = theme; root.style.colorScheme = theme; root.classList.remove('dark', 'light'); root.classList.add(theme); }, [theme]);
     useEffect(() => {
         const root = document.documentElement;
         const colors: AppearancePalette = theme === 'dark'
             ? { accent: appearance.darkAccent, sidebarColor: appearance.darkSidebarColor, headerColor: appearance.darkHeaderColor, backgroundColor: appearance.darkBackgroundColor, footerColor: appearance.darkFooterColor }
             : appearance;
-        localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
+        tenantStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
         root.style.setProperty('--ui-accent', colors.accent);
         root.style.setProperty('--ui-accent-fg', readableTextColor(colors.accent));
         root.style.setProperty('--ui-accent-text', readableAccentColor(colors.accent, colors.backgroundColor));
@@ -146,7 +147,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     }, []);
     const user = users.find((u) => u.id === userId);
     const authenticated = Boolean(user);
-    const value = useMemo(() => ({ authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, users, user, setUserId, setActiveUnitId, setScopeUnitId, theme, setTheme, toggleTheme, appearance, setAppearance }), [authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, user, users, theme, setUserId, toggleTheme, appearance]);
+    const value = useMemo(() => ({ tenantId: getActiveTenant()?.id, authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, users, user, setUserId, setActiveUnitId, setScopeUnitId, theme, setTheme, toggleTheme, appearance, setAppearance }), [authenticated, sessionLoading, signIn, signOut, userId, activeUnitId, scopeUnitId, user, users, theme, setUserId, toggleTheme, appearance]);
     return <Session.Provider value={value}>{children}</Session.Provider>;
 };
 export const useSession = () => { const value = useContext(Session); if (!value) throw new Error('Sessão indisponível'); return value; };

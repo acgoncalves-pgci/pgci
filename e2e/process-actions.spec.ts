@@ -12,9 +12,9 @@ test('responsável atual dá ciência pela lista sem abrir o processo', async ({
   await expect(page.getByRole('button', { name: await demoText(page, 'Dar ciência do processo 2026.000019') })).toHaveCount(0)
 
   await page.evaluate(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.reload()
 
@@ -48,9 +48,9 @@ test('responsável atual dá ciência pela lista sem abrir o processo', async ({
 
 test('usuário da unidade assume e dá ciência pela lista após confirmar', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-rafael')
-    localStorage.setItem('fluxo-publico:unit', 'u-fin')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-rafael')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-fin')
   })
   await page.goto('/processos?tab=all')
   await page.getByLabel('Buscar processos').fill(await demoText(page, '2026.000018'))
@@ -74,7 +74,7 @@ test('usuário da unidade assume e dá ciência pela lista após confirmar', asy
   const registered = card.getByRole('button', { name: await demoText(page, 'Ciência registrada no processo 2026.000018') })
   await expect(registered).toBeDisabled()
   const saved = await page.evaluate(() => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const protocol = db.protocols.find((item: { id: string }) => item.id === 'pr-18')
     const assignment = db.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
     return { assigneeId: protocol.currentAssigneeId, receivedById: assignment.receivedById, receivedAt: assignment.receivedAt }
@@ -289,9 +289,9 @@ test('avança a fase configurada somente pela tramitação', async ({ page }, te
 })
 test('filtra destinatários pela unidade selecionada na tramitação', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.goto('/processos/pr-6')
   await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
@@ -316,8 +316,8 @@ test('filtra destinatários pela unidade selecionada na tramitação', async ({ 
 
 test('ciência exige confirmação e fica cinza após o registro', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
   })
   await page.goto('/processos/pr-19')
   await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000019') })).toBeVisible()
@@ -363,9 +363,9 @@ test('ciência exige confirmação e fica cinza após o registro', async ({ page
 test('abre os requisitos do checklist ao marcar e identifica data, anexo e observação', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile', 'Regressão funcional coberta no projeto desktop.')
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.goto('/processos/pr-9')
   await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000009') })).toBeVisible()

@@ -432,7 +432,7 @@ describe('jornada principal da interface', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Clara Nunes' }))
 
     await choose('Unidade organizacional de destino *', 'Administração / Financeiro', within(forwardDialog))
-    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para fila sem responsável')
+    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para unidade')
     fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
     expect(screen.getByRole('option', { name: 'Rafael Reis' })).not.toBeNull()
     expect(screen.queryByRole('option', { name: 'Clara Nunes' })).toBeNull()
@@ -440,7 +440,7 @@ describe('jornada principal da interface', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Rafael Reis' }))
 
     await choose('Unidade organizacional de destino *', 'Gestão de Processos', within(forwardDialog))
-    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para fila sem responsável')
+    expect(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }).textContent).toContain('Enviar para unidade')
     fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
     expect(screen.getByRole('option', { name: 'Clara Nunes' })).not.toBeNull()
     expect(screen.queryByRole('option', { name: 'Rafael Reis' })).toBeNull()

@@ -4,8 +4,8 @@ import { readPreview } from './helpers/pdf'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
 })
 
@@ -13,7 +13,7 @@ test('tabelas iniciais usam caixa alta e assinatura e recebimento ficam centrali
   await page.goto('/processos/pr-1')
   await expect(page.getByRole('heading', { name: /^Processo / })).toBeVisible()
   const reports = await page.evaluate(async () => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const protocol = db.protocols.find((item: { id: string }) => item.id === 'pr-1')
     const reportPath = '/src/features/relatorios/reportPdf.ts'
     const runtimePath = '/src/lib/pdfRuntime.ts'

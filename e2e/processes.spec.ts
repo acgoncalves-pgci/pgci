@@ -91,10 +91,10 @@ test('lista, filtros rápidos e filtro avançado de processos', async ({ page })
 
 test('cards e filtro avançado usam a situação configurada na fase atual', async ({ page }) => {
   await page.goto('/')
-  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
 
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const database = JSON.parse(localStorage.getItem(key)!)
     database.situations.push({
       id: 'situation-awaiting-review-e2e',
@@ -138,9 +138,9 @@ test('cards e filtro avançado usam a situação configurada na fase atual', asy
 })
 test('processo já tramitado abre somente para consulta fora da unidade atual', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-bruno')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-bruno')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.goto('/processos/pr-5')
 
@@ -155,9 +155,9 @@ test('processo já tramitado abre somente para consulta fora da unidade atual', 
 })
 test('dados de demonstração apresentam fila multiunidade com todas as fases', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-prot')
   })
   await page.goto('/processos/pr-18')
 
@@ -195,9 +195,9 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
 })
 test('detalhe preserva rolagem vertical e alinha os indicadores de fase', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-prot')
   })
   const viewport = page.viewportSize()!
   await page.setViewportSize({ width: viewport.width, height: 600 })
@@ -227,14 +227,14 @@ test('detalhe preserva rolagem vertical e alinha os indicadores de fase', async 
 })
 test('permite trocar para a unidade do processo quando o usuário possui vínculo', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-edu')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-edu')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-edu')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-edu')
   })
   await page.goto('/')
-  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const database = JSON.parse(localStorage.getItem(key)!)
     const protocol = database.protocols.find((item: { id: string }) => item.id === 'pr-18')
     const assignment = database.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
@@ -267,9 +267,9 @@ test('permite trocar para a unidade do processo quando o usuário possui víncul
   await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
   await expect(page.getByText('Troque a unidade para continuar')).toHaveCount(0)
   const context = await page.evaluate(() => ({
-    activeUnitId: localStorage.getItem('fluxo-publico:unit'),
-    scopeUnitId: localStorage.getItem('fluxo-publico:scope-unit'),
-    primaryUnitId: JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).users.find((user: { id: string }) => user.id === 'usr-admin').unitId,
+    activeUnitId: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit'),
+    scopeUnitId: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit'),
+    primaryUnitId: JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!).users.find((user: { id: string }) => user.id === 'usr-admin').unitId,
   }))
   expect(context).toEqual({
     activeUnitId: 'u-adm',
@@ -279,14 +279,14 @@ test('permite trocar para a unidade do processo quando o usuário possui víncul
 })
 test('mostra nome e ícone de unidade na tramitação sem destinatário', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-fin')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-fin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-fin')
   })
   await page.goto('/')
-  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const database = JSON.parse(localStorage.getItem(key)!)
     const protocol = database.protocols.find((item: { id: string }) => item.id === 'pr-18')
     const assignment = database.assignments.find((item: { id: string }) => item.id === protocol.currentAssignmentId)
@@ -324,8 +324,8 @@ test('mostra nome e ícone de unidade na tramitação sem destinatário', async 
 })
 test('andamento identifica fase, nome e situação configurada', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-clara')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   await page.goto('/processos/pr-1')
 
@@ -341,9 +341,9 @@ test('andamento identifica fase, nome e situação configurada', async ({ page }
 })
 test('abre processo pela unidade secundária sem alterar a unidade principal', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-adm')
-    localStorage.setItem('fluxo-publico:scope-unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-adm')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.goto('/processos/novo')
 
@@ -362,7 +362,7 @@ test('abre processo pela unidade secundária sem alterar a unidade principal', a
 
   await expect(page.getByRole('heading', { name: 'Operação E2E por unidade secundária' })).toBeVisible()
   const stored = await page.evaluate(() => {
-    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const protocol = database.protocols.find((item: { subject: string }) => item.subject === 'Operação E2E por unidade secundária')
     return {
       originUnitId: protocol.originUnitId,
@@ -382,8 +382,8 @@ test('abre processo pela unidade secundária sem alterar a unidade principal', a
 })
 test('abertura revela e valida os campos configurados pelo tipo de processo', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-clara')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   await page.goto('/processos/novo')
 
@@ -414,8 +414,8 @@ test('abertura revela e valida os campos configurados pelo tipo de processo', as
 
 test('cadastra pessoa responsável na abertura e mostra seu nome no resumo', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   await page.goto('/processos/novo')
   await page.getByRole('combobox', { name: 'Tipo de processo *' }).click()
@@ -443,8 +443,8 @@ test('cadastra pessoa responsável na abertura e mostra seu nome no resumo', asy
 
 test('formata e persiste valores monetários em reais na abertura', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-clara')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   await page.goto('/processos/novo')
 
@@ -465,21 +465,21 @@ test('formata e persiste valores monetários em reais na abertura', async ({ pag
 
   await expect(page.getByRole('heading', { name: 'Pagamento monetário E2E' })).toBeVisible()
   const amountCents = await page.evaluate(() => {
-    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     return database.protocols.find((item: { subject: string }) => item.subject === 'Pagamento monetário E2E').amountCents
   })
   expect(amountCents).toBe(123456)
 })
 
-test('permite dispensar o fluxo sugerido na abertura e registra essa escolha', async ({ page }) => {
+test('mostra o fluxo sugerido automaticamente na abertura sem opção de dispensar', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-clara')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
-  await page.goto('/')
-  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.goto('/saomateusdomaranhao/processos/novo')
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const database = JSON.parse(localStorage.getItem(key)!)
     const type = database.protocolTypes.find((item: { id: string }) => item.id === 'pt-admin')
     type.flowMode = 'SUGGESTED'
@@ -491,20 +491,18 @@ test('permite dispensar o fluxo sugerido na abertura e registra essa escolha', a
   await page.getByRole('option', { name: 'Solicitação administrativa' }).click()
 
   const suggestedFlow = page.getByRole('switch', { name: 'Aplicar fluxo sugerido' })
-  await expect(suggestedFlow).toBeChecked()
+  await expect(suggestedFlow).toHaveCount(0)
   await expect(page.getByLabel('Fases configuradas').getByRole('listitem')).toHaveCount(3)
-  await suggestedFlow.click()
-  await expect(suggestedFlow).not.toBeChecked()
 
   await page.getByRole('combobox', { name: 'Interessado *' }).click()
   await page.getByRole('option', { name: 'Ana Beatriz Costa' }).click()
-  await page.getByLabel('Assunto *').fill('Solicitação sem fluxo sugerido')
-  await page.getByLabel('Descrição *').fill('Processo aberto sem aplicar as fases sugeridas.')
+  await page.getByLabel('Assunto *').fill('Solicitação com orientação de fluxo')
+  await page.getByLabel('Descrição *').fill('Processo aberto com fases sugeridas e movimentações livres.')
   await page.getByRole('button', { name: 'Abrir processo' }).click()
 
-  await expect(page.getByText('Sugerido não aplicado')).toBeVisible()
+  await expect(page.getByText(/Fluxo sugerido · Etapa recomendada:/)).toBeVisible()
   const stored = await page.evaluate(() => {
-    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const protocol = database.protocols.at(-1)
     return {
       flowModeSnapshot: protocol.flowModeSnapshot,
@@ -514,8 +512,8 @@ test('permite dispensar o fluxo sugerido na abertura e registra essa escolha', a
   })
   expect(stored).toEqual({
     flowModeSnapshot: 'SUGGESTED',
-    flowSnapshot: undefined,
-    currentPhaseId: undefined,
+    flowSnapshot: expect.objectContaining({ phases: expect.any(Array) }),
+    currentPhaseId: 'phase-triage',
   })
 })
 
@@ -528,15 +526,15 @@ test('endereços antigos de protocolos redirecionam para processos', async ({ pa
 
 test('cria a primeira etapa reaproveitando um fluxo órfão existente', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   const typeName = 'Solicitação administrativa sem etapas'
   await page.goto('/')
-  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:database:v1') !== null)
+  await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
 
   await page.evaluate((name) => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const database = JSON.parse(localStorage.getItem(key)!)
     const sourceType = database.protocolTypes[0]
     database.protocolTypes.push({
@@ -574,7 +572,7 @@ test('cria a primeira etapa reaproveitando um fluxo órfão existente', async ({
   await expect(page.getByText('Já existe um fluxo com esse nome e versão.')).toHaveCount(0)
 
   const saved = await page.evaluate(() => {
-    const database = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const database = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const type = database.protocolTypes.find((item: { id: string }) => item.id === 'pt-empty-e2e')
     const matchingFlows = database.flows.filter((item: { name: string }) => item.name === 'Fluxo — Solicitação administrativa sem etapas')
     return { flowId: type.flowId, matchingFlowIds: matchingFlows.map((item: { id: string }) => item.id) }

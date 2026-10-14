@@ -27,8 +27,8 @@ export function forwardPendingIssues(
   protocol: Protocol,
   movement: ProtocolEvent,
 ): string[] {
-  // A fase escolhida em fluxo livre só identifica a movimentação. Suas regras
-  // de checklist e anexos valem apenas quando um fluxo foi aplicado ao processo.
+  // Fluxos sugeridos orientam a execução; não bloqueiam movimentações livres.
+  if (protocol.flowModeSnapshot === 'SUGGESTED') return [];
   const phase = protocol.flowSnapshot?.phases.find(
     (item) => item.phaseId === protocol.currentPhaseId,
   );

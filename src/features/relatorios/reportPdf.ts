@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import type { UserOptions } from 'jspdf-autotable';
 import QRCode from 'qrcode';
-import JsBarcode from 'jsbarcode';
+import { consultationBarcode } from './consultationCodes';
 import type { Attachment, Database, Protocol, ProtocolEvent } from '../../domain/model';
 import { eventLabel, statusLabel } from '../../domain/model';
 import { dateTime, money } from '../../lib/format';
@@ -78,15 +78,10 @@ function paragraph(doc: jsPDF, title: string, content: string, startY: number) {
     margin: { left: 21, right: 21, top: 20, bottom: 42 } });
 }
 async function footer(doc: jsPDF, settings: InstitutionSettings, protocol?: Protocol) {
-  const publicAccess = Boolean(settings.publicUrl?.trim() && settings.publicConsultation !== false);
   const url = protocol ? consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin) : undefined;
   const qr = url ? await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 240 }) : undefined;
   let barcode: string | undefined;
-  if (protocol) {
-    const canvas = document.createElement('canvas');
-    JsBarcode(canvas, protocol.number, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
-    barcode = canvas.toDataURL('image/png');
-  }
+  if (url) barcode = consultationBarcode(url);
   const pages = doc.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {
     doc.setPage(page);
@@ -94,16 +89,15 @@ async function footer(doc: jsPDF, settings: InstitutionSettings, protocol?: Prot
     if (qr && url) {
       doc.addImage(qr, 'PNG', 10, 264, 20, 20);
       doc.setFont('Roboto', 'bold').setFontSize(8);
-      doc.text(publicAccess ? 'Consulte o processo no portal da entidade' : 'Consulte o processo no sistema', 33, 268);
+      doc.text('Consulte o resumo do protocolo', 33, 268);
       doc.setFont('Roboto', 'normal').setFontSize(6.5);
-      doc.text(doc.splitTextToSize(publicAccess
-        ? 'Escaneie o QR code para consultar pelo número do processo no endereço configurado.'
-        : 'Escaneie o QR code e entre no sistema com seu usuário para consultar este processo.', 110), 33, 273);
-      doc.text(doc.splitTextToSize(url, 110).slice(0, 2), 33, 280);
+      doc.text('Leia o QR code ou o código de barras para abrir a consulta.', 33, 273);
+      doc.link(10, 264, 20, 20, { url });
     }
     if (barcode && protocol) {
-      doc.addImage(barcode, 'PNG', 149, 269, 50, 10);
-      doc.setFontSize(6).text(protocol.number, 174, 283, { align: 'center' });
+      doc.addImage(barcode, 'PNG', 33, 276, 166, 10);
+      doc.link(33, 276, 166, 10, { url: url! });
+      doc.setFontSize(6).text(protocol.number, 116, 288, { align: 'center' });
     }
     doc.setFont('Roboto', 'normal').setFontSize(6.5);
     const contact = [settings.address, [settings.city, settings.state].filter(Boolean).join(' - '), settings.phone, settings.email].filter(Boolean).join(' · ');
@@ -120,9 +114,7 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
   const sector = unitName(db, protocol.currentUnitId);
   const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
   const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
-  const barcodeCanvas = document.createElement('canvas');
-  JsBarcode(barcodeCanvas, protocol.number, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
-  const barcode = barcodeCanvas.toDataURL('image/png');
+  const barcode = consultationBarcode(consultation);
   const coverValue = (value: string) => value.toLocaleUpperCase('pt-BR');
   const coverMargin = { left: 21, right: 21, top: 18, bottom: 17 };
 
@@ -171,8 +163,8 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
     startY: tableEnd(doc) + 4, theme: 'plain',
     head: [['Consulte o andamento do seu protocolo no nosso site']],
     body: [
-      ['1 - Para acessar a tramitação, informe o CPF/CNPJ do interessado e o número do protocolo acima na tela de consulta.'],
-      ['2 - O QR Code desta capa também pode ser usado para acompanhar o andamento do protocolo.'],
+      ['1 - Leia o QR code ou o código de barras para consultar o resumo do protocolo.'],
+      ['2 - Você também pode informar o número do protocolo na tela de consulta da prefeitura.'],
     ],
     styles: { ...tableStyles, fontSize: 7.2, cellPadding: 1, lineWidth: 0 },
     headStyles: { fontStyle: 'bold', fontSize: 10, halign: 'center', fillColor: [255, 255, 255], textColor: 20 },
@@ -185,9 +177,11 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
     rowPageBreak: 'avoid',
     didDrawCell: ({ cell }) => {
       doc.addImage(qr, 'PNG', 93, cell.y + 1, 24, 24);
-      doc.addImage(barcode, 'PNG', 82, cell.y + 26, 46, 8);
+      doc.link(93, cell.y + 1, 24, 24, { url: consultation });
+      doc.addImage(barcode, 'PNG', 21, cell.y + 26, 168, 10);
+      doc.link(21, cell.y + 26, 168, 10, { url: consultation });
       doc.setFont('Roboto', 'normal').setFontSize(6.5).setTextColor(20);
-      doc.text(protocol.number, 105, cell.y + 38, { align: 'center' });
+      doc.text(protocol.number, 105, cell.y + 40, { align: 'center' });
     },
   });
 
@@ -372,9 +366,7 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
   const organization = settings.shortName || settings.organizationName || db.organization.name;
   const consultation = consultationUrl(protocol, settings.publicUrl ?? '', settings.publicConsultation !== false, window.location.origin);
   const qr = await QRCode.toDataURL(consultation, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
-  const barcodeCanvas = document.createElement('canvas');
-  JsBarcode(barcodeCanvas, protocol.number, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
-  const barcode = barcodeCanvas.toDataURL('image/png');
+  const barcode = consultationBarcode(consultation);
 
   doc.setProperties({ title: `Comprovante de protocolo ${protocol.number}` });
   const startY = await timbre(doc, db, settings);
@@ -422,14 +414,16 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
   doc.text('Consulte o andamento do seu protocolo no nosso site', 105, y, { align: 'center' });
   y += 6;
   doc.setFont('Roboto', 'normal').setFontSize(7.5);
-  const instructions = doc.splitTextToSize('Para realizar a consulta, informe o CPF/CNPJ do interessado e o número deste protocolo no portal da entidade.', 174);
+  const instructions = doc.splitTextToSize('Para realizar a consulta, informe o número deste protocolo na tela de consulta da prefeitura.', 174);
   doc.text(instructions, 18, y);
   y += instructions.length * 3.7 + 2;
-  const qrInstructions = doc.splitTextToSize('Você também pode usar o QR code abaixo para acessar diretamente a consulta do processo.', 174);
+  const qrInstructions = doc.splitTextToSize('Leia o QR code ou o código de barras abaixo para acessar o resumo do protocolo.', 174);
   doc.text(qrInstructions, 18, y);
   y += qrInstructions.length * 3.7 + 3;
   doc.addImage(qr, 'PNG', 92, y, 26, 26);
-  doc.addImage(barcode, 'PNG', 80, y + 29, 50, 9);
+  doc.link(92, y, 26, 26, { url: consultation });
+  doc.addImage(barcode, 'PNG', 18, y + 29, 174, 10);
+  doc.link(18, y + 29, 174, 10, { url: consultation });
   doc.setFontSize(6.5).text(protocol.number, 105, y + 41, { align: 'center' });
 
   const dividerY = 247;
@@ -447,8 +441,9 @@ export async function createProtocolReceiptPdf(db: Database, protocol: Protocol)
   doc.setDrawColor(70).line(39, dividerY + 36, 120, dividerY + 36);
   doc.setFontSize(6).text('ASSINATURA', 79.5, dividerY + 39, { align: 'center' });
   doc.setFontSize(6.8).text(dateTime(protocol.createdAt), 198, dividerY + 13, { align: 'right' });
-  doc.addImage(barcode, 'PNG', 148, dividerY + 17, 50, 9);
-  doc.setFont('Roboto', 'bold').setFontSize(7).text(protocol.number, 173, dividerY + 30, { align: 'center' });
+  doc.link(12, dividerY + 9, 23, 23, { url: consultation });
+  doc.addImage(barcode, 'PNG', 12, dividerY + 42, 186, 7);
+  doc.link(12, dividerY + 42, 186, 7, { url: consultation });
   return doc;
 }
 
@@ -502,8 +497,11 @@ export async function createProcessLabelPdf(db: Database, protocol: Protocol) {
 
   const qrSize = Math.min(x(36), y(36));
   doc.addImage(qr, 'PNG', pageWidth - x(41), y(21), qrSize, qrSize);
+  doc.link(pageWidth - x(41), y(21), qrSize, qrSize, { url: consultation });
   doc.setDrawColor(18).setLineWidth(.35).line(x(4.5), y(66), pageWidth - x(4.5), y(66));
   doc.setFont('Roboto', 'normal').setTextColor(85).setFontSize(9.5).text(status, x(5), y(72));
+  doc.addImage(consultationBarcode(consultation), 'PNG', x(5), y(78), pageWidth - x(10), y(13));
+  doc.link(x(5), y(78), pageWidth - x(10), y(13), { url: consultation });
   return doc;
 }
 export async function downloadProcessLabel(db: Database, protocol: Protocol) {

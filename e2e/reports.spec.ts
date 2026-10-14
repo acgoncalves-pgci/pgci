@@ -5,7 +5,7 @@ configureDemoSession();
 
 test('select permanece alinhado ao elemento âncora com zoom reduzido', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:appearance', JSON.stringify({ zoom: 80 }));
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:appearance', JSON.stringify({ zoom: 80 }));
   });
   await page.goto('/relatorios');
 
@@ -42,7 +42,7 @@ test('relatórios exibem filtros em abas e geram os três PDFs', async ({ page }
   await list.saveAs(testInfo.outputPath('processos.pdf'));
   await page.getByRole('dialog').getByRole('button', { name: 'Fechar diálogo' }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
-  const number = await page.evaluate(() => JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).protocols[0].number as string);
+  const number = await page.evaluate(() => JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!).protocols[0].number as string);
   await page.getByRole('tab', { name: 'Relatório Individual', exact: true }).click();
   await expect(page.getByLabel('Agrupar por')).toHaveCount(0);
   await page.getByLabel('Número do processo').fill(number);
@@ -91,8 +91,8 @@ test('sidebar recolhe imediatamente após selecionar e reabre ao retornar o pont
 
 test('configuração persiste a logo e o endereço de consulta e gera capa pela ação do processo', async ({ page }, testInfo) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin');
-    localStorage.setItem('fluxo-publico:unit', 'u-prot');
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin');
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot');
   });
   await page.goto('/configuracoes');
   await expect(page.getByRole('heading', { name: 'Configurações' })).toBeVisible();
@@ -115,7 +115,7 @@ test('capa preserva os dados e continua o histórico extenso em páginas A4', as
   await page.goto('/relatorios');
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
   const pdf = await page.evaluate(async () => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!);
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!);
     const protocol = db.protocols[0];
     protocol.subject = 'atualização cadastral com descrição de assunto extensa para conferir quebra de linha e preservação integral até o fim do assunto';
     protocol.description = ('Informação complementar extensa para verificar a paginação e a preservação dos dados. '.repeat(3) + '\n').repeat(5) + 'FIM DAS INFORMAÇÕES COMPLEMENTARES';
@@ -142,7 +142,7 @@ test('capa apresenta campos opcionais e ausência de movimentações sem alterar
   await page.goto('/relatorios');
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
   const pdf = await page.evaluate(async () => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!);
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!);
     const protocol = db.protocols[0];
     protocol.subject = 'análise de documentação';
     for (const field of ['contractNumber', 'biddingNumber', 'legalProcessNumber', 'referenceNumber']) {

@@ -138,6 +138,8 @@ export const assertActorUnit = (user: AppUser, ctx: Context, db?: Database) => {
 }
 
 export const requireActor = (db: Database, ctx: Context) => {
+  if (ctx.tenantId && ctx.tenantId !== db.organization.id)
+    fail('FORBIDDEN', 'Este acesso pertence a outra prefeitura.')
   const user = getUser(db, ctx.userId)
   if (!user.active)
     fail('FORBIDDEN', 'Usuário inativo não pode executar esta ação.')

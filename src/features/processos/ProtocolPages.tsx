@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { recommendedFlowPhase } from "../../domain/flows";
+import { processFileAccept, validateProcessFiles } from "../../domain/processFiles";
 import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode } from "react";
 import { useForm } from "react-hook-form";
@@ -102,7 +104,6 @@ import { Input } from "../../components/ui/Input";
 import { CurrencyInput } from "../../components/ui/CurrencyInput";
 import { Select } from "../../components/ui/Select";
 import { Checkbox } from "../../components/ui/Checkbox";
-import { Switch } from "../../components/ui/Switch";
 import {
   Empty,
   ErrorBox,
@@ -746,7 +747,6 @@ export function NewProtocol() {
   >(null);
   const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState("");
-  const [useSuggestedFlow, setUseSuggestedFlow] = useState(true);
   const [openedAt] = useState(() => new Date().toISOString());
   const form = useForm<ProtocolFormData>({
     resolver: zodResolver(protocolSchema),
@@ -780,8 +780,6 @@ export function NewProtocol() {
         ...data,
         files,
         sourceDocumentId,
-        useSuggestedFlow:
-          flowMode === "SUGGESTED" ? useSuggestedFlow && flowReady : undefined,
         amountCents: currencyToCents(data.amount),
         dueAt: data.dueAt ? new Date(data.dueAt).toISOString() : undefined,
       }),
@@ -793,7 +791,6 @@ export function NewProtocol() {
 
   const selectType = (nextTypeId: string) => {
     form.setValue("typeId", nextTypeId, { shouldValidate: true });
-    setUseSuggestedFlow(true);
     const nextType = db?.protocolTypes.find((item) => item.id === nextTypeId);
     if (!nextType) return;
     const nextFields = nextType.fieldsConfig;
@@ -1043,7 +1040,7 @@ export function NewProtocol() {
                     <p className="mt-2 text-sm text-muted-foreground">
                       {flowMode === "REQUIRED"
                         ? "As fases abaixo são obrigatórias e serão seguidas na ordem configurada."
-                        : "Este tipo possui um fluxo sugerido. Você pode aplicá-lo ou abrir o processo sem fases."}
+                        : "As etapas abaixo orientam o andamento do processo. Você pode tramitar para outras fases e unidades ou realizar movimentações livres."}
                     </p>
                   </div>
                   {flowMode === "REQUIRED" ? (
@@ -1051,15 +1048,7 @@ export function NewProtocol() {
                       Obrigatório
                     </span>
                   ) : (
-                    <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm font-semibold">
-                      <Switch
-                        aria-label="Aplicar fluxo sugerido"
-                        checked={useSuggestedFlow && flowReady}
-                        disabled={!flowReady}
-                        onCheckedChange={setUseSuggestedFlow}
-                      />
-                      Aplicar fluxo sugerido
-                    </label>
+                    <span className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-bold">Sugerido · movimentações livres</span>
                   )}
                 </div>
                 {flowReady ? (
@@ -1303,7 +1292,7 @@ export function NewProtocol() {
                         className="sr-only"
                         type="file"
                         multiple
-                        accept="application/pdf,image/png,image/jpeg,text/plain"
+                        accept={processFileAccept(type)}
                         onChange={(event) => {
                           setFiles(
                             Array.from(event.currentTarget.files ?? []).slice(
@@ -1777,7 +1766,7 @@ export function ProtocolDetail() {
           className="hidden"
           type="file"
           multiple
-          accept="application/pdf,image/png,image/jpeg,text/plain"
+          accept={processFileAccept(db.protocolTypes.find((type) => type.id === p.typeId))}
           onChange={(event) => {
             const files = Array.from(event.currentTarget.files ?? []);
             void attachTimelineFiles(files);
@@ -1796,7 +1785,7 @@ export function ProtocolDetail() {
               {canAct &&
                 isActive(p) &&
                 assignment.receivedAt &&
-                (isLastPhase || phases.length === 0) && (
+                (p.flowModeSnapshot === "SUGGESTED" || isLastPhase || phases.length === 0) && (
                   <button
                     className="btn-secondary"
                     onClick={() => setAction("complete")}
@@ -2286,6 +2275,9 @@ function ProcessDetailOverview({
       : -1;
   const closed =
     protocol.status === "CONCLUIDO" || protocol.status === "ARQUIVADO";
+  const suggested = protocol.flowModeSnapshot === "SUGGESTED";
+  const recommendation = suggested ? recommendedFlowPhase(db, protocol) : undefined;
+  const visited = new Set(db.events.filter((event) => event.protocolId === protocol.id && isMovementEvent(event)).map((event) => event.phaseId));
 
   return (
     <section
@@ -2312,8 +2304,9 @@ function ProcessDetailOverview({
       {visiblePhases.length > 0 && (
         <ol className="process-phase-track" aria-label="Etapas do fluxo">
           {visiblePhases.map((item, index) => {
-            const completed =
-              closed || (visiblePhaseIndex >= 0 && index < visiblePhaseIndex);
+            const completed = suggested
+              ? visited.has(item.phaseId) && item.phaseId !== protocol.currentPhaseId
+              : closed || (visiblePhaseIndex >= 0 && index < visiblePhaseIndex);
             const current = !closed && index === visiblePhaseIndex;
             return (
               <li
@@ -2338,9 +2331,9 @@ function ProcessDetailOverview({
           })}
         </ol>
       )}
-      {visiblePhases.length === 0 && protocol.flowModeSnapshot === "SUGGESTED" && (
-        <p className="process-flow-note">Sugerido não aplicado</p>
-      )}
+      {suggested && <p className="process-flow-note">{recommendation
+        ? `Fluxo sugerido · Etapa recomendada: ${recommendation.name}${recommendation.destinationUnitId ? ` · ${db.units.find((unit) => unit.id === recommendation.destinationUnitId)?.name ?? 'Unidade sugerida'}` : ''}. Movimentações livres permitidas.${currentPhaseName && phaseIndex < 0 ? ` Fase atual: ${currentPhaseName} (fora do fluxo sugerido).` : ''}`
+        : 'Fluxo sugerido ainda sem etapas configuradas. Movimentações livres permitidas.'}</p>}
     </section>
   );
 }
@@ -3482,23 +3475,24 @@ function MoveDialog({
   );
   const configuredPhase = reopen
     ? undefined
-    : currentConfiguredPhase
+    : protocol.flowModeSnapshot === "SUGGESTED"
+      ? recommendedFlowPhase(db, protocol)
+      : currentConfiguredPhase
       ? (flowPhases.find(
           (phase) => phase.position > currentConfiguredPhase.position,
         ) ?? currentConfiguredPhase)
       : flowPhases[0];
-  const freeFlow = !configuredPhase;
-  const suggestedFlow =
-    protocol.flowModeSnapshot === "SUGGESTED" && Boolean(configuredPhase);
+  const suggestedFlow = protocol.flowModeSnapshot === "SUGGESTED";
+  const freeFlow = !configuredPhase || suggestedFlow;
   const advancesConfiguredFlow = Boolean(
     currentConfiguredPhase &&
     configuredPhase &&
     configuredPhase.phaseId !== currentConfiguredPhase.phaseId,
   );
-  const fixedDestination = configuredPhase?.destinationUnitId;
+  const fixedDestination = suggestedFlow ? undefined : configuredPhase?.destinationUnitId;
   const [phaseId, setPhaseId] = useState(configuredPhase?.phaseId ?? "");
   const [unitId, setUnitId] = useState(
-    fixedDestination ?? protocol.currentUnitId,
+    configuredPhase?.destinationUnitId ?? protocol.currentUnitId,
   );
   const [assigneeId, setAssigneeId] = useState("");
   const [message, setMessage] = useState("");
@@ -3522,7 +3516,7 @@ function MoveDialog({
         requiresObservation: false,
       })) ?? []);
   const hasAttachmentRequirement = Boolean(
-    currentConfiguredPhase &&
+    !suggestedFlow && currentConfiguredPhase &&
     (currentConfiguredPhase.requiresAttachment ||
       currentConfiguredPhase.requiredAttachmentTypes.length ||
       currentQuestions.some((question) => question.requiresAttachment)),
@@ -3539,7 +3533,7 @@ function MoveDialog({
   );
   const acceptedTypes = requiredTypes.length
     ? requiredTypes.join(",")
-    : "application/pdf,image/png,image/jpeg,text/plain";
+    : processFileAccept(db.protocolTypes.find((type) => type.id === protocol.typeId));
   const mutation = useMutation({
     mutationFn: async (
       productivity: { activity?: string; result?: string } = {},
@@ -3579,7 +3573,7 @@ function MoveDialog({
   const activePhases = db.phases.filter(
     (phase) => phase.active || phase.id === phaseId,
   );
-  const phaseOptions = configuredPhase
+  const phaseOptions = !freeFlow && configuredPhase
     ? [{ id: configuredPhase.phaseId, name: configuredPhase.name }]
     : activePhases.map((phase) => ({ id: phase.id, name: phase.name }));
   const submitForward = (
@@ -3591,16 +3585,8 @@ function MoveDialog({
       setFileError(new Error("Selecione no máximo 5 arquivos."));
       return;
     }
-    const invalid = selected.find(
-      (file) =>
-        !["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(
-          file.type,
-        ) || file.size > 5 * 1024 * 1024,
-    );
-    if (invalid) {
-      setFileError(new Error("Envie PDF, PNG, JPEG ou TXT de até 5 MB."));
-      return;
-    }
+    try { validateProcessFiles(db.protocolTypes.find((type) => type.id === protocol.typeId) ?? {}, selected); }
+    catch (error) { setFileError(error); return; }
     if (
       requiredTypes.length &&
       selected.some((file) => !requiredTypes.includes(file.type))
@@ -3655,15 +3641,15 @@ function MoveDialog({
                 ))}
               </Select>
               <p className="mt-2 text-xs text-muted-foreground">
-                {freeFlow
-                  ? protocol.flowModeSnapshot === "SUGGESTED"
-                    ? "O fluxo sugerido não foi aplicado a este processo — escolha livremente a fase de destino."
-                    : "Este tipo não tem fluxo configurado — escolha livremente a fase de destino."
+                {suggestedFlow
+                  ? configuredPhase
+                    ? `Etapa recomendada: ${configuredPhase.name}${configuredPhase.destinationUnitId ? ` · ${db.units.find((unit) => unit.id === configuredPhase.destinationUnitId)?.name ?? 'Unidade sugerida'}` : ''}. Você pode escolher outra fase e outra unidade.`
+                    : "O fluxo sugerido ainda não possui etapas configuradas. Escolha livremente a fase e a unidade de destino."
+                  : freeFlow
+                  ? "Este tipo não tem fluxo configurado — escolha livremente a fase de destino."
                   : advancesConfiguredFlow
-                    ? `${suggestedFlow ? "Próxima etapa sugerida" : "Próxima etapa obrigatória"} do fluxo. A fase não pode ser alterada nesta tramitação.`
-                    : suggestedFlow
-                      ? "Esta é a etapa final sugerida. Você pode tramitar novamente ou concluir o processo."
-                      : "Esta é a etapa final do fluxo. Para encerrá-lo, use a ação Concluir."}
+                    ? "Próxima etapa obrigatória do fluxo. A fase não pode ser alterada nesta tramitação."
+                    : "Esta é a etapa final do fluxo. Para encerrá-lo, use a ação Concluir."}
               </p>
             </section>
           )}
@@ -4093,8 +4079,6 @@ function AttachmentPreviewDialog({
       .then(async (blob) => {
         if (!blob)
           throw new Error("Arquivo não encontrado no armazenamento local.");
-        if (!kind)
-          throw new Error("Este tipo de arquivo não pode ser visualizado.");
         temporaryUrl = URL.createObjectURL(blob);
         if (alive) setUrl(temporaryUrl);
         if (kind === "text") {
@@ -4121,6 +4105,7 @@ function AttachmentPreviewDialog({
       ) : (
         <>
           {!url && text === undefined && <Loading />}
+          {!kind && url && <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">A pré-visualização não está disponível para este formato. Use Baixar para abrir o arquivo em um aplicativo compatível.</p>}
           {kind === "text" && text !== undefined && (
             <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-4 font-mono text-sm text-slate-100">
               {text}
@@ -4159,6 +4144,7 @@ function Attachments({
 }) {
   const ctx = useSession();
   const [error, setError] = useState<unknown>();
+  const { data: db } = useDb();
   const [preview, setPreview] = useState<Attachment>();
   const input = useRef<HTMLInputElement>(null);
   const add = useMutation({
@@ -4180,7 +4166,7 @@ function Attachments({
                   className="hidden"
                   type="file"
                   multiple
-                  accept="application/pdf,image/png,image/jpeg,text/plain"
+                  accept={processFileAccept(db?.protocolTypes.find((type) => type.id === protocol.typeId))}
                   onChange={(event) => {
                     const files = Array.from(event.target.files ?? []);
                     setError(undefined);

@@ -1,5 +1,6 @@
 import type { Context, Database, Protocol } from '../../domain/model';
 import { canView, requireActor } from '../../domain/rules';
+import { tenantPath } from '../../saas/tenants';
 
 export interface ReportFilters {
   typeId: string; status: string; unitId: string; interestedId: string;
@@ -26,11 +27,17 @@ export function filterProtocols(protocols: Protocol[], filters: ReportFilters) {
 }
 export function consultationUrl(protocol: Protocol, publicUrl: string, enabled: boolean, origin: string) {
   const url = publicUrl.trim();
-  if (!enabled || !url) return new URL(`/processos/${encodeURIComponent(protocol.id)}`, origin).href;
+  if (!enabled || !url) {
+    const destination = new URL(tenantPath('/consulta'), origin);
+    destination.searchParams.set('numero', protocol.number);
+    return destination.href;
+  }
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:\/\//i.test(url)) throw new Error('Informe um endereço público HTTP ou HTTPS válido nas configurações.');
   const destination = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
   if (!['http:', 'https:'].includes(destination.protocol) || destination.username || destination.password)
     throw new Error('Informe um endereço público HTTP ou HTTPS válido nas configurações.');
+  destination.pathname = tenantPath('/consulta');
+  destination.hash = '';
   destination.searchParams.set('numero', protocol.number);
   return destination.href;
 }

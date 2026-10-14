@@ -15,6 +15,10 @@ import { forwardPendingIssues, phaseChecklistMovement } from '../domain/protocol
 import { cpfDigits, validCpf } from '../lib/cpf';
 import { canReparentUnit } from '../domain/units';
 import { validateUserImportRows } from '../lib/userCsv';
+import { nextProtocolTypeSuffix, protocolTypeSuffix } from '../domain/protocolTypeCodes';
+import { flowSnapshotFor, phaseQuestionsFor, recommendedFlowPhase } from '../domain/flows';
+import { normalizeProcessFileType, processFileMime, validateProcessFiles } from '../domain/processFiles';
+import type { ProcessFileType } from '../domain/model';
 import type { UserImportRow } from '../lib/userCsv';
 const sleep = () => new Promise((resolve) => window.setTimeout(resolve, 110));
 const id = () => crypto.randomUUID();
@@ -63,7 +67,7 @@ const hasActiveAdmin = (db: Database) => {
 const mutate = async <T>(fn: (db: Database) => T) => { await sleep(); const db = loadDb(); const value = fn(db); if (!hasActiveAdmin(db)) throw new DomainError('VALIDATION', 'O sistema precisa manter pelo menos um administrador ativo com acesso a uma unidade.'); saveDb(db); window.dispatchEvent(new Event('fluxo-publico:changed')); window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'success', message: 'Alteração salva com sucesso.' } })); return value; };
 const protocolType = (db: Database, typeId: string) => db.protocolTypes.find((t) => t.id === typeId) ?? (() => { throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.'); })();
 type ChecklistSource = Pick<ProtocolPhase, 'checklistItems' | 'checklistQuestions'>;
-const phaseQuestions = (phase: ChecklistSource): ChecklistQuestion[] => (phase.checklistQuestions?.length ? phase.checklistQuestions : phase.checklistItems.map((text, order) => ({ id: `legacy-${order}`, text, order: order + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false }))).slice().sort((a, b) => a.order - b.order);
+const phaseQuestions = phaseQuestionsFor;
 const emptyChecklist = (phase: ChecklistSource): ChecklistAnswer[] => phaseQuestions(phase).map((question) => ({ questionId: question.id, text: question.text, checked: false }));
 const phaseForChecklist = (db: Database, protocol: Protocol, phaseId = protocol.currentPhaseId): ChecklistSource | undefined => protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === phaseId) ?? db.phases.find((phase) => phase.id === phaseId);
 const checklistAnswersFor = (phase: ChecklistSource, values: ChecklistAnswer[]): ChecklistAnswer[] => phaseQuestions(phase).map((question) => {
@@ -78,29 +82,7 @@ const checklistAnswersFor = (phase: ChecklistSource, values: ChecklistAnswer[]):
     };
 });
 const normalizedAnswers = (phase: ReturnType<typeof currentPhase>, values: ChecklistAnswer[] | string[]) => (values as (ChecklistAnswer | string)[]).map((value) => typeof value === 'string' ? { questionId: phaseQuestions(phase).find((question) => question.text === value)?.id ?? value, text: value, checked: true } : value);
-const flowModeFor = (type: ProtocolType) => type.flowMode ?? (type.flowId ? 'REQUIRED' : 'NONE')
-const flowSnapshotFor = (db: Database, type: ProtocolType, useSuggestedFlow = true) => {
-    const mode = flowModeFor(type);
-    if (mode === 'NONE' || (mode === 'SUGGESTED' && !useSuggestedFlow))
-        return { mode, snapshot: undefined };
-    const flow = type.flowId ? db.flows.find((item) => item.id === type.flowId && item.active) : undefined;
-    if (!flow) {
-        if (mode === 'SUGGESTED') return { mode, snapshot: undefined };
-        throw new DomainError('VALIDATION', 'O fluxo obrigatório deste tipo ainda não foi configurado.');
-    }
-    const phases = db.flowPhases.filter((item) => item.flowId === flow.id).sort((a, b) => a.position - b.position).map((flowPhase) => {
-        const phase = db.phases.find((item) => item.id === flowPhase.phaseId && item.active);
-        if (!phase)
-            throw new DomainError('VALIDATION', 'O fluxo possui uma fase indisponível.');
-        const situation = flowPhase.situationTypeId ? db.situations.find((item) => item.id === flowPhase.situationTypeId) : undefined;
-        return { phaseId: phase.id, name: phase.name, code: phase.code, position: flowPhase.position, required: flowPhase.required, eligibleUnitIds: phase.eligibleUnitIds, checklistItems: flowPhase.checklistQuestions?.map((question) => question.text) ?? phase.checklistItems, checklistQuestions: flowPhase.checklistQuestions ?? phaseQuestions(phase), requiredAttachmentTypes: phase.requiredAttachmentTypes, situation: flowPhase.situation, situationType: situation ? { id: situation.id, name: situation.name, category: situation.category, color: situation.color, icon: situation.icon } : undefined, destinationUnitId: flowPhase.destinationUnitId, requiresChecklist: flowPhase.requiresChecklist, requiresAttachment: flowPhase.requiresAttachment, observation: flowPhase.observation, color: flowPhase.color, icon: flowPhase.icon };
-    });
-    if (!phases.length) {
-        if (mode === 'SUGGESTED') return { mode, snapshot: undefined };
-        throw new DomainError('VALIDATION', 'O fluxo obrigatório precisa possuir ao menos uma fase ativa.');
-    }
-    return { mode, snapshot: { flowId: flow.id, flowName: flow.name, version: flow.version, phases } };
-};const nextNumber = (db: Database, scope: 'protocol' | 'document') => { const now = new Date(); const settings = readNumberingSettings(); const key = numberingCounterKey(scope, settings, now); const existing = scope === 'protocol' ? db.protocols : db.documents; const lastSequence = existing.reduce((largest, item) => { const value = configuredSequence(item.number, scope, settings, now) ?? 0; return Math.max(largest, value); }, 0); db.counters[key] = Math.max(db.counters[key] ?? 0, lastSequence) + 1; return formatConfiguredNumber(scope, db.counters[key], settings, now); };
+const nextNumber = (db: Database, scope: 'protocol' | 'document') => { const now = new Date(); const settings = readNumberingSettings(); const key = numberingCounterKey(scope, settings, now); const existing = scope === 'protocol' ? db.protocols : db.documents; const lastSequence = existing.reduce((largest, item) => { const value = configuredSequence(item.number, scope, settings, now) ?? 0; return Math.max(largest, value); }, 0); db.counters[key] = Math.max(db.counters[key] ?? 0, lastSequence) + 1; return formatConfiguredNumber(scope, db.counters[key], settings, now); };
 const bump = (p: Protocol) => { p.version += 1; p.updatedAt = new Date().toISOString(); };
 const currentPhase = (protocol: Protocol) => {
     const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId);
@@ -112,6 +94,7 @@ const orderedPhases = (protocol: Protocol) => protocol.flowSnapshot?.phases.slic
 const validatePhaseExit = (db: Database, protocol: Protocol, values: ChecklistAnswer[] | string[]) => {
     const phase = currentPhase(protocol);
     const answers = normalizedAnswers(phase, values);
+    if (protocol.flowModeSnapshot === 'SUGGESTED') return { phase, answers };
     const pending = phaseQuestions(phase).filter((question) => question.required && !answers.find((answer) => answer.questionId === question.id)?.checked);
     if (pending.length)
         throw new DomainError('VALIDATION', `Conclua o checklist da fase: ${pending.map((question) => question.text).join(', ')}.`);
@@ -178,7 +161,30 @@ type StageInput = Omit<FlowPhase, 'id' | 'flowId' | 'position'> & { position?: n
 type ProtocolFlowInput = Omit<ProtocolFlow, 'id'> & { phaseIds?: string[]; stages?: StageInput[] };
 const stagesFor = (input: ProtocolFlowInput): Array<StageInput & { position: number }> => input.stages?.map((stage, position) => ({ ...stage, position })) ?? (input.phaseIds ?? []).map((phaseId, position) => ({ phaseId, position, required: true }));
 const cleanQuestions = (questions: ChecklistQuestion[] | undefined, checklistItems: string[]) => (questions?.length ? questions : checklistItems.map((text, order) => ({ id: id(), text, order: order + 1, required: true, requiresAttachment: false, requiresDate: false, requiresObservation: false }))).map((question, index) => ({ ...question, id: question.id || id(), text: question.text.trim(), order: Number.isInteger(question.order) && question.order > 0 ? question.order : index + 1 })).filter((question) => question.text);
+const resolveProtocolTypeCode = (db: Database, input: ProtocolTypeInput, ignoreId?: string) => {
+    const category = db.processCategories.find((item) => item.id === input.categoryId && item.active);
+    if (!category) throw new DomainError('VALIDATION', 'Selecione uma categoria de processo ativa.');
+    const current = db.protocolTypes.find((item) => item.id === ignoreId);
+    const suffix = input.code === undefined
+        ? protocolTypeSuffix(current?.code) || nextProtocolTypeSuffix(db.protocolTypes, input.categoryId)
+        : protocolTypeSuffix(input.code.trim());
+    if (!/^\d{3}$/.test(suffix)) throw new DomainError('VALIDATION', 'Informe os três dígitos do código do tipo de processo.');
+    const code = `${category.code}.${suffix}`;
+    if (db.protocolTypes.some((item) => item.id !== ignoreId && item.code === code))
+        throw new DomainError('VALIDATION', 'Já existe um tipo de processo com este código nesta categoria.');
+    return code;
+};
 const validateProtocolType = (db: Database, input: ProtocolTypeInput) => {
+    if (input.fileTypes) {
+        const names = new Set<string>();
+        const ids = new Set<string>();
+        for (const definition of input.fileTypes) {
+            normalizeProcessFileType(definition);
+            const name = definition.name.trim().toLocaleLowerCase();
+            if (!definition.id || ids.has(definition.id) || names.has(name)) throw new DomainError('VALIDATION', 'Os tipos de arquivo devem ter nomes e identificadores únicos.');
+            ids.add(definition.id); names.add(name);
+        }
+    }
     if (!input.name.trim() || !input.description.trim())
         throw new DomainError('VALIDATION', 'Informe nome e descrição do tipo.');
     if (!input.categoryId || !db.processCategories.some((category) => category.id === input.categoryId && category.active))
@@ -455,12 +461,10 @@ export const api = {
         const files = input.files ?? [];
         if (files.length > 5)
             throw new DomainError('VALIDATION', 'Selecione no máximo 5 arquivos.');
-        for (const file of files)
-            if (!['application/pdf', 'image/png', 'image/jpeg', 'text/plain'].includes(file.type) || file.size > 5 * 1024 * 1024)
-                throw new DomainError('VALIDATION', 'Envie PDF, PNG, JPEG ou TXT de até 5 MB.');
         const preflightDb = loadDb();
         requirePermission(preflightDb, ctx, 'processes.create');
         const preflightType = protocolType(preflightDb, input.typeId);
+        validateProcessFiles(preflightType, files);
         if (!preflightType.active || !canOpenProtocolType(preflightDb, preflightType, ctx))
             throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
         if (files.length && !preflightType.fieldsConfig.arquivos?.enabled)
@@ -473,6 +477,7 @@ export const api = {
             return await mutate((db) => {
                 const user = requirePermission(db, ctx, 'processes.create');
                 const type = protocolType(db, input.typeId);
+                validateProcessFiles(type, files);
                 if (!type.active || !canOpenProtocolType(db, type, ctx))
                     throw new DomainError('FORBIDDEN', 'Você não possui autorização para abrir processos deste tipo na unidade selecionada.');
                 if (files.length && !type.fieldsConfig.arquivos?.enabled)
@@ -482,7 +487,7 @@ export const api = {
                     throw new DomainError('VALIDATION', 'O documento de origem não está disponível para abrir um processo.');
                 if (sourceDocument && (!type.fieldsConfig.arquivos?.enabled || !canManageDocument(db, sourceDocument, ctx)))
                     throw new DomainError('FORBIDDEN', 'Você não pode vincular este documento ao processo.');
-                const { mode: flowModeSnapshot, snapshot: flowSnapshot } = flowSnapshotFor(db, type, input.useSuggestedFlow ?? true);
+                const { mode: flowModeSnapshot, snapshot: flowSnapshot } = flowSnapshotFor(db, type);
                 if (!input.subject.trim() || input.subject.length > 160)
                     throw new DomainError('VALIDATION', 'Informe um assunto de até 160 caracteres.');
                 if (!input.description.trim() || input.description.length > 4000)
@@ -586,7 +591,7 @@ export const api = {
                 if (creatorReceived)
                     event(db, { protocolId: protocol.id, kind: 'RECEBIMENTO', actorUserId: user.id, actorUnitId: ctx.activeUnitId, assignmentId: assignment.id });
                 for (const { file, blobKey } of staged) {
-                    const attachment: Attachment = { id: id(), protocolId: protocol.id, movementEventId: opening.id, filename: file.name, mimeType: file.type, sizeBytes: file.size, blobKey, uploadedById: user.id, createdAt };
+                    const attachment: Attachment = { id: id(), protocolId: protocol.id, movementEventId: opening.id, filename: file.name, mimeType: processFileMime(file), sizeBytes: file.size, blobKey, uploadedById: user.id, createdAt };
                     db.attachments.push(attachment);
                     audit(db, { action: 'ATTACHMENT_ADDED', actorUserId: user.id, actorUnitId: ctx.activeUnitId, targetType: 'ATTACHMENT', targetId: attachment.id, details: `Arquivo “${attachment.filename}” anexado à movimentação de abertura do processo ${protocol.number}.` });
                 }
@@ -737,19 +742,20 @@ export const api = {
             const configuredPhase = currentConfiguredPhase
                 ? orderedSnapshot.find((phase) => phase.position > currentConfiguredPhase.position) ?? currentConfiguredPhase
                 : orderedSnapshot[0];
-            const selectedPhaseId = configuredPhase?.phaseId ?? input.phaseId;
+            const requiredFlow = protocol.flowModeSnapshot !== 'SUGGESTED' && Boolean(configuredPhase);
+            const selectedPhaseId = requiredFlow ? configuredPhase?.phaseId : input.phaseId || (protocol.flowModeSnapshot === 'SUGGESTED' ? recommendedFlowPhase(db, protocol)?.phaseId : undefined);
             const selectedPhase = selectedPhaseId ? phaseForChecklist(db, protocol, selectedPhaseId) : undefined;
-            if (!selectedPhaseId || !selectedPhase || (!configuredPhase && !db.phases.some((phase) => phase.id === selectedPhaseId && phase.active)))
+            if (!selectedPhaseId || !selectedPhase || (!requiredFlow && !db.phases.some((phase) => phase.id === selectedPhaseId && phase.active)))
                 throw new DomainError('VALIDATION', 'Selecione uma fase ativa para a tramitação.');
-            if (configuredPhase && input.phaseId && input.phaseId !== configuredPhase.phaseId)
+            if (requiredFlow && configuredPhase && input.phaseId && input.phaseId !== configuredPhase.phaseId)
                 throw new DomainError('VALIDATION', 'A fase da tramitação é definida pelo fluxo do processo.');
-            if (configuredPhase?.destinationUnitId && input.unitId !== configuredPhase.destinationUnitId)
+            if (requiredFlow && configuredPhase?.destinationUnitId && input.unitId !== configuredPhase.destinationUnitId)
                 throw new DomainError('VALIDATION', 'O destino da tramitação é definido pela próxima etapa do fluxo.');
-            if (configuredPhase)
+            if (requiredFlow && configuredPhase)
                 validatePhaseDestination(configuredPhase.eligibleUnitIds, input.unitId);
 
-            const phaseChanges = Boolean(configuredPhase && configuredPhase.phaseId !== protocol.currentPhaseId);
-            if (phaseChanges) {
+            const phaseChanges = selectedPhaseId !== protocol.currentPhaseId;
+            if (phaseChanges && requiredFlow) {
                 const currentMovement = phaseChecklistMovement(db, protocol, resolveMovement(db, protocol));
                 const { answers } = validatePhaseExit(db, protocol, currentMovement.checklist ?? []);
                 currentMovement.checklist = answers;
@@ -781,7 +787,7 @@ export const api = {
                 toUserId: input.assigneeId,
                 assignmentId: next.id,
                 phaseId: selectedPhaseId,
-                checklist: phaseChanges ? emptyChecklist(selectedPhase) : undefined,
+                checklist: phaseChanges && protocol.flowSnapshot?.phases.some((phase) => phase.phaseId === selectedPhaseId) ? emptyChecklist(selectedPhase) : undefined,
                 message: input.message.trim(),
                 activity,
                 result,
@@ -802,7 +808,7 @@ export const api = {
                 throw new DomainError('FORBIDDEN', 'Você não pode concluir este processo.');
             requireAssignmentReceived(db, protocol);
             const phases = orderedPhases(protocol);
-            if (phases.length) {
+            if (phases.length && protocol.flowModeSnapshot !== 'SUGGESTED') {
                 const phase = currentPhase(protocol);
                 if (phase.position !== phases.at(-1)?.position)
                     throw new DomainError('INVALID_STATE', 'Conclua as fases anteriores antes de concluir o processo.');
@@ -834,7 +840,7 @@ export const api = {
             const next = orderedPhases(protocol).find((phase) => phase.position > current.position);
             if (!next)
                 throw new DomainError('INVALID_STATE', 'Esta é a última fase. Conclua o processo.');
-            validatePhaseDestination(next.eligibleUnitIds, next.destinationUnitId ?? protocol.currentUnitId);
+            if (protocol.flowModeSnapshot !== 'SUGGESTED') validatePhaseDestination(next.eligibleUnitIds, next.destinationUnitId ?? protocol.currentUnitId);
 
             const previousStatus = protocol.status;
             const fromUnitId = protocol.currentUnitId;
@@ -923,12 +929,10 @@ export const api = {
     async addAttachments(ctx: Context, protocolId: string, expectedVersion: number, files: File[], movementEventId?: string) {
         if (!files.length || files.length > 5)
             throw new DomainError('VALIDATION', 'Selecione de 1 a 5 arquivos por operação.');
-        for (const file of files)
-            if (!['application/pdf', 'image/png', 'image/jpeg', 'text/plain'].includes(file.type) || file.size > 5 * 1024 * 1024)
-                throw new DomainError('VALIDATION', 'Envie PDF, PNG, JPEG ou TXT de até 5 MB.');
         const preflightDb = loadDb();
         requirePermission(preflightDb, ctx, 'attachments.create');
         const preflightProtocol = getProtocol(preflightDb, protocolId);
+        validateProcessFiles(protocolType(preflightDb, preflightProtocol.typeId), files);
         requireVersion(preflightProtocol, expectedVersion);
         requireActive(preflightProtocol);
         if (!preflightProtocol.typeConfigSnapshot.arquivos?.enabled)
@@ -948,9 +952,10 @@ export const api = {
                 if (!canAct(db, p, ctx))
                     throw new DomainError('FORBIDDEN', 'Você não pode anexar neste processo.');
                 const createdAt = new Date().toISOString();
+                validateProcessFiles(protocolType(db, p.typeId), files);
                 const movement = resolveMovement(db, p, movementEventId);
                 const created = staged.map(({ file, blobKey }) => {
-                    const attachment: Attachment = { id: id(), protocolId, movementEventId: movement.id, filename: file.name, mimeType: file.type, sizeBytes: file.size, blobKey, uploadedById: ctx.userId, createdAt };
+                    const attachment: Attachment = { id: id(), protocolId, movementEventId: movement.id, filename: file.name, mimeType: processFileMime(file), sizeBytes: file.size, blobKey, uploadedById: ctx.userId, createdAt };
                     db.attachments.push(attachment);
                     audit(db, { action: 'ATTACHMENT_ADDED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'ATTACHMENT', targetId: attachment.id, details: `Arquivo “${attachment.filename}” anexado à movimentação do processo ${p.number}.` });
                     return attachment;
@@ -1028,6 +1033,30 @@ export const api = {
             if (!canView(db, protocol, ctx))
                 throw new DomainError('FORBIDDEN', 'Você não pode gerar o dossiê deste processo.');
             return audit(db, { action: 'PROTOCOL_DOSSIER_GENERATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'PROTOCOL', targetId: protocol.id, details: `Dossiê do processo ${protocol.number} gerado para visualização.` });
+        });
+    },
+    async saveProcessFileType(ctx: Context, typeId: string, input: Omit<ProcessFileType, 'id'>, fileTypeId?: string) {
+        return mutate((db) => {
+            requirePermission(db, ctx, 'protocolTypes.edit');
+            const type = protocolType(db, typeId);
+            const normalized = normalizeProcessFileType(input);
+            const definitions = type.fileTypes ?? [];
+            if (definitions.some((item) => item.id !== fileTypeId && item.name.toLocaleLowerCase() === normalized.name.toLocaleLowerCase())) throw new DomainError('VALIDATION', 'Já existe um tipo de arquivo com este nome neste tipo de processo.');
+            const existing = fileTypeId ? definitions.find((item) => item.id === fileTypeId) : undefined;
+            if (fileTypeId && !existing) throw new DomainError('NOT_FOUND', 'Tipo de arquivo não encontrado.');
+            if (existing) { Object.assign(existing, normalized); return existing; }
+            const created = { ...normalized, id: id() };
+            type.fileTypes = [...definitions, created];
+            return created;
+        });
+    },
+    async deleteProcessFileType(ctx: Context, typeId: string, fileTypeId: string) {
+        return mutate((db) => {
+            requirePermission(db, ctx, 'protocolTypes.edit');
+            const type = protocolType(db, typeId);
+            if (!type.fileTypes?.some((item) => item.id === fileTypeId)) throw new DomainError('NOT_FOUND', 'Tipo de arquivo não encontrado.');
+            type.fileTypes = type.fileTypes.filter((item) => item.id !== fileTypeId);
+            return true;
         });
     },
     async addProtocolTypeAttachments(ctx: Context, typeId: string, files: File[]) {
@@ -1317,6 +1346,7 @@ export const api = {
             if (!input.active && db.protocolTypes.some((type) => type.categoryId === categoryId && type.active))
                 throw new DomainError('VALIDATION', 'Não é possível inativar uma categoria vinculada a um tipo ativo.');
             Object.assign(category, { ...input, code: input.code.trim().toUpperCase(), name: input.name.trim(), observation: input.observation?.trim() });
+            db.protocolTypes.filter((type) => type.categoryId === categoryId).forEach((type) => { type.code = `${category.code}.${protocolTypeSuffix(type.code)}`; });
             audit(db, { action: 'CATEGORY_UPDATED', actorUserId: ctx.userId, actorUnitId: ctx.activeUnitId, targetType: 'CATEGORY', targetId: category.id, details: `Categoria “${category.name}” atualizada.` });
             return category;
         });
@@ -1345,6 +1375,7 @@ export const api = {
                 throw new DomainError('VALIDATION', 'Defina ao menos uma etapa para o fluxo sugerido ou obrigatório.');
             const normalized = {
                 ...input,
+                code: resolveProtocolTypeCode(db, input),
                 flowMode,
                 flowId: undefined as string | undefined,
                 authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])],
@@ -1376,9 +1407,9 @@ export const api = {
             return { type, flow };
         });
     },
-    async createProtocolType(ctx: Context, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.create'); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); if (db.protocolTypes.some((type) => type.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
+    async createProtocolType(ctx: Context, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.create'); const normalized = { ...input, code: resolveProtocolTypeCode(db, input), authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); if (db.protocolTypes.some((type) => type.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); const type: ProtocolType = { ...normalized, id: id(), name: normalized.name.trim(), description: normalized.description.trim() }; db.protocolTypes.push(type); return type; }); },
-    async updateProtocolType(ctx: Context, typeId: string, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.edit'); const normalized = { ...input, authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); const type = db.protocolTypes.find((item) => item.id === typeId); if (!type)
+    async updateProtocolType(ctx: Context, typeId: string, input: ProtocolTypeInput) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.edit'); const normalized = { ...input, code: resolveProtocolTypeCode(db, input, typeId), authorizedUserIds: [...new Set(input.authorizedUserIds ?? [])], authorizedUnitIds: [...new Set(input.authorizedUnitIds ?? [])] }; validateProtocolType(db, normalized); const type = db.protocolTypes.find((item) => item.id === typeId); if (!type)
         throw new DomainError('NOT_FOUND', 'Tipo de processo não encontrado.'); if (db.protocolTypes.some((item) => item.id !== typeId && item.name.toLocaleLowerCase() === normalized.name.trim().toLocaleLowerCase()))
         throw new DomainError('VALIDATION', 'Já existe um tipo com este nome.'); Object.assign(type, { ...normalized, name: normalized.name.trim(), description: normalized.description.trim() }); return type; }); },
     async deleteAllProtocolTypes(ctx: Context) { return mutate((db) => { requirePermission(db, ctx, 'protocolTypes.delete'); if (db.protocols.length) throw new DomainError('VALIDATION', 'Não é possível excluir os tipos enquanto existirem processos vinculados.'); db.protocolTypes.splice(0, db.protocolTypes.length); return true; }); },    async createDocumentType(ctx: Context, input: Omit<DocumentType, 'id'>) { return mutate((db) => { requirePermission(db, ctx, 'documentTypes.create'); const name = input.name.trim(); const description = input.description.trim(); if (!name || !description)

@@ -18,6 +18,7 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { SituationsPage } from '../features/situacoes/SituationsPage';
 import { PhasesPage } from '../features/fases/PhasesPage';
 import { ProcessCategoriesPage } from '../features/categorias/ProcessCategoriesPage';
+import { PublicProtocolPage } from '../features/consulta/PublicProtocolPage';
 import { useDb } from './queries';
 import { useSession } from './session';
 import { hasPermission } from '../domain/permissions';
@@ -36,12 +37,19 @@ function LegacyProcessRedirect() {
     const { id } = useParams();
     return <Navigate to={id ? '/processos/' + id : '/processos'} replace/>;
 }
-export function App() {
-    return <BrowserRouter><RecoveryGate><Routes>
+export function App({ basename = '/' }: { basename?: string }) {
+    return <BrowserRouter basename={basename}><RecoveryGate><Routes>
+      <Route path="/" element={<TenantEntry/>}/>
       <Route path="/login" element={<LoginPage/>}/>
       <Route path="/esqueci-a-senha" element={<ForgotPasswordPage/>}/>
+      <Route path="/consulta" element={<PublicProtocolPage/>}/>
       <Route path="*" element={<AuthenticatedApp/>}/>
     </Routes></RecoveryGate></BrowserRouter>;
+}
+function TenantEntry() {
+    const ctx = useSession();
+    if (ctx.sessionLoading) return <div className="p-8"><Loading/></div>;
+    return ctx.authenticated ? <Navigate to="/dashboard" replace/> : <LoginPage/>;
 }
 function AuthenticatedApp() {
     const ctx = useSession();

@@ -1,6 +1,7 @@
 import type { AppDocument, Context, Database } from '../domain/model'
 import { GENERAL_SETTINGS_KEY } from './numbering'
 import { documentText } from './richText'
+import { tenantStorage } from '../saas/tenants'
 
 export const templateVariables = [
   { group: 'Entidade', items: [
@@ -74,7 +75,7 @@ export function documentTemplateValues(db: Database, ctx: Context, draft: Pick<A
   const protocol = db.protocols.find((item) => item.id === draft.protocolId)
   const date = new Date()
   let settings: { city?: string; state?: string; organizationName?: string } = {}
-  try { settings = JSON.parse(localStorage.getItem(GENERAL_SETTINGS_KEY) ?? '{}') } catch { /* Configuração opcional. */ }
+  try { settings = JSON.parse(tenantStorage.getItem(GENERAL_SETTINGS_KEY) ?? '{}') } catch { /* Configuração opcional. */ }
   const recipient = db.people.find((person) => person.id === draft.recipientPersonId)
   return {
     nome_entidade: settings.organizationName?.trim() || db.organization.name,

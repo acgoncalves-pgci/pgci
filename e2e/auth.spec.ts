@@ -17,7 +17,7 @@ test('login apresenta identidade institucional, senha revelável e layout respon
   await expect(page.getByRole('link', { name: 'Esqueceu sua senha?' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Entrar no sistema' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:user'))).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user'))).toBeNull()
   await page.evaluate(() => document.fonts.ready)
   await page.mouse.move(0, 0)
   await page.screenshot({ path: testInfo.outputPath('login.png'), fullPage: true })
@@ -37,13 +37,13 @@ test('valida login, restaura destino, mantém sessão e sai para o login', async
   await expect(page.getByRole('heading', { name: 'Documentos', exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Documentos', exact: true })).toBeVisible()
-  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:user'))).toBe('usr-admin')
+  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user'))).toBe('usr-admin')
   expect(await page.evaluate(() => Object.values(localStorage).some((value) => String(value).includes('Pgci@2026')))).toBe(false)
   if (isMobile) await page.getByRole('button', { name: 'Abrir menu', exact: true }).click()
   await page.getByRole('button', { name: 'Sair', exact: true }).click()
   await expect(page).toHaveURL(/\/login$/)
   await expect(page.getByRole('heading', { name: 'Acesse sua conta' })).toBeVisible()
-  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:user'))).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user'))).toBeNull()
   await page.goto('/documentos')
   await expect(page).toHaveURL(/\/login$/)
 })
@@ -72,7 +72,7 @@ test('conta desativada não inicia nem restaura sessão demonstrativa', async ({
   await page.goto('/login')
   await expect(page.getByRole('button', { name: 'Preencher acesso de demonstração' })).toBeEnabled()
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const db = JSON.parse(localStorage.getItem(key)!)
     db.users.find((user: { id: string }) => user.id === 'usr-admin').active = false
     localStorage.setItem(key, JSON.stringify(db))
@@ -81,7 +81,7 @@ test('conta desativada não inicia nem restaura sessão demonstrativa', async ({
   await page.getByLabel('Senha', { exact: true }).fill('Pgci@2026')
   await page.getByRole('button', { name: 'Entrar no sistema' }).click()
   await expect(page.getByRole('alert')).toContainText('E-mail ou senha inválidos')
-  await page.evaluate(() => localStorage.setItem('fluxo-publico:user', 'usr-admin'))
+  await page.evaluate(() => localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin'))
   await page.goto('/dashboard')
   await expect(page).toHaveURL(/\/login$/)
 })

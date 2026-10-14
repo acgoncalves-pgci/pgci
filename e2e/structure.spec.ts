@@ -3,8 +3,8 @@ import type { Page } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
 })
 
@@ -51,7 +51,7 @@ async function createBranch(page: Page) {
 }
 
 async function parentOf(page: Page, unitId: string) {
-  return page.evaluate((id) => JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!).units.find((unit: { id: string }) => unit.id === id).parentId ?? null, unitId)
+  return page.evaluate((id) => JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!).units.find((unit: { id: string }) => unit.id === id).parentId ?? null, unitId)
 }
 
 test('escolhe o pai, sobe apenas um nível e remove a subordinação preservando os filhos', async ({ page }, testInfo) => {

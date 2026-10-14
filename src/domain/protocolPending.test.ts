@@ -48,16 +48,16 @@ describe('pendências da tramitação', () => {
     expect(forwardPendingIssues(db, protocol, laterMovement)).toEqual([])
   })
 
-  it('não exige os itens da fase cadastrada quando o fluxo sugerido não foi aplicado', () => {
+  it('não bloqueia tramitação pelos requisitos de um fluxo sugerido configurado', () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     const movement = db.events.find((item) => item.id === 'ev-open-1')!
     protocol.flowModeSnapshot = 'SUGGESTED'
-    protocol.flowSnapshot = undefined
-    protocol.currentPhaseId = 'phase-payment-review'
+    protocol.flowSnapshot!.phases[0].requiresAttachment = true
+    protocol.flowSnapshot!.phases[0].requiredAttachmentTypes = ['application/pdf']
     movement.phaseId = protocol.currentPhaseId
 
-    expect(db.phases.find((phase) => phase.id === protocol.currentPhaseId)?.checklistItems.length).toBeGreaterThan(0)
+    expect(protocol.flowSnapshot!.phases[0].checklistQuestions.length).toBeGreaterThan(0)
     expect(forwardPendingIssues(db, protocol, movement)).toEqual([])
   })
 })

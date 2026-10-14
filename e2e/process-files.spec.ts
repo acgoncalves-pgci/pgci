@@ -5,8 +5,8 @@ import { expectPdfReady, readPreview } from './helpers/pdf'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    if (!localStorage.getItem('fluxo-publico:user')) localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    if (!localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user')) localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
 })
 
@@ -140,7 +140,7 @@ test('auditoria traduz vínculo de documento e apresenta ações desconhecidas s
   await page.goto('/processos/pr-1')
   await expect(page.getByRole('heading', { name: /^Processo / })).toBeVisible()
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const db = JSON.parse(localStorage.getItem(key)!)
     db.auditEvents.push(...['DOCUMENT_LINKED', 'FUTURE_ACTION'].map((action, index) => ({ id: `audit-test-${index}`, action, actorUserId: 'usr-admin', actorUnitId: 'u-prot', targetType: 'DOCUMENT', targetId: 'doc-1', details: `Registro de teste ${index}`, createdAt: new Date().toISOString() })))
     localStorage.setItem(key, JSON.stringify(db))
@@ -157,13 +157,13 @@ test('consulta sem permissão não oferece edição nem exclusão nos menus', as
   await page.goto('/processos/pr-1')
   await expect(page.getByRole('heading', { name: /^Processo / })).toBeVisible()
   await page.evaluate(() => {
-    const key = 'fluxo-publico:database:v1'
+    const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
     const db = JSON.parse(localStorage.getItem(key)!)
     const membership = db.memberships.find((item: { userId: string; unitId: string }) => item.userId === 'usr-clara' && item.unitId === 'u-prot')
     membership.role = 'LEITOR'
     membership.permissions = ['processes.view', 'documents.view']
     localStorage.setItem(key, JSON.stringify(db))
-    localStorage.setItem('fluxo-publico:user', 'usr-clara')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-clara')
   })
   await page.reload()
   await page.getByRole('button', { name: /^Anexos\b/ }).click()

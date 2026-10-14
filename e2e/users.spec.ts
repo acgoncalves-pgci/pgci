@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
 })
 
@@ -191,7 +191,7 @@ test('perfil preenche permissões editáveis por unidade sem alterar acessos já
   await expect(userDialog).toBeHidden()
 
   const saved = await page.evaluate(() => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     const user = db.users.find((item: { email: string }) => item.email === 'atendimento@example.com')
     return db.memberships.find((item: { userId: string }) => item.userId === user.id)
   })
@@ -206,7 +206,7 @@ test('perfil preenche permissões editáveis por unidade sem alterar acessos já
   await editProfile.getByRole('button', { name: 'Salvar perfil' }).click()
   await expect(editProfile).toBeHidden()
   const preserved = await page.evaluate((membershipId) => {
-    const db = JSON.parse(localStorage.getItem('fluxo-publico:database:v1')!)
+    const db = JSON.parse(localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1')!)
     return db.memberships.find((item: { id: string }) => item.id === membershipId).permissions
   }, saved.id)
   expect(preserved).toEqual(saved.permissions)

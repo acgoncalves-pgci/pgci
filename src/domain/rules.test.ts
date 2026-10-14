@@ -909,22 +909,21 @@ describe('regras avançadas de processo', () => {
       unitId: 'u-adm', assigneeId: 'usr-bruno', phaseId: 'phase-analysis', message: 'Seguir a unidade definida pelo fluxo obrigatório.'
     })).resolves.toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-analysis' })
   })
-  it('impede alterar fase e destino definidos pelo fluxo sugerido', async () => {
+  it('permite alterar fase e destino sugeridos mesmo com checklist e anexos pendentes', async () => {
     const db = loadDb()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowModeSnapshot = 'SUGGESTED'
     protocol.currentPhaseId = 'phase-triage'
     protocol.flowSnapshot!.phases[1].destinationUnitId = 'u-adm'
-    db.events.find((event) => event.id === 'ev-open-1')!.checklist = [{ questionId: 'q-triage-data', text: 'Conferir dados de abertura', checked: true }]
+    protocol.flowSnapshot!.phases[0].requiresAttachment = true
+    protocol.flowSnapshot!.phases[1].eligibleUnitIds = ['u-adm']
+    db.events.find((event) => event.id === 'ev-open-1')!.checklist = []
     saveDb(db)
 
     await expect(api.forward({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, {
-      unitId: 'u-fin', phaseId: 'phase-analysis', message: 'Tentativa de ignorar a sugestão.'
-    })).rejects.toMatchObject({ code: 'VALIDATION' })
-
-    await expect(api.forward({ userId: 'usr-clara', activeUnitId: 'u-prot' }, protocol.id, protocol.version, {
-      unitId: 'u-adm', assigneeId: 'usr-bruno', phaseId: 'phase-analysis', message: 'Destino conforme o fluxo sugerido.'
-    })).resolves.toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-analysis' })
+      unitId: 'u-fin', phaseId: 'phase-payment-review', message: 'Encaminhamento livre sem seguir a etapa recomendada.'
+    })).resolves.toMatchObject({ currentUnitId: 'u-fin', currentPhaseId: 'phase-payment-review' })
+    expect(loadDb().protocols.find((item) => item.id === protocol.id)?.flowSnapshot).toEqual(protocol.flowSnapshot)
   })
   it('marca ciência na atribuição sem criar outra movimentação', async () => {
     const protocol = loadDb().protocols.find((item) => item.id === 'pr-19')!
@@ -1221,7 +1220,7 @@ describe('modos do fluxo no tipo de processo', () => {
     ])
   })
 
-  it('permite aplicar ou dispensar o fluxo sugerido e preserva a escolha no processo', async () => {
+  it('inclui o fluxo sugerido automaticamente, inclusive para chamadas antigas que tentam dispensá-lo', async () => {
     const db = loadDb()
     const type = db.protocolTypes.find((item) => item.id === input.typeId)!
     type.flowMode = 'SUGGESTED'
@@ -1230,7 +1229,7 @@ describe('modos do fluxo no tipo de processo', () => {
     const withFlow = await api.createProtocol(context, { ...input, useSuggestedFlow: true })
     const withoutFlow = await api.createProtocol(context, {
       ...input,
-      subject: 'Processo sem o fluxo sugerido',
+      subject: 'Processo com chamada antiga',
       useSuggestedFlow: false,
     })
 
@@ -1238,15 +1237,15 @@ describe('modos do fluxo no tipo de processo', () => {
     expect(withFlow.flowSnapshot?.phases).toHaveLength(3)
     expect(withoutFlow).toMatchObject({
       flowModeSnapshot: 'SUGGESTED',
-      flowSnapshot: undefined,
-      currentPhaseId: undefined,
+      flowSnapshot: expect.objectContaining({ phases: expect.any(Array) }),
+      currentPhaseId: 'phase-triage',
     })
-    await expect(api.complete(context, withoutFlow.id, withoutFlow.version, 'Concluído sem fluxo sugerido.')).resolves.toMatchObject({
+    await expect(api.complete(context, withoutFlow.id, withoutFlow.version, 'Concluído antes da última etapa sugerida.')).resolves.toMatchObject({
       status: 'CONCLUIDO',
     })
   })
 
-  it('tramita em fluxo livre após dispensar o sugerido sem cobrar checklist nem restringir a unidade', async () => {
+  it('recupera a orientação de processos antigos e permite tramitar livremente', async () => {
     const db = loadDb()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.flowModeSnapshot = 'SUGGESTED'
@@ -1262,7 +1261,7 @@ describe('modos do fluxo no tipo de processo', () => {
     })
 
     expect(forwarded).toMatchObject({ currentUnitId: 'u-adm', currentPhaseId: 'phase-payment-review' })
-    expect(forwarded.flowSnapshot).toBeUndefined()
+    expect(forwarded.flowSnapshot?.phases.length).toBeGreaterThan(0)
     expect(loadDb().events.filter((event) => event.protocolId === protocol.id && event.kind === 'TRAMITACAO').at(-1)?.checklist).toBeUndefined()
   })
 

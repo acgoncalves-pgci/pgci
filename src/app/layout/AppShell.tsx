@@ -36,6 +36,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { StructureScopeMenu } from "./StructureScopeMenu";
 import { hasPermission } from '../../domain/permissions';
 import type { Permission } from '../../domain/permissions';
+import { tenantRoutePath, tenantStorage } from '../../saas/tenants';
 type OrganizationHeaderDetails = {
   organizationName?: string;
   city?: string;
@@ -44,7 +45,7 @@ type OrganizationHeaderDetails = {
 };
 const readOrganizationHeaderDetails = (): OrganizationHeaderDetails => {
   try {
-    return JSON.parse(localStorage.getItem("fluxo-publico:settings-general") ?? "{}") as OrganizationHeaderDetails;
+    return JSON.parse(tenantStorage.getItem("fluxo-publico:settings-general") ?? "{}") as OrganizationHeaderDetails;
   } catch {
     return {};
   }
@@ -183,12 +184,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       destination.pathname === current.pathname
     )
       return;
+    const routePath = tenantRoutePath(destination.pathname);
+    if (routePath === undefined) return;
     event.preventDefault();
     event.stopPropagation();
     if (link.closest("#mobile-navigation")) setMobile(false);
     navigateWithLoading(
       navigate,
-      `${destination.pathname}${destination.search}${destination.hash}`,
+      `${routePath}${destination.search}${destination.hash}`,
     );
   };
   const sidebar = (

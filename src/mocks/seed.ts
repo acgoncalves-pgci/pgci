@@ -1,9 +1,10 @@
-import { normalizeDemoNumbers } from './normalizeDemoNumbers';
+import { completeSeed } from './seedCompletion';
+import { seedAccessProfiles, seedFileTypes, seedTemplates } from './seedCatalogs';
 import type { AppDocument, Assignment, Database, FieldsConfig, Protocol, ProtocolEvent, ProtocolStatus } from '../domain/model';
 import { isoDaysFromNow } from '../lib/format';
 import { systemSituationTypes } from '../domain/situations';
 import { defaultProcessCategories } from '../domain/processCategories';
-import { defaultPermissions, defaultProfiles, profileIdForRole } from '../domain/permissions';
+import { defaultPermissions, profileIdForRole } from '../domain/permissions';
 const blank: FieldsConfig = { interested: { enabled: false, required: false }, creditor: { enabled: false, required: false }, amount: { enabled: false, required: false } };
 const interested: FieldsConfig = { ...blank, interested: { enabled: true, required: true } };
 const interestedWithResponsible: FieldsConfig = { ...interested, responsavel: { enabled: true, required: true }, assunto: { enabled: true, required: true } };
@@ -12,15 +13,19 @@ const now = () => new Date().toISOString();
 const catalogStartedAt = '2026-01-02T11:00:00.000Z';
 const uid = (prefix: string, n: number) => `${prefix}-${n}`;
 const pick = <T>(items: readonly T[], index: number) => items[Math.abs(index) % items.length];
-export type SeedOptions = { variation?: number };
+export type SeedOptions = { variation?: number; organization?: Database['organization'] };
 export function seedDatabase(options: SeedOptions = {}): Database {
     const variation = Math.abs(Math.trunc(options.variation ?? 0));
-    const units = [
-        { id: 'u-prot', name: 'Gestão de Processos', abbreviation: 'GP', position: 0, active: true },
-        { id: 'u-adm', name: 'Administração', abbreviation: 'ADM', position: 1, active: true },
-        { id: 'u-fin', name: 'Financeiro', abbreviation: 'FIN', parentId: 'u-adm', position: 0, active: true },
-        { id: 'u-jur', name: 'Jurídico', abbreviation: 'JUR', position: 2, active: true },
-        { id: 'u-edu', name: 'Educação', abbreviation: 'EDU', position: 3, active: true }
+    const units: Database['units'] = [
+        { id: 'u-prot', name: 'Gestão de Processos', abbreviation: 'GP', position: 0, color: '#17628B', icon: 'Inbox', active: true },
+        { id: 'u-adm', name: 'Administração', abbreviation: 'ADM', position: 1, color: '#0F766E', icon: 'Building2', active: true },
+        { id: 'u-fin', name: 'Financeiro', abbreviation: 'FIN', parentId: 'u-adm', position: 0, color: '#15803D', icon: 'WalletCards', active: true },
+        { id: 'u-jur', name: 'Jurídico', abbreviation: 'JUR', position: 2, color: '#9B3E48', icon: 'Scale', active: true },
+        { id: 'u-edu', name: 'Educação', abbreviation: 'EDU', position: 3, color: '#7C4D99', icon: 'GraduationCap', active: true },
+        { id: 'u-purchases', name: 'Compras e Licitações', abbreviation: 'CPL', parentId: 'u-adm', position: 1, color: '#9A6700', icon: 'ShoppingCart', active: true },
+        { id: 'u-accounting', name: 'Contabilidade', abbreviation: 'CONT', parentId: 'u-fin', position: 0, color: '#2E7D32', icon: 'Calculator', active: true },
+        { id: 'u-school', name: 'Coordenação de Transporte Escolar', abbreviation: 'CTE', parentId: 'u-edu', position: 0, color: '#0369A1', icon: 'Bus', active: true },
+        { id: 'u-control', name: 'Controladoria', abbreviation: 'CGM', position: 4, color: '#64748B', icon: 'ShieldCheck', active: true },
     ];
     const users: Database['users'] = [
         { id: 'usr-admin', name: 'Marina Duarte', email: 'marina.duarte@example.com', role: 'ADMIN' as const, unitId: 'u-prot', active: true },
@@ -28,7 +33,10 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         { id: 'usr-bruno', name: 'Bruno Lima', email: 'bruno.lima@example.com', role: 'OPERADOR' as const, unitId: 'u-adm', active: true },
         { id: 'usr-rafael', name: 'Rafael Reis', email: 'rafael.reis@example.com', role: 'OPERADOR' as const, unitId: 'u-fin', active: true },
         { id: 'usr-luisa', name: 'Luísa Azevedo', email: 'luisa.azevedo@example.com', role: 'OPERADOR' as const, unitId: 'u-jur', active: true },
-        { id: 'usr-joana', name: 'Joana Melo', email: 'joana.melo@example.com', role: 'OPERADOR' as const, unitId: 'u-edu', active: true }
+        { id: 'usr-joana', name: 'Joana Melo', email: 'joana.melo@example.com', role: 'OPERADOR' as const, unitId: 'u-edu', active: true },
+        { id: 'usr-helena', name: 'Helena Barros', email: 'helena.barros@example.com', role: 'OPERADOR', unitId: 'u-prot', active: true },
+        { id: 'usr-pedro', name: 'Pedro Carvalho', email: 'pedro.carvalho@example.com', role: 'GESTOR', unitId: 'u-fin', active: true },
+        { id: 'usr-beatriz', name: 'Beatriz Oliveira', email: 'beatriz.oliveira@example.com', role: 'LEITOR', unitId: 'u-control', active: true },
     ];
     const memberships: Database['memberships'] = users.flatMap((user) => {
         const linkedUnits = user.role === 'ADMIN'
@@ -52,9 +60,22 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         unitId: 'u-adm',
         role: 'GESTOR',
         title: 'Apoio à gestão administrativa',
-        startsAt: now(),
+        profileId: 'profile-manager',
+        permissions: defaultPermissions('GESTOR'),
+        startsAt: catalogStartedAt,
         active: true,
     });
+    const profiles = seedAccessProfiles();
+    const titles: Record<string, string> = { 'usr-admin': 'Administradora do sistema', 'usr-clara': 'Agente de protocolo', 'usr-bruno': 'Analista administrativo', 'usr-rafael': 'Analista financeiro', 'usr-luisa': 'Assessora jurídica', 'usr-joana': 'Coordenadora administrativa da Educação', 'usr-helena': 'Agente de atendimento', 'usr-pedro': 'Coordenador financeiro', 'usr-beatriz': 'Analista de controle interno' };
+    const customProfiles: Record<string, string> = { 'usr-helena': 'profile-reception', 'usr-pedro': 'profile-financial', 'usr-beatriz': 'profile-control' };
+    for (const membership of memberships) {
+        if (membership.unitId === users.find((user) => user.id === membership.userId)?.unitId) membership.title = titles[membership.userId];
+        const customProfile = profiles.find((profile) => profile.id === customProfiles[membership.userId]);
+        if (customProfile) { membership.profileId = customProfile.id; membership.permissions = [...customProfile.permissions]; }
+    }
+    // Same template, independently customized access in each unit.
+    memberships.push({ id: 'membership-usr-helena-u-edu', userId: 'usr-helena', unitId: 'u-edu', role: 'OPERADOR', profileId: 'profile-reception', permissions: [...profiles.find((profile) => profile.id === 'profile-reception')!.permissions.filter((permission) => permission !== 'processes.create'), 'audit.view' as const], title: 'Apoio à consulta educacional', startsAt: catalogStartedAt, active: true });
+    memberships.push({ id: 'membership-usr-pedro-u-accounting', userId: 'usr-pedro', unitId: 'u-accounting', role: 'GESTOR', profileId: 'profile-financial', permissions: [...profiles.find((profile) => profile.id === 'profile-financial')!.permissions], title: 'Responsável pela conferência contábil', startsAt: catalogStartedAt, active: true });
     const auditEvents: Database['auditEvents'] = [];
     const people: Database['people'] = [
         ['p-1', 'PF', 'Ana Beatriz Costa', ['INTERESSADO', 'RESPONSAVEL']], ['p-2', 'PF', 'Caio Mendes', ['INTERESSADO']], ['p-3', 'PF', 'Fernanda Alves', ['INTERESSADO']], ['p-4', 'PF', 'Igor Rocha', ['INTERESSADO', 'RESPONSAVEL']], ['p-5', 'PF', 'Sofia Martins', ['INTERESSADO']], ['p-6', 'PF', 'Vitor Ramos', ['INTERESSADO']],
@@ -156,7 +177,7 @@ export function seedDatabase(options: SeedOptions = {}): Database {
     ];
     const protocolTypes: Database['protocolTypes'] = [
         { id: 'pt-admin', categoryId: 'category-administrative', name: 'Solicitação administrativa', description: 'Demandas internas gerais que exigem triagem, análise e conclusão.', color: '#17628B', icon: 'FileText', defaultDeadlineDays: 7, fieldsConfig: { ...interested, tramitacao: { enabled: true }, assunto: { enabled: true, required: true }, arquivos: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
-        { id: 'pt-buy', categoryId: 'category-administrative', name: 'Compra de material', description: 'Tipo legado para aquisições simples já abertas na demonstração.', color: '#8B5A17', icon: 'Store', defaultDeadlineDays: 10, fieldsConfig: { ...interested, tramitacao: { enabled: true }, assunto: { enabled: true, required: true }, arquivos: { enabled: true }, biddingNumber: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
+        { id: 'pt-buy', categoryId: 'category-administrative', name: 'Compra de material', description: 'Aquisições simples de materiais para manutenção das atividades administrativas.', color: '#8B5A17', icon: 'Store', defaultDeadlineDays: 10, fieldsConfig: { ...interested, tramitacao: { enabled: true }, assunto: { enabled: true, required: true }, arquivos: { enabled: true }, biddingNumber: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
         { id: 'pt-info', categoryId: 'category-service', name: 'Pedido de informação', description: 'Solicitações de acesso a informações e documentos públicos.', color: '#3D6F54', icon: 'BadgeInfo', defaultDeadlineDays: 20, fieldsConfig: { ...interestedWithResponsible, tramitacao: { enabled: true }, arquivos: { enabled: true }, portal: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
         { id: 'pt-serv', categoryId: 'category-people', name: 'Requerimento de servidor', description: 'Férias, licenças, certidões e demais requerimentos funcionais.', color: '#7C4D99', icon: 'BriefcaseBusiness', defaultDeadlineDays: 15, fieldsConfig: { ...interested, tramitacao: { enabled: true }, assunto: { enabled: true, required: true }, arquivos: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
         { id: 'pt-contract', categoryId: 'category-legal', name: 'Análise de contrato', description: 'Análise administrativa e jurídica de contratos, aditivos e convênios.', color: '#9B3E48', icon: 'Scale', defaultDeadlineDays: 10, fieldsConfig: { ...interested, tramitacao: { enabled: true }, assunto: { enabled: true, required: true }, arquivos: { enabled: true }, contractNumber: { enabled: true, required: true }, biddingNumber: { enabled: true }, legalProcessNumber: { enabled: true } }, flowId: 'flow-standard-v1', flowMode: 'REQUIRED', active: true },
@@ -181,16 +202,14 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         { id: 'dt-legal-opinion', name: 'Parecer jurídico', description: 'Manifestação jurídica fundamentada.', color: '#9B3E48', active: true },
         { id: 'dt-official-letter', name: 'Resposta oficial', description: 'Resposta formal encaminhada ao interessado.', color: '#0284C7', active: true },
     ];
-    const documentTemplates: Database['documentTemplates'] = documentTypes.map((type) => ({
-        id: `template-${type.id}-default`,
-        typeId: type.id,
-        name: `Modelo padrão de ${type.name}`,
-        subject: type.name,
-        body: `<p>À(ao) {{destinatario}},</p><p>Em referência ao processo <strong>{{numero_processo}}</strong>, apresentamos o documento sobre <strong>{{assunto_processo}}</strong>.</p><p><br></p><p>Atenciosamente,</p><p>{{usuario}}</p>`,
-        active: true,
-        createdAt: catalogStartedAt,
-        updatedAt: catalogStartedAt,
-    }));
+    const documentTemplates = seedTemplates(documentTypes, catalogStartedAt);
+    const categorySequences = new Map<string, number>();
+    for (const type of protocolTypes) {
+        const sequence = (categorySequences.get(type.categoryId) ?? 0) + 1;
+        categorySequences.set(type.categoryId, sequence);
+        type.code = `${processCategories.find((category) => category.id === type.categoryId)!.code}.${String(sequence).padStart(3, '0')}`;
+        type.fileTypes = seedFileTypes(type.id);
+    }
     const flowSnapshotFor = (type: Database['protocolTypes'][number]) => {
         if (!type.flowId || type.flowMode === 'NONE') return undefined;
         const flow = flows.find((item) => item.id === type.flowId)!;
@@ -462,7 +481,23 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         { subject: 'Solicitação de poda preventiva em área escolar', typeId: 'pt-citizen-service' },
         { subject: 'Levantamento de bens ociosos para remanejamento', typeId: 'pt-admin' },
         { subject: 'Manutenção dos bebedouros das unidades escolares', typeId: 'pt-citizen-service' },
-    ], 20), unitId: 'u-edu', assigneeId: 'usr-joana', status: 'EM_ANDAMENTO' });    const pendingAcknowledgement = assignments.find((assignment) => assignment.id === 'as-19')!;
+    ], 20), unitId: 'u-edu', assigneeId: 'usr-joana', status: 'EM_ANDAMENTO' });
+    add({ n: 21, subject: 'Vistoria de segurança no ponto de embarque escolar', typeId: 'pt-citizen-service', unitId: 'u-edu', assigneeId: 'usr-joana', status: 'EM_ANDAMENTO', dueDays: 4, description: 'Morador solicita vistoria no ponto de embarque próximo à Escola Municipal Esperança. A Educação fará levantamento em campo antes da resposta administrativa.' });
+    const suggested = protocols.find((protocol) => protocol.id === 'pr-21')!;
+    suggested.currentPhaseId = 'phase-analysis';
+    const suggestedMovement = events.find((event) => event.id === 'ev-move-21')!;
+    suggestedMovement.phaseId = 'phase-analysis';
+    suggestedMovement.message = 'Encaminhado à Educação para vistoria técnica fora do roteiro sugerido. Após a apuração, retomar a resposta ao cidadão.';
+    suggestedMovement.checklist = [{ questionId: 'q-analysis-result', text: 'Registrar despacho ou resultado', checked: false }];
+    add({ n: 22, subject: 'Atualização do ramal de atendimento do paço municipal', typeId: 'pt-citizen-service', unitId: 'u-prot', assigneeId: 'usr-clara', status: 'CADASTRADO' });
+    const resolved = protocols.find((protocol) => protocol.id === 'pr-22')!;
+    resolved.status = 'CONCLUIDO'; resolved.completedAt = isoDaysFromNow(-2);
+    events.push({ id: 'ev-done-22', protocolId: resolved.id, kind: 'CONCLUSAO', actorUserId: 'usr-clara', actorUnitId: 'u-prot', assignmentId: resolved.currentAssignmentId, phaseId: resolved.currentPhaseId, previousStatus: 'CADASTRADO', nextStatus: 'CONCLUIDO', message: 'Contato confirmado com a unidade e informação enviada ao interessado. Demanda resolvida na admissibilidade, sem necessidade das demais etapas sugeridas.', createdAt: resolved.completedAt });
+    add({ n: 23, subject: 'Circular sobre inventário anual de bens', typeId: 'pt-general-correspondence', unitId: 'u-adm', assigneeId: 'usr-bruno', status: 'EM_ANDAMENTO', dueDays: 12 });
+    add({ n: 24, subject: 'Compra de pastas para o arquivo central', typeId: 'pt-purchase-request', unitId: 'u-prot', assigneeId: 'usr-clara', status: 'CONCLUIDO', stagePosition: 5, description: 'Aquisição de 200 pastas suspensas para organização do arquivo. Pesquisa de preços consolidada, dotação reservada, compra autorizada e entrega conferida sem divergências.' });
+    add({ n: 25, subject: 'Conferência do pagamento de material de limpeza', typeId: 'pt-pay', unitId: 'u-fin', assigneeId: 'usr-pedro', status: 'EM_ANDAMENTO', dueDays: 2 });
+    add({ n: 26, subject: 'Atendimento inicial sobre certidão de tempo de serviço', typeId: 'pt-admin', unitId: 'u-prot', assigneeId: 'usr-helena', status: 'CADASTRADO', dueDays: 7 });
+    const pendingAcknowledgement = assignments.find((assignment) => assignment.id === 'as-19')!;
     pendingAcknowledgement.receivedAt = undefined;
     pendingAcknowledgement.receivedById = undefined;
     const pendingChecklistMovement = events.find((event) => event.id === 'ev-move-19')!;
@@ -554,6 +589,10 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         { typeId: 'dt-invoice', protocolId: 'pr-14', movementEventId: 'ev-move-14', subject: 'Documento fiscal para conferência', body: 'Documento fiscal recebido e vinculado ao processo para conferência do objeto, período de competência, valor e atesto do responsável.' },
         { typeId: 'dt-legal-opinion', protocolId: 'pr-17', movementEventId: 'ev-move-17', subject: 'Minuta de parecer jurídico', body: 'Análise preliminar dos fundamentos legais, da competência administrativa e das condições necessárias à formalização da decisão.' },
         { typeId: 'dt-oficio', subject: 'Circular sobre atualização dos responsáveis setoriais', body: 'Solicita-se às unidades administrativas a confirmação dos servidores responsáveis pelo recebimento e tramitação de processos eletrônicos.' },
+        { typeId: 'dt-official-letter', protocolId: 'pr-22', movementEventId: 'ev-open-22', subject: 'Resposta sobre o ramal de atendimento', body: 'Informamos que o atendimento do paço municipal funciona de segunda a sexta-feira, das 8h às 14h. O contato solicitado foi confirmado com a recepção e informado ao interessado.' },
+        { typeId: 'dt-memo', protocolId: 'pr-23', movementEventId: 'ev-move-23', subject: 'Orientações para inventário dos bens permanentes', body: 'Solicita-se a conferência dos bens por localização, identificação patrimonial e estado de conservação. Divergências deverão ser registradas em planilha e encaminhadas à Administração até o prazo indicado no processo.' },
+        { typeId: 'dt-despacho', protocolId: 'pr-21', movementEventId: 'ev-move-21', subject: 'Vistoria do ponto de embarque escolar', body: 'A Educação realizará vistoria para avaliar sinalização e condições de embarque. Esta diligência precede a resposta ao cidadão e utiliza movimentação livre no fluxo sugerido.' },
+        { typeId: 'dt-despacho', protocolId: 'pr-25', movementEventId: 'ev-move-25', subject: 'Conferência para liquidação da despesa', body: 'O fornecimento de material de limpeza foi atestado pela unidade recebedora. Encaminha-se a documentação fiscal para conferência de valores, dotação e programação do pagamento.' },
     ];
     const documents: AppDocument[] = documentSpecs.map((spec, index) => {
         const protocol = spec.protocolId ? protocols.find((item) => item.id === spec.protocolId) : undefined;
@@ -562,5 +601,5 @@ export function seedDatabase(options: SeedOptions = {}): Database {
         const createdAt = new Date(Math.max(Date.parse(isoDaysFromNow(-index - 1)), earliest)).toISOString();
         return { id: `doc-${index + 1}`, number: `DOC-2026.${String(index + 1).padStart(6, '0')}`, typeId: spec.typeId, protocolId: spec.protocolId, movementEventId: spec.movementEventId, subject: spec.subject, body: spec.body, unitId: protocol?.currentUnitId ?? 'u-prot', authorUserId: protocol?.currentAssigneeId ?? protocol?.createdById ?? 'usr-clara', createdAt };
     });    documents.filter((d) => d.protocolId).forEach((d) => events.push({ id: `ev-doc-${d.id}`, protocolId: d.protocolId!, kind: 'DOCUMENTO_CRIADO', actorUserId: d.authorUserId, actorUnitId: d.unitId, relatedDocumentId: d.id, createdAt: d.createdAt }));
-    return normalizeDemoNumbers({ schemaVersion: 8, initializedAt: now(), organization: { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: {}, units, users, memberships, profiles: defaultProfiles(), auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 52, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] });
+    return completeSeed({ schemaVersion: 8, initializedAt: now(), organization: options.organization ?? { id: 'org-1', name: 'Prefeitura de Vila Exemplo', abbreviation: 'PVE' }, counters: {}, units, users, memberships, profiles, auditEvents, people, processCategories, protocolTypes, phases, flows, flowPhases, situations, documentTypes, documentTemplates, protocols, assignments, events, documents, attachments: [{ id: 'att-seed', protocolId: 'pr-1', movementEventId: 'ev-open-1', filename: 'comprovante-demo.txt', mimeType: 'text/plain', sizeBytes: 0, blobKey: 'seed-comprovante', uploadedById: 'usr-clara', createdAt: isoDaysFromNow(-1) }] });
 }

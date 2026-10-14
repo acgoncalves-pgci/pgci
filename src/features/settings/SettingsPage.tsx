@@ -28,7 +28,8 @@ import type { AppearancePalette } from "../../app/session";
 import { useDb } from "../../app/queries";
 import { hasPermission } from '../../domain/permissions';
 import { formatConfiguredNumber, GENERAL_SETTINGS_KEY } from "../../lib/numbering";
-type Tab = "general" | "portal" | "appearance";
+import { getActiveTenant, tenantPath, tenantStorage } from '../../saas/tenants';
+type Tab = "general" | "portal" | "login" | "appearance";
 const stateTokens = { A: { pattern: /[a-z]/i, transform: (char: string) => char.toUpperCase() } };
 type GeneralSettings = {
   organizationName: string;
@@ -49,6 +50,11 @@ type GeneralSettings = {
   portalName: string;
   publicUrl: string;
   publicConsultation: boolean;
+  loginTitle: string;
+  loginDescription: string;
+  loginAccent: string;
+  loginPanelColor: string;
+  loginUseAppearance: boolean;
 };
 type AppearancePreset = {
   name: string;
@@ -96,14 +102,21 @@ const defaultGeneral: GeneralSettings = {
   portalName: "",
   publicUrl: "",
   publicConsultation: true,
+  loginTitle: 'Acesse sua conta',
+  loginDescription: 'Entre para acompanhar seus processos e continuar seu trabalho.',
+  loginAccent: '#17628b',
+  loginPanelColor: '#102e3c',
+  loginUseAppearance: true,
 };
 const readGeneral = () => {
   try {
+    const tenant = getActiveTenant();
+    const saved = JSON.parse(tenantStorage.getItem(GENERAL_SETTINGS_KEY) ?? '{}') as Partial<GeneralSettings>;
     return {
       ...defaultGeneral,
-      ...(JSON.parse(
-        localStorage.getItem(GENERAL_SETTINGS_KEY) ?? "{}",
-      ) as Partial<GeneralSettings>),
+      ...(tenant ? { organizationName: tenant.name, shortName: tenant.abbreviation, city: tenant.city, state: tenant.state } : {}),
+      ...saved,
+      loginUseAppearance: saved.loginUseAppearance ?? !((saved.loginAccent && saved.loginAccent !== defaultGeneral.loginAccent) || (saved.loginPanelColor && saved.loginPanelColor !== defaultGeneral.loginPanelColor)),
     };
   } catch {
     return defaultGeneral;
@@ -143,7 +156,7 @@ export function SettingsPage() {
         const address = new URL(/^https?:\/\//i.test(general.publicUrl.trim()) ? general.publicUrl.trim() : `https://${general.publicUrl.trim()}`);
         if (!['http:', 'https:'].includes(address.protocol) || address.username || address.password) throw new Error('Informe um endereço público HTTP ou HTTPS válido.');
       }
-      localStorage.setItem(GENERAL_SETTINGS_KEY, JSON.stringify(general));
+      tenantStorage.setItem(GENERAL_SETTINGS_KEY, JSON.stringify(general));
     } catch (error) {
       window.dispatchEvent(new CustomEvent('fluxo-publico:toast', { detail: { kind: 'error', message: error instanceof Error ? error.message : 'Não foi possível salvar as configurações.' } }));
       return;
@@ -190,6 +203,7 @@ export function SettingsPage() {
   }[] = [
     { id: "general", label: "Geral", icon: Building2 },
     { id: "portal", label: "Portal", icon: Globe2 },
+    { id: "login", label: "Login", icon: Landmark },
     { id: "appearance", label: "Aparência", icon: Palette },
   ];
   return (
@@ -209,7 +223,7 @@ export function SettingsPage() {
         <div
           role="tablist"
           aria-label="Seções de configurações"
-          className={`m-3 grid rounded-md bg-[#efede5] p-1 dark:bg-slate-800 ${canManage ? 'grid-cols-3' : 'grid-cols-1'}`}
+          className={`m-3 grid rounded-md bg-[#efede5] p-1 dark:bg-slate-800 ${canManage ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1'}`}
         >
           {tabs.filter(({ id }) => canManage || id === 'appearance').map(({ id, label, icon: Icon }) => (
             <button
@@ -233,6 +247,10 @@ export function SettingsPage() {
             role="tabpanel"
             className="space-y-7 p-5 sm:p-7"
           >
+            {getActiveTenant() && <SettingsSection icon={Globe2} title="Endereço da prefeitura" detail="Gerado automaticamente no cadastro. Alterar o nome ou a cidade não modifica este endereço.">
+              <SettingField label="Endereço de acesso"><Input readOnly value={`${window.location.origin}${tenantPath('/')}`}/></SettingField>
+              <p className="mt-2 text-xs text-muted-foreground">Identificador único e imutável: <strong>{getActiveTenant()!.slug}</strong></p>
+            </SettingsSection>}
             <div className="grid gap-4 md:grid-cols-2">
               <SettingField label="Nome da organização">
                 <Input
@@ -458,7 +476,7 @@ export function SettingsPage() {
                   <Input placeholder="Ex.: Portal do Cidadão" value={general.portalName || db.organization.name} onChange={(event) => update("portalName", event.target.value)} />
                 </SettingField>
                 <SettingField label="Endereço público">
-                  <Input placeholder="https://portal.entidade.gov.br/consulta" value={general.publicUrl} onChange={(event) => update("publicUrl", event.target.value)} />
+                  <Input placeholder="https://sistema.entidade.gov.br" value={general.publicUrl} onChange={(event) => update("publicUrl", event.target.value)} />
                 </SettingField>
               </div>
               <div className="mt-5 flex items-center justify-between gap-4 rounded-lg border bg-slate-50 p-4 dark:bg-slate-950/40">
@@ -467,11 +485,25 @@ export function SettingsPage() {
                     Permitir consulta pública
                   </strong>
                   <small className="mt-1 block text-xs text-slate-500">
-                    O QR code da capa usa este endereço com o número do processo.
+                    QR code e código de barras abrem o resumo na rota desta prefeitura. Sem endereço informado, usam o domínio atual.
                   </small>
                 </span>
                 <Switch checked={general.publicConsultation} onCheckedChange={(checked) => update("publicConsultation", checked)} aria-label="Permitir consulta pública" />
               </div>
+            </SettingsSection>
+          </div>
+        )}
+        {selectedTab === "login" && (
+          <div id="settings-login" role="tabpanel" className="space-y-6 p-5 sm:p-7">
+            <SettingsSection icon={Landmark} title="Tela de login" detail="Esta personalização vale somente para esta prefeitura. A logo e o nome são os mesmos definidos na aba Geral.">
+              <label className="mb-5 flex items-center justify-between gap-4 rounded-lg border p-4"><span><strong className="block text-sm">Usar cores da prefeitura</strong><small className="text-xs text-muted-foreground">O login acompanha a paleta definida em Aparência, incluindo o tema claro ou escuro.</small></span><Switch checked={general.loginUseAppearance} onCheckedChange={(checked) => update('loginUseAppearance', checked)} aria-label="Usar cores da prefeitura"/></label>
+              <div className="grid gap-4 md:grid-cols-2">
+                <SettingField label="Título do login"><Input maxLength={80} value={general.loginTitle} onChange={(event) => update('loginTitle', event.target.value)}/></SettingField>
+                <SettingField label="Descrição do login"><Input maxLength={240} value={general.loginDescription} onChange={(event) => update('loginDescription', event.target.value)}/></SettingField>
+                {!general.loginUseAppearance && <><SettingField label="Cor principal do login"><Input type="color" value={general.loginAccent} onChange={(event) => update('loginAccent', event.target.value)}/></SettingField>
+                <SettingField label="Cor do painel do login"><Input type="color" value={general.loginPanelColor} onChange={(event) => update('loginPanelColor', event.target.value)}/></SettingField></>}
+              </div>
+              <a className="btn-secondary mt-5 inline-flex" href={tenantPath('/login')} target="_blank" rel="noreferrer">Abrir tela de login</a>
             </SettingsSection>
           </div>
         )}

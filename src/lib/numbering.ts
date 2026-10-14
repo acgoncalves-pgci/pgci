@@ -1,3 +1,4 @@
+import { tenantStorage } from '../saas/tenants'
 export const GENERAL_SETTINGS_KEY = 'fluxo-publico:settings-general'
 
 export type NumberingScope = 'protocol' | 'document'
@@ -8,7 +9,7 @@ export type NumberingSettings = {
 
 export const readNumberingSettings = (): NumberingSettings => {
   try {
-    return JSON.parse(localStorage.getItem(GENERAL_SETTINGS_KEY) ?? '{}') as NumberingSettings
+    return JSON.parse(tenantStorage.getItem(GENERAL_SETTINGS_KEY) ?? '{}') as NumberingSettings
   } catch {
     return {}
   }

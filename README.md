@@ -1,6 +1,14 @@
 # Fluxo Público
 
-MVP frontend para demonstração de gestão de processos, documentos e cadastros da **Prefeitura de Vila Exemplo**. Não há backend, login, API remota ou dados reais.
+MVP frontend para demonstração de gestão de processos, documentos e cadastros, com acesso SaaS por prefeitura e login demonstrativo. Não há backend, API remota ou dados reais.
+
+## SaaS por prefeitura
+
+Na rota **`/`**, o site institucional apresenta o PGCI, seus recursos e o acesso aos ambientes das prefeituras.
+
+O acesso padrão é **`/saomateusdomaranhao/`**. Cada prefeitura possui um slug automático, único e imutável, com sessão, configurações, dados e anexos locais separados. Em **Configurações → Login**, personalize a tela de acesso da prefeitura.
+
+Consulte [docs/saas.md](docs/saas.md) para cadastrar outras prefeituras sem backend, entender a migração dos dados atuais e configurar a hospedagem das rotas.
 
 ## Executar
 

@@ -186,8 +186,8 @@ test('centraliza a linha com os marcadores da timeline em desktop', async ({ pag
 
 test('oferece e aplica configurações de aparência', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('fluxo-publico:user', 'usr-admin')
-    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-prot')
   })
   await page.goto('/configuracoes')
   await expect(page.getByRole('tab', { name: 'Geral' })).toHaveAttribute('aria-selected', 'true')
