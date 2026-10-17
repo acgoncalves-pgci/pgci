@@ -12,7 +12,6 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react";
-import { isActive } from "../../domain/model";
 import { dateOnly } from "../../lib/format";
 import { api } from "../../services/api";
 import { useSession } from "../../app/session";
@@ -24,7 +23,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const ctx = useSession();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["dashboard", ctx.userId, ctx.activeUnitId],
+    queryKey: ["dashboard", ctx.userId, ctx.activeUnitId, ctx.scopeUnitId],
     queryFn: () => api.dashboard(ctx),
   });
   const { data: db } = useDb();
@@ -39,41 +38,34 @@ export function Dashboard() {
     day: "numeric",
     month: "long",
   }).format(new Date());
-  const unacknowledgedCount = db.protocols.filter(
-    (item) =>
-      item.currentAssigneeId === ctx.userId &&
-      isActive(item) &&
-      db.assignments.some(
-        (assignment) =>
-          assignment.id === item.currentAssignmentId && !assignment.receivedAt,
-      ),
-  ).length;
+  const personalQuery = `tab=mine${ctx.scopeUnitId === 'ALL' ? '' : `&unitId=${encodeURIComponent(ctx.activeUnitId)}`}`;
+  const deadlineQuery = ctx.scopeUnitId === 'ALL' ? 'tab=all' : 'tab=unit';
   const cards = [
     {
       label: "Na minha caixa",
       count: data!.counts.mine,
       icon: Inbox,
-      query: "tab=mine",
+      query: personalQuery,
     },
     {
       label: "Prazo vencido",
       count: data!.counts.overdue,
       icon: TriangleAlert,
-      query: "tab=unit&shortcut=overdue",
+      query: `${deadlineQuery}&shortcut=overdue`,
       tone: "overdue",
     },
     {
       label: "Vence em 24h",
       count: data!.counts.soon,
       icon: Clock3,
-      query: "tab=unit&shortcut=soon",
+      query: `${deadlineQuery}&shortcut=soon`,
       tone: "soon",
     },
     {
       label: "Sem ciência",
-      count: unacknowledgedCount,
+      count: data!.counts.unacknowledged,
       icon: EyeOff,
-      query: "tab=mine&shortcut=unacknowledged",
+      query: `${personalQuery}&shortcut=unacknowledged`,
       tone: "unacknowledged",
     },
   ];
@@ -162,7 +154,7 @@ export function Dashboard() {
             Meus Processos
           </h2>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            Processos sob sua responsabilidade e seus prazos.
+            Processos no contexto selecionado e seus prazos.
           </p>
         </header>
         <div className="grid gap-10 sm:grid-cols-2 xl:grid-cols-4">

@@ -8,6 +8,8 @@ const actionLabels: Record<string, string> = {
   PROTOCOL_ASSIGNEE_CHANGED: 'Responsável alterado',
   PROTOCOL_FORWARDED: 'Processo tramitado',
   PROTOCOL_COMPLETED: 'Processo concluído',
+  PROTOCOL_REJECTED: 'Processo rejeitado',
+  PROTOCOL_CANCELLED: 'Processo cancelado',
   PROTOCOL_PHASE_ADVANCED: 'Fase avançada',
   PROTOCOL_PHASE_RETURNED: 'Fase devolvida',
   PROTOCOL_ARCHIVED: 'Processo arquivado',

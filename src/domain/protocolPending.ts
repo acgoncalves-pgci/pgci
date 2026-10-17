@@ -1,4 +1,5 @@
-import { isMovementEvent, type ChecklistQuestion, type Database, type Protocol, type ProtocolEvent } from "./model";
+import { isMovementEvent, type ChecklistAnswer, type ChecklistQuestion, type Database, type Protocol, type ProtocolEvent } from "./model";
+import { phaseQuestionsFor } from "./flows";
 
 const attachmentTypeLabel: Record<string, string> = {
   "application/pdf": "PDF",
@@ -14,12 +15,25 @@ export function phaseChecklistMovement(
 ): ProtocolEvent {
   const movements = db.events.filter((event) =>
     event.protocolId === protocol.id && isMovementEvent(event)
-  );
-  for (const movement of movements.reverse()) {
+  ).reverse().sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const currentIndex = movements.findIndex((event) => event.id === latestMovement.id);
+  const relevant = currentIndex >= 0 ? movements.slice(currentIndex) : movements.filter((event) => event.createdAt <= latestMovement.createdAt);
+  for (const movement of relevant) {
     if (movement.phaseId && movement.phaseId !== protocol.currentPhaseId) break;
     if (movement.checklist?.length) return movement;
   }
   return latestMovement;
+}
+
+export function phaseChecklistAnswers(db: Database, protocol: Protocol, movement: ProtocolEvent): ChecklistAnswer[] {
+  const phase = protocol.flowSnapshot?.phases.find((item) => item.phaseId === protocol.currentPhaseId)
+    ?? db.phases.find((item) => item.id === protocol.currentPhaseId);
+  if (!phase) return [];
+  const answers = phaseChecklistMovement(db, protocol, movement).checklist ?? [];
+  return phaseQuestionsFor(phase).map((question) => {
+    const answer = answers.find((item) => item.questionId === question.id);
+    return { ...answer, questionId: question.id, text: question.text, checked: Boolean(answer?.checked) };
+  });
 }
 
 export function forwardPendingIssues(
@@ -45,7 +59,7 @@ export function forwardPendingIssues(
         requiresDate: false,
         requiresObservation: false,
       }));
-  const answers = phaseChecklistMovement(db, protocol, movement).checklist ?? [];
+  const answers = phaseChecklistAnswers(db, protocol, movement);
   const issues: string[] = [];
 
   for (const question of questions) {

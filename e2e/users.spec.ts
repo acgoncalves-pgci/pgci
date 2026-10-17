@@ -171,6 +171,7 @@ test('perfil preenche permissões editáveis por unidade sem alterar acessos já
   await profileDialog.getByRole('textbox', { name: 'Nome do perfil' }).fill('Atendimento personalizado')
   await profileDialog.getByRole('checkbox', { name: 'Pessoas: Visualizar' }).check()
   await profileDialog.getByRole('checkbox', { name: 'Pessoas: Criar' }).check()
+  await profileDialog.getByRole('checkbox', { name: 'Processos: Reabrir processos' }).check()
   await profileDialog.getByRole('button', { name: 'Salvar perfil' }).click()
   await expect(profileDialog).toBeHidden()
 
@@ -185,6 +186,7 @@ test('perfil preenche permissões editáveis por unidade sem alterar acessos já
   await page.getByRole('option', { name: 'Atendimento personalizado' }).click()
   await expect(userDialog.getByRole('checkbox', { name: 'Pessoas: Visualizar' })).toBeChecked()
   await expect(userDialog.getByRole('checkbox', { name: 'Pessoas: Criar' })).toBeChecked()
+  await expect(userDialog.getByRole('checkbox', { name: 'Processos: Reabrir processos' })).toBeChecked()
   await userDialog.getByRole('checkbox', { name: 'Pessoas: Criar' }).uncheck()
   await userDialog.getByRole('checkbox', { name: 'Estrutura organizacional: Criar unidade' }).check()
   await userDialog.getByRole('button', { name: 'Salvar' }).click()
@@ -196,6 +198,7 @@ test('perfil preenche permissões editáveis por unidade sem alterar acessos já
     return db.memberships.find((item: { userId: string }) => item.userId === user.id)
   })
   expect(saved.permissions).toContain('people.view')
+  expect(saved.permissions).toContain('processes.reopen')
   expect(saved.permissions).toContain('structure.create')
   expect(saved.permissions).not.toContain('people.create')
 

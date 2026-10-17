@@ -6,6 +6,7 @@ import { SessionProvider } from './session'
 import { ToastProvider } from '../components/ui/ToastProvider'
 import { seedDatabase } from '../mocks/seed'
 import { DATABASE_KEY, saveDb } from '../storage/database'
+import { dateTime } from '../lib/format'
 
 vi.mock('../storage/database', async () => {
   const actual = await vi.importActual<typeof import('../storage/database')>('../storage/database')
@@ -34,7 +35,7 @@ const choose = async (label: string | RegExp, option: string, scope: Pick<typeof
     fireEvent.click(trigger)
     await Promise.resolve()
   })
-  const optionElement = screen.getAllByRole('option').find((item) => item.textContent === option || item.textContent?.startsWith(`${option} ·`))
+  const optionElement = screen.getAllByRole('option').find((item) => item.textContent === option || item.textContent?.startsWith(`${option} ·`) || item.textContent?.endsWith(` · ${option}`))
   if (!optionElement) throw new Error(`Opção não encontrada: ${option}`)
   await act(async () => {
     fireEvent.click(optionElement)
@@ -63,6 +64,53 @@ describe('jornada principal da interface', () => {
     expect(screen.getByRole('button', { name: /Prazo vencido/ })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Vence em 24h/ })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Sem ciência/ })).not.toBeNull()
+  })
+  it('recalcula as métricas ao trocar da unidade para Todos sem mudar a unidade operacional', async () => {
+    const db = seedDatabase()
+    const overdue = db.protocols.filter((protocol) => ['EM_ANDAMENTO', 'CADASTRADO', 'REABERTO'].includes(protocol.status) && protocol.dueAt && Date.parse(protocol.dueAt) < Date.now())
+    const localCount = overdue.filter((protocol) => protocol.currentUnitId === 'u-prot').length
+    expect(overdue.length).toBeGreaterThan(localCount)
+    saveDb(db)
+    localStorage.setItem('fluxo-publico:user', 'usr-admin')
+    localStorage.setItem('fluxo-publico:unit', 'u-prot')
+    localStorage.setItem('fluxo-publico:scope-unit', 'u-prot')
+    window.history.replaceState({}, '', '/dashboard')
+    renderApp()
+    const count = () => screen.getByRole('button', { name: /Prazo vencido/ }).querySelector('strong')?.textContent
+    await waitFor(() => expect(count()).toBe(String(localCount).padStart(2, '0')))
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar contexto de estrutura. Atual: Gestão de Processos' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Contexto ativo' })).getByRole('button', { name: /Todos/ }))
+    await waitFor(() => expect(count()).toBe(String(overdue.length).padStart(2, '0')))
+    expect(localStorage.getItem('fluxo-publico:unit')).toBe('u-prot')
+    fireEvent.click(screen.getByRole('button', { name: /Prazo vencido/ }))
+    await waitFor(() => expect(window.location.search).toBe('?tab=all&shortcut=overdue'))
+  })
+  it.each([
+    { status: 'CADASTRADO', deadline: 'past', visible: true },
+    { status: 'EM_ANDAMENTO', deadline: 'past', visible: true },
+    { status: 'CONCLUIDO', deadline: 'past', visible: false },
+    { status: 'ARQUIVADO', deadline: 'past', visible: false },
+    { status: 'REJEITADO', deadline: 'past', visible: false },
+    { status: 'CANCELADO', deadline: 'past', visible: false },
+    { status: 'EM_ANDAMENTO', deadline: 'future', visible: false },
+    { status: 'EM_ANDAMENTO', deadline: 'none', visible: false },
+  ] as const)('mostra prazo vencido no cabeçalho apenas quando ativo e atrasado ($status, $deadline)', async ({ status, deadline, visible }) => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    protocol.status = status
+    protocol.flowModeSnapshot = 'SUGGESTED'
+    protocol.dueAt = deadline === 'none' ? undefined : new Date(Date.now() + (deadline === 'past' ? -1 : 1) * 86_400_000).toISOString()
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+    await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
+    const overview = screen.getByRole('region', { name: 'Tipo, responsabilidade e etapas do processo' })
+    const alert = within(overview).queryByRole('status', { name: /^Prazo vencido:/ })
+    if (visible) {
+      expect(alert?.textContent).toContain(dateTime(protocol.dueAt))
+      expect(overview.querySelector('.process-detail-meta')?.lastElementChild).toBe(alert)
+      expect(alert?.previousElementSibling?.textContent).toContain('Está com:')
+    } else expect(alert).toBeNull()
   })
   it('aplica paletas e mantém cores independentes nos modos claro e escuro', async () => {
     window.history.replaceState({}, '', '/configuracoes')
@@ -254,7 +302,7 @@ describe('jornada principal da interface', () => {
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
-    const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
+    const forwardButton = screen.getAllByRole('button', { name: 'Tramitar' })[0]
     expect(forwardButton.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(forwardButton)
     const pendingDialog = await screen.findByRole('dialog', { name: 'Pendências para tramitar' })
@@ -317,7 +365,8 @@ describe('jornada principal da interface', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Alterar para Administração' }))
 
-    await screen.findByRole('button', { name: 'Tramitar' })
+    await screen.findByRole('button', { name: 'Concluir' })
+    expect(screen.queryByRole('button', { name: 'Tramitar' })).toBeNull()
     await waitFor(() => {
       expect(localStorage.getItem('fluxo-publico:unit')).toBe('u-adm')
       expect(localStorage.getItem('fluxo-publico:scope-unit')).toBe('u-adm')
@@ -425,7 +474,7 @@ describe('jornada principal da interface', () => {
     expect(screen.getByRole('option', { name: 'Clara Nunes' })).not.toBeNull()
     fireEvent.click(within(assignDialog).getByRole('button', { name: 'Cancelar' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tramitar' })[0])
     const forwardDialog = await screen.findByRole('dialog')
     fireEvent.click(within(forwardDialog).getByRole('combobox', { name: 'Destinatário' }))
     expect(screen.getByRole('option', { name: 'Clara Nunes' })).not.toBeNull()
@@ -454,10 +503,10 @@ describe('jornada principal da interface', () => {
     protocol.currentPhaseId = undefined
     saveDb(db)
     window.history.replaceState({}, '', '/processos/pr-1')
-    renderApp()
+    const view = renderApp()
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tramitar' })[0])
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(forwardDialog).getByText('Fluxo livre')).not.toBeNull()
     const phaseSelect = within(forwardDialog).getByRole('combobox', { name: 'Fase *' })
@@ -480,6 +529,15 @@ describe('jornada principal da interface', () => {
     const persisted = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
     const movement = persisted.events.filter((event: { protocolId: string; kind: string }) => event.protocolId === 'pr-1' && event.kind === 'TRAMITACAO').at(-1)
     expect(movement).toMatchObject({ phaseId: 'phase-analysis', activity: 'Conferência documental', result: 'Documentação conferida e encaminhada' })
+    expect(screen.getByText('Atividade principal desenvolvida')).not.toBeNull()
+    expect(screen.getByText('Conferência documental')).not.toBeNull()
+    expect(screen.getByText('Resultado concreto / produto entregue')).not.toBeNull()
+    expect(screen.getByText('Documentação conferida e encaminhada')).not.toBeNull()
+
+    view.unmount()
+    renderApp()
+    expect(await screen.findByText('Conferência documental')).not.toBeNull()
+    expect(screen.getByText('Documentação conferida e encaminhada')).not.toBeNull()
   })
 
   it('recupera o roteiro sugerido antigo e permite tramitar para outra fase e unidade', async () => {
@@ -497,7 +555,7 @@ describe('jornada principal da interface', () => {
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
     expect(screen.queryByRole('checkbox', { name: 'Conferir nota fiscal e dados bancários do credor' })).toBeNull()
-    const forwardButton = screen.getByRole('button', { name: 'Tramitar' })
+    const forwardButton = screen.getAllByRole('button', { name: 'Tramitar' })[0]
     expect(forwardButton.getAttribute('aria-disabled')).toBe('false')
     fireEvent.click(forwardButton)
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
@@ -527,7 +585,7 @@ describe('jornada principal da interface', () => {
     renderApp()
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tramitar' })[0])
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(forwardDialog).getByText('Fluxo sugerido')).not.toBeNull()
     const phaseSelect = within(forwardDialog).getByRole('combobox', { name: 'Fase *' })
@@ -541,7 +599,7 @@ describe('jornada principal da interface', () => {
     expect(phaseSelect.textContent).toContain('Admissibilidade')
     expect(destinationSelect.textContent).toContain('Jurídico')
   })
-  it('desabilita Tramitar na última fase obrigatória e mantém Concluir disponível', async () => {
+  it('oculta Tramitar na última fase obrigatória e mantém Concluir disponível', async () => {
     const db = seedDatabase()
     const protocol = db.protocols.find((item) => item.id === 'pr-1')!
     protocol.status = 'EM_ANDAMENTO'
@@ -552,12 +610,40 @@ describe('jornada principal da interface', () => {
     renderApp()
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
-    const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
-    expect(forwardButton.disabled).toBe(true)
-    expect(forwardButton.getAttribute('title')).toBe('Esta é a última fase do fluxo obrigatório. Conclua o processo.')
-    fireEvent.click(forwardButton)
+    const header = within(document.querySelector('.page-title')!)
+    expect(header.queryByRole('button', { name: 'Concluir' })).toBeNull()
+    const movementActions = within(screen.getByRole('group', { name: 'Ações da movimentação' }))
+    expect(movementActions.getAllByRole('button').map((button) => button.textContent)).toEqual(['Concluir', 'Rejeitar', 'Cancelar'])
+    expect(screen.queryByRole('button', { name: 'Tramitar' })).toBeNull()
+    expect((movementActions.getByRole('button', { name: 'Concluir' }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.queryByRole('dialog', { name: 'Tramitar processo' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Concluir' })).not.toBeNull()
+  })
+  it.each([false, true])('permite preencher o checklist na reabertura atual sem alterar o checklist antigo (fase legada: %s)', async (legacyPhase) => {
+    const db = seedDatabase()
+    const protocol = db.protocols.find((item) => item.id === 'pr-1')!
+    db.events.find((item) => item.id === 'ev-open-1')!.checklist = [{ questionId: 'q-triage-data', text: 'Conferir dados de abertura', checked: false }]
+    const oldAssignment = db.assignments.find((item) => item.id === protocol.currentAssignmentId)!
+    oldAssignment.endedAt = new Date().toISOString()
+    const assignment = { ...oldAssignment, id: 'assignment-reopened', endedAt: undefined, receivedAt: new Date().toISOString(), receivedById: 'usr-clara' }
+    db.assignments.push(assignment)
+    protocol.currentAssignmentId = assignment.id
+    protocol.status = 'EM_ANDAMENTO'
+    db.events.push({ id: 'event-reopened', protocolId: protocol.id, kind: 'REABERTURA', assignmentId: assignment.id, phaseId: legacyPhase ? undefined : protocol.currentPhaseId, actorUserId: 'usr-clara', actorUnitId: 'u-prot', nextStatus: 'EM_ANDAMENTO', createdAt: new Date().toISOString(), message: 'Retomar o processo.' })
+    saveDb(db)
+    window.history.replaceState({}, '', '/processos/pr-1')
+    renderApp()
+    const heading = await screen.findByRole('button', { name: 'Recolher conteúdo de Reabertura do processo' })
+    const movement = within(heading.closest('article')!)
+    const checkbox = movement.getByRole('checkbox', { name: 'Conferir dados de abertura' }) as HTMLInputElement
+    expect(checkbox.disabled).toBe(false)
+    fireEvent.click(checkbox)
+    await waitFor(() => expect(checkbox.checked).toBe(true))
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(DATABASE_KEY)!)
+      expect(stored.events.find((item: { id: string }) => item.id === 'event-reopened').checklist).toEqual([expect.objectContaining({ checked: true })])
+      expect(stored.events.find((item: { id: string }) => item.id === 'ev-open-1').checklist[0].checked).toBe(false)
+    })
   })
   it('mantém Tramitar disponível na última fase do fluxo sugerido', async () => {
     const db = seedDatabase()
@@ -571,7 +657,7 @@ describe('jornada principal da interface', () => {
     renderApp()
 
     await screen.findByRole('heading', { name: demoText('Processo 2026.000001') })
-    const forwardButton = screen.getByRole('button', { name: 'Tramitar' }) as HTMLButtonElement
+    const forwardButton = screen.getAllByRole('button', { name: 'Tramitar' })[0] as HTMLButtonElement
     expect(forwardButton.disabled).toBe(false)
     fireEvent.click(forwardButton)
     const forwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
@@ -641,7 +727,7 @@ describe('jornada principal da interface', () => {
     fireEvent.click(openingChecklist)
     await waitFor(() => expect((openingChecklist as HTMLInputElement).checked).toBe(true))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tramitar' })[0])
     const forwardDialog = await screen.findByRole('dialog')
     const forwardScope = within(forwardDialog)
     fireEvent.click(forwardScope.getByRole('combobox', { name: 'Unidade organizacional de destino *' }))
@@ -659,7 +745,7 @@ describe('jornada principal da interface', () => {
     fireEvent.click(screen.getByRole('button', { name: /Trocar para Bruno Lima/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Dar ciência da tramitação' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar ciência' }))
-    await screen.findByRole('button', { name: 'Tramitar' })
+    await screen.findAllByRole('button', { name: 'Tramitar' })
 
     fireEvent.click(screen.getByRole('button', { name: /^Documentos\b/ }))
     fireEvent.click(await screen.findByRole('link', { name: 'Redigir documento' }))
@@ -685,7 +771,7 @@ describe('jornada principal da interface', () => {
     expect(screen.queryByRole('button', { name: 'Avançar fase' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Devolver fase' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tramitar' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tramitar' })[0])
     const completionForwardDialog = await screen.findByRole('dialog', { name: 'Tramitar processo' })
     expect(within(completionForwardDialog).getByRole('combobox', { name: 'Fase *' }).textContent).toContain('Conclusão')
     fireEvent.change(within(completionForwardDialog).getByLabelText('Descrição *'), { target: { value: 'Encaminhado para conclusão.' } })
@@ -696,10 +782,23 @@ describe('jornada principal da interface', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Assumir e dar ciência' }))
     const assumeDialog = await screen.findByRole('dialog', { name: 'Assumir e marcar como visualizado?' })
     fireEvent.click(within(assumeDialog).getByRole('button', { name: 'Assumir responsabilidade' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assumir e marcar como visualizado?' })).toBeNull())
     const concludeButton = await screen.findByRole('button', { name: 'Concluir' })
+    await waitFor(() => expect((concludeButton as HTMLButtonElement).disabled).toBe(false))
 
     fireEvent.click(concludeButton)
-    const completeDialog = await screen.findByRole('dialog')
+    const completionPending = await screen.findByRole('dialog', { name: 'Pendências para concluir' })
+    expect(within(completionPending).getByText('Conclua o item do checklist: Registrar resultado final.')).not.toBeNull()
+    fireEvent.click(within(completionPending).getByRole('button', { name: 'Voltar ao processo' }))
+    const finalChecklist = await screen.findByRole('checkbox', { name: 'Registrar resultado final' }) as HTMLInputElement
+    fireEvent.click(finalChecklist)
+    const finalDetails = await screen.findByRole('dialog', { name: 'Informações do item Registrar resultado final' })
+    fireEvent.change(finalDetails.querySelector('input[type="date"]')!, { target: { value: '2026-10-16' } })
+    fireEvent.change(within(finalDetails).getByRole('textbox', { name: 'Observação obrigatória' }), { target: { value: 'Resultado final conferido.' } })
+    fireEvent.click(within(finalDetails).getByRole('button', { name: 'Salvar e marcar' }))
+    await waitFor(() => expect(finalChecklist.checked).toBe(true))
+    fireEvent.click(concludeButton)
+    const completeDialog = await screen.findByRole('dialog', { name: 'Concluir processo' })
     fireEvent.change(within(completeDialog).getByLabelText('Resultado da conclusão *'), { target: { value: 'Jornada concluída com sucesso.' } })
     fireEvent.click(within(completeDialog).getByRole('button', { name: 'Concluir' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())

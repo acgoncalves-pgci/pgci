@@ -149,7 +149,7 @@ test('processo já tramitado abre somente para consulta fora da unidade atual', 
   await expect(page.getByText(/Como você já participou dele/)).toBeVisible()
   await expect(page.getByRole('button', { name: /Alterar para/ })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Ações', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Tramitar' })).toHaveCount(0)
+  await expect(page.locator('.page-title').getByRole('button', { name: 'Tramitar' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Dossiê' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Escolher outro responsável' })).toHaveCount(0)
 })
@@ -179,7 +179,14 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   await expect(movementCard.getByLabel('Unidade de destino').locator('svg')).toBeVisible()
 
   await page.getByRole('button', { name: 'Alterar para Financeiro' }).click()
-  await expect(page.getByRole('button', { name: 'Assumir e dar ciência' })).toBeVisible()
+  const assume = movementCard.getByRole('button', { name: 'Assumir e dar ciência', exact: true })
+  await expect(assume).toBeVisible()
+  await expect(assume).toHaveClass(/timeline-icon-action--pulse/)
+  await expect(assume).not.toHaveClass(/btn-primary/)
+  await expect(assume.locator('svg')).toHaveClass(/lucide-check-check/)
+  const assumeBounds = await assume.boundingBox()
+  expect(assumeBounds!.width).toBeLessThan(40)
+  expect(assumeBounds!.height).toBeLessThan(40)
   const movementToggles = page.locator('button[aria-controls^="timeline-content-"]')
   const movementCount = await movementToggles.count()
   await page.getByRole('button', { name: 'Assumir e dar ciência' }).click()
@@ -187,7 +194,12 @@ test('dados de demonstração apresentam fila multiunidade com todas as fases', 
   await expect(confirmation).toBeVisible()
   await confirmation.getByRole('button', { name: 'Assumir responsabilidade' }).click()
 
-  await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
+  await expect(page.locator('.page-title').getByRole('button', { name: 'Tramitar' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Ações da movimentação' }).getByRole('button', { name: 'Concluir', exact: true })).toBeEnabled()
+  const acknowledged = movementCard.getByRole('button', { name: 'Ciência registrada', exact: true })
+  await expect(acknowledged).toBeDisabled()
+  await expect(acknowledged).toHaveClass(/timeline-icon-action--done/)
+  await expect(acknowledged).not.toHaveClass(/timeline-icon-action--pulse/)
   await expect(movementToggles).toHaveCount(movementCount)
   const responsible = movementCard.getByLabel('Responsável pela movimentação').locator('..')
   await expect(responsible).toContainText('Marina Duarte')
@@ -231,7 +243,7 @@ test('permite trocar para a unidade do processo quando o usuário possui víncul
     localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit', 'u-edu')
     localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-edu')
   })
-  await page.goto('/')
+  await page.goto('/processos?tab=all')
   await page.waitForFunction(() => localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1') !== null)
   await page.evaluate(() => {
     const key = 'fluxo-publico:tenant:prefeitura-saomateus-ma:database:v1'
@@ -264,7 +276,8 @@ test('permite trocar para a unidade do processo quando o usuário possui víncul
 
   await page.getByRole('button', { name: 'Alterar para Administração' }).click()
 
-  await expect(page.getByRole('button', { name: 'Tramitar' })).toBeVisible()
+  await expect(page.locator('.page-title').getByRole('button', { name: 'Tramitar' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Ações da movimentação' }).getByRole('button', { name: 'Concluir', exact: true })).toBeEnabled()
   await expect(page.getByText('Troque a unidade para continuar')).toHaveCount(0)
   const context = await page.evaluate(() => ({
     activeUnitId: localStorage.getItem('fluxo-publico:tenant:prefeitura-saomateus-ma:unit'),

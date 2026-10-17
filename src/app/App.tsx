@@ -19,6 +19,7 @@ import { SituationsPage } from '../features/situacoes/SituationsPage';
 import { PhasesPage } from '../features/fases/PhasesPage';
 import { ProcessCategoriesPage } from '../features/categorias/ProcessCategoriesPage';
 import { PublicProtocolPage } from '../features/consulta/PublicProtocolPage';
+import { BatchesPage } from '../features/lotes/BatchesPage';
 import { useDb } from './queries';
 import { useSession } from './session';
 import { hasPermission } from '../domain/permissions';
@@ -63,6 +64,7 @@ function AuthenticatedApp() {
     <Route path="/processos" element={<PermissionGate permission="processes.view"><Protocols /></PermissionGate>}/>
     <Route path="/processos/novo" element={<PermissionGate permission="processes.create"><NewProtocol /></PermissionGate>}/>
     <Route path="/processos/:id" element={<PermissionGate permission="processes.view"><ProtocolDetail /></PermissionGate>}/>
+    <Route path="/lotes" element={<PermissionGate permission="processes.view"><PermissionGate permission="processes.act"><BatchesPage /></PermissionGate></PermissionGate>}/>
     <Route path="/protocolos" element={<Navigate to="/processos" replace/>}/>
     <Route path="/protocolos/novo" element={<Navigate to="/processos/novo" replace/>}/>
     <Route path="/protocolos/:id" element={<LegacyProcessRedirect />}/>

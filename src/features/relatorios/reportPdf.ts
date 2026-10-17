@@ -3,7 +3,7 @@ import { autoTable } from 'jspdf-autotable';
 import type { UserOptions } from 'jspdf-autotable';
 import QRCode from 'qrcode';
 import { consultationBarcode } from './consultationCodes';
-import type { Attachment, Database, Protocol, ProtocolEvent } from '../../domain/model';
+import type { Attachment, Database, Protocol, ProtocolBatch, ProtocolEvent } from '../../domain/model';
 import { eventLabel, statusLabel } from '../../domain/model';
 import { dateTime, money } from '../../lib/format';
 import { readInstitutionSettings } from '../../lib/institution';
@@ -11,6 +11,7 @@ import type { InstitutionSettings } from '../../lib/institution';
 import { consultationUrl } from './reportData';
 import { api } from '../../services/api';
 import { participantName } from '../../domain/participants';
+import { batchReceiptData, batchReceiptDate } from '../lotes/batchReceipt';
 
 
 function identificationTable(doc: jsPDF, options: UserOptions) {
@@ -201,7 +202,7 @@ export async function createCoverPdf(db: Database, protocol: Protocol) {
         [
           eventLabel[event.kind],
           phaseName ? `Fase: ${phaseName}` : '',
-          event.nextStatus ? `Situação: ${phase?.situationType?.name ?? statusLabel[event.nextStatus]}` : '',
+          event.nextStatus ? `Situação: ${event.kind === 'REJEICAO' || event.kind === 'CANCELAMENTO' ? statusLabel[event.nextStatus] : phase?.situationType?.name ?? statusLabel[event.nextStatus]}` : '',
           event.activity ? `Atividade: ${event.activity}` : '',
           event.result ? `Resultado: ${event.result}` : '',
           event.message || '',
@@ -358,6 +359,70 @@ export async function downloadMovementReceipt(db: Database, protocol: Protocol, 
   const doc = await createMovementReceiptPdf(db, protocol, event);
   doc.save(`comprovante_tramitacao_${protocol.number}.pdf`);
 }
+
+export async function createBatchReceiptPdf(db: Database, batch: ProtocolBatch) {
+  const settings = readInstitutionSettings();
+  const data = batchReceiptData(db, batch);
+  const doc = await newPdf();
+  doc.setProperties({ title: `Comprovante de protocolos em lote ${data.number}` });
+  const margin = { left: 10.5, right: 10.5, top: 14, bottom: 20 };
+  if (settings.logoDataUrl) {
+    const image = doc.getImageProperties(settings.logoDataUrl);
+    const ratio = image.width / image.height;
+    const height = Math.min(19, 25 / ratio);
+    const width = height * ratio;
+    doc.addImage(settings.logoDataUrl, image.fileType, (210 - width) / 2, 10.5, width, height);
+  }
+  autoTable(doc, {
+    startY: 30, theme: 'plain',
+    head: [[settings.shortName || db.organization.abbreviation]],
+    body: [[settings.organizationName || db.organization.name], ...(settings.cnpj ? [[settings.cnpj]] : [])],
+    styles: { font: 'Roboto', fontSize: 6.8, textColor: 0, halign: 'center', cellPadding: 0.65 },
+    headStyles: { fontStyle: 'bold', fontSize: 9, fillColor: [255, 255, 255], textColor: 0 }, margin,
+  });
+  const white = [255, 255, 255] as [number, number, number];
+  const styles = { font: 'Roboto', fontSize: 8.2, textColor: 0, lineColor: 185, lineWidth: 0.15, cellPadding: 1.7 };
+  autoTable(doc, {
+    startY: Math.max(45, tableEnd(doc) + 3), theme: 'grid',
+    head: [['COMPROVANTE DE PROTOCOLOS EM LOTE']], body: [[`NÚMERO DO LOTE: ${data.number}`]],
+    styles: { ...styles, fontSize: 9.8, halign: 'center', minCellHeight: 7.6 },
+    headStyles: { fillColor: white, textColor: 0, fontStyle: 'bold', minCellHeight: 8.3 }, margin,
+  });
+  const labels = [['Data/Hora:', 'Tipo:'], ['Responsável:', 'Destinatário:'], ['Secretaria/Unidade/Setor:'], ['Descrição:']];
+  autoTable(doc, {
+    startY: tableEnd(doc), theme: 'grid',
+    body: [[data.createdAt ? batchReceiptDate(data.createdAt) : 'Não informado', data.types.join(', ') || 'Não informado'], [data.actor, data.recipient], [{ content: data.destination, colSpan: 2 }], [{ content: data.message, colSpan: 2, styles: { minCellHeight: 13.2 } }]],
+    styles: { ...styles, minCellHeight: 11.6, valign: 'top', cellPadding: { top: 5.1, right: 1.7, bottom: 1.7, left: 1.7 } },
+    columnStyles: { 0: { cellWidth: 94.5 }, 1: { cellWidth: 94.5 } },
+    didDrawCell: (cell) => {
+      if (cell.section !== 'body') return;
+      doc.setFont('Roboto', 'normal').setFontSize(5.6).setTextColor(0);
+      doc.text(labels[cell.row.index]?.[cell.column.index] ?? '', cell.cell.x + 1.7, cell.cell.y + 2.8);
+    },
+    margin, rowPageBreak: 'avoid',
+  });
+  autoTable(doc, {
+    startY: tableEnd(doc) + 2.4, theme: 'grid',
+    head: [[{ content: 'Protocolos vinculados', colSpan: 3, styles: { fontSize: 8.2, fontStyle: 'bold', halign: 'center', lineWidth: 0, minCellHeight: 5 } }], ['Data/hora', 'Nº Protocolo', 'Descrição']],
+    body: data.protocols.map((protocol) => [batchReceiptDate(protocol.createdAt), protocol.number, protocol.description]),
+    foot: [[{ content: `Total de protocolos: ${data.protocols.length}`, colSpan: 3 }]],
+    styles: { ...styles, fontSize: 7.1, minCellHeight: 6.5 },
+    headStyles: { fillColor: white, textColor: 0, fontStyle: 'normal' },
+    footStyles: { fillColor: white, textColor: 0, fontStyle: 'normal', fontSize: 6.8, halign: 'right', lineWidth: { top: 0.15, right: 0, bottom: 0, left: 0 }, cellPadding: { top: 2.4, right: 0, bottom: 0, left: 0 } },
+    columnStyles: { 0: { cellWidth: 63 }, 1: { cellWidth: 63 }, 2: { cellWidth: 63 } },
+    margin, rowPageBreak: 'avoid', showFoot: 'lastPage',
+  });
+  const generatedAt = batchReceiptDate(new Date().toISOString());
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    doc.setFont('Roboto', 'normal').setFontSize(5.6).setTextColor(60);
+    doc.text(`Lote ${data.number} - Gerado em ${generatedAt}`, 10.5, 282);
+    doc.text(`Página ${page} de ${pages}`, 199.5, 282, { align: 'right' });
+  }
+  return doc;
+}
+
 export async function createProtocolReceiptPdf(db: Database, protocol: Protocol) {
   const settings = readInstitutionSettings();
   const doc = await newPdf();
@@ -567,7 +632,7 @@ export async function createProcessDetailsPdf(db: Database, protocol: Protocol) 
     margin: { left: 12, right: 12, top: 18, bottom: 18 },
   });
   const events = processEvents(db, protocol);
-  const movementKinds = new Set(['ABERTURA', 'TRAMITACAO', 'REABERTURA', 'FASE_AVANCADA', 'FASE_DEVOLVIDA', 'CONCLUSAO', 'ARQUIVAMENTO']);
+  const movementKinds = new Set(['ABERTURA', 'TRAMITACAO', 'REABERTURA', 'FASE_AVANCADA', 'FASE_DEVOLVIDA', 'CONCLUSAO', 'ARQUIVAMENTO', 'REJEICAO', 'CANCELAMENTO']);
   detailSection(doc, 'Tramitações', tableEnd(doc) + 4);
   detailTable(doc, ['Data/hora', 'Setor', 'Fase', 'Enviado por', 'Recebido por', 'Descrição', 'Situação'],
     events.filter((event) => movementKinds.has(event.kind)).map((event) => {
@@ -575,7 +640,7 @@ export async function createProcessDetailsPdf(db: Database, protocol: Protocol) 
       return [
         dateTime(event.createdAt), unitName(db, event.toUnitId ?? event.actorUnitId), eventPhase?.name ?? eventLabel[event.kind],
         userName(db, event.fromUserId ?? event.actorUserId), userName(db, event.toUserId),
-        event.message || eventLabel[event.kind], eventPhase?.situationType?.name ?? statusLabel[event.nextStatus ?? protocol.status],
+        event.message || eventLabel[event.kind], event.kind === 'REJEICAO' || event.kind === 'CANCELAMENTO' ? statusLabel[event.nextStatus ?? protocol.status] : eventPhase?.situationType?.name ?? statusLabel[event.nextStatus ?? protocol.status],
       ];
     }), tableEnd(doc) + 1, { 0: { cellWidth: 22 }, 1: { cellWidth: 32 }, 2: { cellWidth: 23 }, 3: { cellWidth: 17 }, 4: { cellWidth: 17 }, 5: { cellWidth: 54 }, 6: { cellWidth: 21 } });
   detailSection(doc, 'Ações', tableEnd(doc) + 4);

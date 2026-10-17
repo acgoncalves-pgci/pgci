@@ -7,7 +7,7 @@ export const permissionGroups = [
   { label: 'Tipos de processo e fluxos', items: [['protocolTypes.view', 'Visualizar'], ['protocolTypes.create', 'Criar'], ['protocolTypes.edit', 'Editar'], ['protocolTypes.delete', 'Excluir']] },
   { label: 'Tipos de documento', items: [['documentTypes.view', 'Visualizar'], ['documentTypes.create', 'Criar'], ['documentTypes.edit', 'Editar']] },
   { label: 'Situações e fases', items: [['workflow.view', 'Visualizar'], ['workflow.create', 'Criar'], ['workflow.edit', 'Editar'], ['workflow.delete', 'Excluir']] },
-  { label: 'Processos', items: [['processes.view', 'Visualizar'], ['processes.create', 'Criar'], ['processes.act', 'Movimentar'], ['processes.assign', 'Designar responsável'], ['processes.edit', 'Editar'], ['processes.delete', 'Excluir']] },
+  { label: 'Processos', items: [['processes.view', 'Visualizar'], ['processes.create', 'Criar'], ['processes.act', 'Movimentar'], ['processes.assign', 'Designar responsável'], ['processes.edit', 'Editar'], ['processes.reopen', 'Reabrir processos'], ['processes.delete', 'Excluir']] },
   { label: 'Documentos e anexos', items: [['documents.view', 'Visualizar'], ['documents.create', 'Criar'], ['documents.edit', 'Editar'], ['documents.delete', 'Excluir'], ['attachments.create', 'Anexar'], ['attachments.edit', 'Editar anexo'], ['attachments.delete', 'Excluir anexo']] },
   { label: 'Relatórios', items: [['reports.view', 'Acessar relatórios'], ['reports.export', 'Exportar PDF'], ['reports.productivity', 'Ver produtividade']] },
   { label: 'Administração', items: [['settings.manage', 'Configurações'], ['audit.view', 'Ver auditoria']] },

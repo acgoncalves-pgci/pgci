@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, CheckCheck, Eye, Paperclip, Printer } from "lucide-react";
+import { AlarmClock, ArrowRight, CheckCheck, Eye, Paperclip, Printer } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Database, Protocol, ProtocolStatus } from "../../domain/model";
-import { eventLabel, statusLabel } from "../../domain/model";
+import { eventLabel, isActive, statusLabel } from "../../domain/model";
+import { isProtocolOverdue } from "../../domain/protocolTiming";
 import { currentProtocolSituation } from "../../domain/situations";
 import { IconGlyph } from "../../components/ui/IconSelect";
 import { OverflowMarquee } from "../../components/ui/OverflowMarquee";
@@ -24,6 +25,8 @@ export function StatusBadge({ status, situation }: { status: ProtocolStatus; sit
     EM_ANDAMENTO: "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200",
     CONCLUIDO: "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
     ARQUIVADO: "border-slate-300 bg-slate-200 text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
+    REJEITADO: "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200",
+    CANCELADO: "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
   };
   const label = situation?.name ?? statusLabel[status];
   return <Tooltip
@@ -38,11 +41,13 @@ export function StatusBadge({ status, situation }: { status: ProtocolStatus; sit
 function ProcessCard({
   db,
   process,
+  overdue,
   acknowledgementState,
   onAcknowledge,
 }: {
   db: Database;
   process: Protocol;
+  overdue: boolean;
   acknowledgementState?: "assume" | "pending" | "acknowledged";
   onAcknowledge?: (process: Protocol) => void;
 }) {
@@ -117,6 +122,11 @@ function ProcessCard({
               {String(attachmentCount).padStart(2, "0")}
             </span>
           </div>
+          {overdue && (
+            <Tooltip content={`Prazo vencido: ${dateTime(process.dueAt)}`} className="process-card-overdue" tabIndex={0}>
+              <AlarmClock size={12} aria-hidden="true" />Prazo vencido
+            </Tooltip>
+          )}
         </div>
         <div className="process-card-summary">
           <span
@@ -233,6 +243,14 @@ export function ProtocolTable({
   ) => "assume" | "pending" | "acknowledged" | undefined;
   onAcknowledge?: (process: Protocol) => void;
 }) {
+  const [now, setNow] = useState(Date.now);
+  const hasActiveDeadline = protocols.some((process) => isActive(process) && Boolean(process.dueAt));
+  useEffect(() => {
+    setNow(Date.now());
+    if (!hasActiveDeadline) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveDeadline]);
   return (
     <div className="process-card-list">
       {protocols.map((process) => (
@@ -240,6 +258,7 @@ export function ProtocolTable({
           key={process.id}
           db={db}
           process={process}
+          overdue={isProtocolOverdue(process, now)}
           acknowledgementState={acknowledgementState?.(process)}
           onAcknowledge={onAcknowledge}
         />

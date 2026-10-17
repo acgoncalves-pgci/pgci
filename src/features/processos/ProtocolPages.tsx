@@ -10,13 +10,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Archive,
+  AlarmClock,
   ArrowLeft,
   ArrowRight,
+  Ban,
   Building2,
   Check,
   CheckCheck,
   CheckCircle2,
   CircleDot,
+  CircleX,
   CalendarDays,
   ChevronDown,
   ChevronRight,
@@ -32,6 +35,7 @@ import {
   Grid3X3,
   ListFilter,
   LockKeyhole,
+  Layers,
   MessageSquarePlus,
   MessageSquareText,
   MessageSquareWarning,
@@ -50,7 +54,6 @@ import {
 import type {
   AppDocument,
   Attachment,
-  AuditEvent,
   ChecklistAnswer,
   ChecklistQuestion,
   Database,
@@ -85,9 +88,10 @@ import {
   type ParticipantOption,
 } from "../../domain/participants";
 import { ParticipantOptionContent } from "../../components/ui/ParticipantOptionContent";
-import { forwardPendingIssues } from "../../domain/protocolPending";
+import { forwardPendingIssues, phaseChecklistAnswers } from "../../domain/protocolPending";
+import { protocolAuditEntries } from "../../domain/protocolAudit";
+import { isProtocolOverdue, protocolMovementTiming } from "../../domain/protocolTiming";
 import { currencyToCents, dateTime, money } from "../../lib/format";
-import { auditActionLabel } from "../../lib/audit";
 import {
   api,
   suggestedDeadline,
@@ -100,10 +104,12 @@ import { Dialog, DialogBody, DialogFooter } from "../../components/ui/Dialog";
 import { PdfViewerDialog } from "../../components/ui/PdfViewerDialog";
 import { DocumentPreviewDialog } from "../documents/DocumentPreviewDialog";
 import { ProcessFileRow } from "./ProcessFileRow";
+import { ProtocolAuditTimeline } from "./ProtocolAuditTimeline";
 import { Input } from "../../components/ui/Input";
 import { CurrencyInput } from "../../components/ui/CurrencyInput";
 import { Select } from "../../components/ui/Select";
 import { Checkbox } from "../../components/ui/Checkbox";
+import { Tooltip } from "../../components/ui/Tooltip";
 import {
   Empty,
   ErrorBox,
@@ -1007,7 +1013,7 @@ export function NewProtocol() {
                 <option value="">Selecione o tipo</option>
                 {availableTypes.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}
+                    {item.code ? `${item.code} · ${item.name}` : item.name}
                   </option>
                 ))}
               </Select>
@@ -1495,16 +1501,18 @@ export function ProtocolDetail() {
     "progress" | "data" | "documents" | "attachments" | "audit"
   >("progress");
   const [action, setAction] = useState<
-    "forward" | "assign" | "complete" | "archive" | "reopen" | null
+    "forward" | "assign" | "complete" | "archive" | "reopen" | "reject" | "cancel" | null
   >(null);
   const [coverError, setCoverError] = useState<unknown>();
   const [printing, setPrinting] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [auditFile, setAuditFile] = useState<{ kind: "attachment"; item: Attachment } | { kind: "document"; item: AppDocument }>();
+  const [selectedMovementId, setSelectedMovementId] = useState<string>();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmAcknowledge, setConfirmAcknowledge] = useState(false);
   const [confirmAssume, setConfirmAssume] = useState(false);
-  const [showForwardPending, setShowForwardPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"forward" | "complete" | null>(null);
   const [dossierMovementId, setDossierMovementId] = useState<string>();
   const [dossierPreview, setDossierPreview] = useState<{ blob: Blob; filename: string; title?: string }>();
   const [deletingLinkedItem, setDeletingLinkedItem] = useState<
@@ -1564,6 +1572,12 @@ export function ProtocolDetail() {
       document.removeEventListener("keydown", escape);
     };
   }, [actionsOpen]);
+  useEffect(() => {
+    if (tab !== "progress" || !selectedMovementId) return;
+    const row = document.getElementById(`movement-${selectedMovementId}`);
+    row?.scrollIntoView?.({ block: "center" });
+    row?.querySelector<HTMLButtonElement>('button[aria-controls]')?.focus({ preventScroll: true });
+  }, [tab, selectedMovementId]);
   if (isLoading) return <Loading variant="detail" />;
   if (error)
     return (
@@ -1598,6 +1612,7 @@ export function ProtocolDetail() {
   const auditEvents = db.auditEvents.filter(
     (item) =>
       (item.targetType === "PROTOCOL" && item.targetId === p.id) ||
+      item.protocolId === p.id ||
       (item.targetType === "ATTACHMENT" && attachmentIds.has(item.targetId)) ||
       (item.targetType === "DOCUMENT" && documentIds.has(item.targetId)),
   );
@@ -1605,10 +1620,11 @@ export function ProtocolDetail() {
   const inCurrentUnit = p.currentUnitId === ctx.activeUnitId;
   const canManage = inCurrentUnit && hasPermission(db, ctx, 'processes.assign');
   const canEdit = inCurrentUnit && hasPermission(db, ctx, 'processes.edit') && isActive(p);
-  const canCreateDocument = canAct && hasPermission(db, ctx, 'documents.create');
-  const canAddAttachment = canAct && hasPermission(db, ctx, 'attachments.create');
-  const canDeleteDocument = canAct && hasPermission(db, ctx, 'documents.delete');
-  const canDeleteAttachment = canAct && hasPermission(db, ctx, 'attachments.delete');
+  const canReopen = inCurrentUnit && !isActive(p) && hasPermission(db, ctx, 'processes.reopen');
+  const canCreateDocument = canAct && isActive(p) && hasPermission(db, ctx, 'documents.create');
+  const canAddAttachment = canAct && isActive(p) && hasPermission(db, ctx, 'attachments.create');
+  const canDeleteDocument = canAct && isActive(p) && hasPermission(db, ctx, 'documents.delete');
+  const canDeleteAttachment = canAct && isActive(p) && hasPermission(db, ctx, 'attachments.delete');
   const canAssume =
     p.currentUnitId === ctx.activeUnitId &&
     !p.currentAssigneeId &&
@@ -1643,47 +1659,22 @@ export function ProtocolDetail() {
     ctx.setScopeUnitId(p.currentUnitId);
     await invalidateAll(queryClient);
   };
-  let primary: ReactNode = null;
-  if (p.status === "CONCLUIDO")
-    primary = canAct && (
-      <button className="btn-primary" onClick={() => setAction("archive")}>
-        <Archive size={16} />
-        Arquivar
-      </button>
-    );
-  else if (p.status === "ARQUIVADO")
-    primary = inCurrentUnit && hasPermission(db, ctx, 'processes.edit') && (
-      <button className="btn-primary" onClick={() => setAction("reopen")}>
-        <RefreshCcw size={16} />
-        Reabrir
-      </button>
-    );
-  else if (canAssume)
-    primary = (
-      <button
-        className="btn-primary"
-        onClick={() => {
-          doAssume.reset();
-          setConfirmAssume(true);
-        }}
-      >
-        <Check size={16} />
-        Assumir e dar ciência
-      </button>
-    );
-  else if (canAct && !unacknowledged)
-    primary = (
-      <button
-        className={`btn-primary ${finalRequiredPhase || forwardIssues.length ? "cursor-not-allowed opacity-55" : ""}`}
-        disabled={finalRequiredPhase}
-        aria-disabled={finalRequiredPhase || forwardIssues.length > 0}
-        title={finalRequiredPhase ? "Esta é a última fase do fluxo obrigatório. Conclua o processo." : forwardIssues.length ? "Existem pendências. Clique para ver o que falta." : undefined}
-        onClick={() => forwardIssues.length ? setShowForwardPending(true) : setAction("forward")}
-      >
-        <ArrowRight size={16} />
-        Tramitar
-      </button>
-    );
+  const canForward = canAct && isActive(p) && !canAssume && !unacknowledged;
+  const canComplete = canAct && isActive(p) && Boolean(assignment.receivedAt) &&
+    (p.flowModeSnapshot === "SUGGESTED" || isLastPhase || phases.length === 0);
+  const completionIssues = phases.length && p.flowModeSnapshot !== "SUGGESTED" ? forwardIssues : [];
+  const canArchive = canAct && p.status === "CONCLUIDO";
+  const canTerminate = canAct && isActive(p) && Boolean(assignment.receivedAt);
+  const forwardDisabled = !canForward || finalRequiredPhase;
+  const forwardTitle = !canForward
+    ? "A tramitação exige um processo ativo sob sua responsabilidade e com ciência registrada."
+    : finalRequiredPhase
+      ? "Esta é a última fase do fluxo obrigatório. Conclua o processo."
+      : forwardIssues.length
+        ? "Existem pendências. Clique para ver o que falta."
+        : undefined;
+  const forward = () => forwardIssues.length ? setPendingAction("forward") : setAction("forward");
+  const complete = () => completionIssues.length ? setPendingAction("complete") : setAction("complete");
   const printActions = [
     ["cover", "Imprimir capa"],
     ["receipt", "Imprimir comprovante"],
@@ -1781,19 +1772,18 @@ export function ProtocolDetail() {
           icon={ClipboardList}
           action={
             <div className="no-print flex flex-wrap items-center justify-end gap-2">
-              {primary}
-              {canAct &&
-                isActive(p) &&
-                assignment.receivedAt &&
-                (p.flowModeSnapshot === "SUGGESTED" || isLastPhase || phases.length === 0) && (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => setAction("complete")}
-                  >
-                    <Check size={16} />
-                    Concluir
-                  </button>
-                )}
+              {!forwardDisabled && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  aria-disabled={forwardDisabled || forwardIssues.length > 0}
+                  title={forwardTitle}
+                  onClick={forward}
+                >
+                  <ArrowRight size={16} />
+                  Tramitar
+                </button>
+              )}
               {!isHistoricalReadOnly && (
                 <div className="relative" ref={actionsRef}>
                   <button
@@ -1811,16 +1801,16 @@ export function ProtocolDetail() {
                       role="menu"
                       className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-popover py-2 shadow-xl"
                     >
-                      <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                      {(canEdit || canDelete) && <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                         Gerenciar
-                      </p>
-                      <button
+                      </p>}
+                      {canEdit && <button
                         role="menuitem"
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
                         disabled={!canEdit}
                         title={
                           !isActive(p)
-                            ? "Processos concluídos ou arquivados não podem ser editados."
+                            ? "Processos encerrados não podem ser editados."
                             : !canEdit
                               ? "Você não possui permissão para editar nesta unidade."
                               : undefined
@@ -1832,8 +1822,8 @@ export function ProtocolDetail() {
                       >
                         <Pencil size={16} />
                         Editar
-                      </button>
-                      <button
+                      </button>}
+                      {canDelete && <button
                         role="menuitem"
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
                         disabled={!canDelete}
@@ -1849,8 +1839,8 @@ export function ProtocolDetail() {
                       >
                         <Trash2 size={16} />
                         Excluir
-                      </button>
-                      <div className="my-2 border-t border-border" />
+                      </button>}
+                      {(canEdit || canDelete) && <div className="my-2 border-t border-border" />}
                       <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                         Impressão
                       </p>
@@ -1929,7 +1919,7 @@ export function ProtocolDetail() {
               )}
               {key === "audit" && (
                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
-                  {data.events.length + auditEvents.length}
+                  {protocolAuditEntries(data.events, auditEvents).length}
                 </span>
               )}
             </button>
@@ -1945,6 +1935,34 @@ export function ProtocolDetail() {
                   {movementEvents.length}
                 </span>
               </h2>
+              {(!forwardDisabled || canComplete || canArchive || canTerminate || canReopen) && (
+                <div role="group" aria-label="Ações da movimentação" className="no-print ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
+                  {!forwardDisabled && <button type="button" className={`btn hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${forwardIssues.length ? "text-muted-foreground" : "text-foreground"}`} aria-disabled={forwardIssues.length > 0} title={forwardTitle} onClick={forward}>
+                    <ArrowRight size={17} className="text-orange-500" aria-hidden="true" />
+                    Tramitar
+                  </button>}
+                  {canComplete && <button type="button" className={`btn ${completionIssues.length ? "text-muted-foreground" : "text-foreground"} hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring`} title={completionIssues.length ? "Existem pendências. Clique para ver o que falta." : undefined} onClick={complete}>
+                    <CheckCircle2 size={17} className="text-emerald-500" aria-hidden="true" />
+                    Concluir
+                  </button>}
+                  {canArchive && <button type="button" className="btn text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setAction("archive")}>
+                    <Archive size={17} className="text-purple-500" aria-hidden="true" />
+                    Arquivar
+                  </button>}
+                  {canTerminate && <button type="button" className="btn text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setAction("reject")}>
+                    <Ban size={17} className="text-blue-500" aria-hidden="true" />
+                    Rejeitar
+                  </button>}
+                  {canTerminate && <button type="button" className="btn text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => setAction("cancel")}>
+                    <CircleX size={17} className="text-red-500" aria-hidden="true" />
+                    Cancelar
+                  </button>}
+                  {canReopen && <button type="button" className="btn text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" title="Reabrir processo" onClick={() => setAction("reopen")}>
+                    <RefreshCcw size={17} className="text-teal-500" aria-hidden="true" />
+                    Reabrir
+                  </button>}
+                </div>
+              )}
             </header>
             <div className="px-3 py-3 sm:px-5">
               {movementEvents.map((event, index) => (
@@ -1964,9 +1982,11 @@ export function ProtocolDetail() {
                   isLast={index === movementEvents.length - 1}
                   isLatest={index === 0}
                   latestEventId={latestMovement?.id}
+                  reveal={selectedMovementId === event.id}
                   canAcknowledge={
                     unacknowledged && p.currentAssigneeId === ctx.userId
                   }
+                  canAssume={canAssume}
                   canAssign={canManage}
                   canEdit={canAct && isActive(p) && !timelineUploading}
                   canCreateDocument={canCreateDocument}
@@ -1978,6 +1998,10 @@ export function ProtocolDetail() {
                   readOnly={isHistoricalReadOnly}
                   showChecklist={checklistEventIds.has(event.id)}
                   onConfirmAcknowledge={() => setConfirmAcknowledge(true)}
+                  onConfirmAssume={() => {
+                    doAssume.reset();
+                    setConfirmAssume(true);
+                  }}
                   onAssign={() => setAction("assign")}
                   onAttachFile={() => {
                     setTimelineMovementId(event.id);
@@ -2029,13 +2053,25 @@ export function ProtocolDetail() {
           />
         )}{" "}
         {tab === "audit" && hasPermission(db, ctx, 'audit.view') && (
-          <AuditTimeline
+          <ProtocolAuditTimeline
             events={data.events}
             auditEvents={auditEvents}
             db={db}
+            attachments={data.attachments}
+            documents={data.documents}
+            canViewFiles={hasPermission(db, ctx, 'documents.view')}
+            onAttachment={(item) => setAuditFile({ kind: "attachment", item })}
+            onDocument={(item) => setAuditFile({ kind: "document", item })}
+            onFiles={setTab}
+            onMovement={(eventId) => {
+              setSelectedMovementId(eventId);
+              setTab("progress");
+            }}
           />
         )}
       </div>
+      {auditFile?.kind === "attachment" && <AttachmentPreviewDialog attachment={auditFile.item} onClose={() => setAuditFile(undefined)} />}
+      {auditFile?.kind === "document" && <DocumentPreviewDialog document={auditFile.item} onClose={() => setAuditFile(undefined)} />}
       {action === "forward" && (
         <MoveDialog
           title="Tramitar processo"
@@ -2061,6 +2097,18 @@ export function ProtocolDetail() {
           }}
         />
       )}{" "}
+      {(action === "reject" || action === "cancel") && (
+        <TerminateProtocolDialog
+          action={action}
+          protocol={p}
+          ctx={ctx}
+          onClose={() => setAction(null)}
+          onSaved={() => {
+            setAction(null);
+            refresh();
+          }}
+        />
+      )}
       {action === "complete" && (
         <CompleteDialog
           protocol={p}
@@ -2132,16 +2180,16 @@ export function ProtocolDetail() {
           onConfirm={async () => { await doAssume.mutateAsync(); }}
         />
       )}{" "}
-      {showForwardPending && (
-        <Dialog title="Pendências para tramitar" onClose={() => setShowForwardPending(false)}><DialogBody>
+      {pendingAction && (
+        <Dialog title={pendingAction === "complete" ? "Pendências para concluir" : "Pendências para tramitar"} onClose={() => setPendingAction(null)}><DialogBody>
           <p className="text-sm text-muted-foreground">
-            Resolva os itens abaixo na movimentação atual antes de tramitar o processo.
+            Resolva os itens abaixo na movimentação atual antes de {pendingAction === "complete" ? "concluir" : "tramitar"} o processo.
           </p>
           <ul className="mt-4 list-disc space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 pl-8 text-sm text-amber-900 marker:text-amber-600 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-            {forwardIssues.map((issue) => <li key={issue}>{issue}</li>)}
+            {(pendingAction === "complete" ? completionIssues : forwardIssues).map((issue) => <li key={issue}>{issue}</li>)}
           </ul>
           </DialogBody><DialogFooter>
-            <button type="button" className="btn-primary" onClick={() => { setShowForwardPending(false); setTab("progress"); }}>Voltar ao processo</button>
+            <button type="button" className="btn-primary" onClick={() => { setPendingAction(null); setTab("progress"); }}>Voltar ao processo</button>
           </DialogFooter>
         </Dialog>
       )}{" "}
@@ -2250,6 +2298,15 @@ function ProcessDetailOverview({
   currentPhaseName?: string;
   phaseIndex: number;
 }) {
+  const [now, setNow] = useState(Date.now);
+  const active = isActive(protocol);
+  useEffect(() => {
+    setNow(Date.now());
+    if (!active || !protocol.dueAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [active, protocol.dueAt]);
+  const overdue = isProtocolOverdue(protocol, now);
   const processType =
     db.protocolTypes.find((item) => item.id === protocol.typeId)?.name ??
     "Tipo não encontrado";
@@ -2273,8 +2330,7 @@ function ProcessDetailOverview({
     : visiblePhases.length
       ? 0
       : -1;
-  const closed =
-    protocol.status === "CONCLUIDO" || protocol.status === "ARQUIVADO";
+  const closed = !isActive(protocol);
   const suggested = protocol.flowModeSnapshot === "SUGGESTED";
   const recommendation = suggested ? recommendedFlowPhase(db, protocol) : undefined;
   const visited = new Set(db.events.filter((event) => event.protocolId === protocol.id && isMovementEvent(event)).map((event) => event.phaseId));
@@ -2300,13 +2356,14 @@ function ProcessDetailOverview({
           label="Está com"
           value={currentRecipient ?? "Sem destinatário"}
         />
+        {overdue && <ProcessMetaItem icon={<AlarmClock size={15} />} label="Prazo vencido" value={dateTime(protocol.dueAt)} tone="danger" />}
       </div>
       {visiblePhases.length > 0 && (
         <ol className="process-phase-track" aria-label="Etapas do fluxo">
           {visiblePhases.map((item, index) => {
             const completed = suggested
               ? visited.has(item.phaseId) && item.phaseId !== protocol.currentPhaseId
-              : closed || (visiblePhaseIndex >= 0 && index < visiblePhaseIndex);
+              : protocol.status === "CONCLUIDO" || protocol.status === "ARQUIVADO" || (visiblePhaseIndex >= 0 && index < visiblePhaseIndex);
             const current = !closed && index === visiblePhaseIndex;
             return (
               <li
@@ -2314,12 +2371,12 @@ function ProcessDetailOverview({
                 className={`process-phase-step ${completed ? "is-completed" : ""} ${current ? "is-current" : ""}`}
                 aria-current={current ? "step" : undefined}
               >
-                <span className="process-phase-marker" aria-hidden="true">
-                  {completed ? <Check size={13} /> : index + 1}
-                </span>
-                <span className="process-phase-name" title={item.name}>
-                  {item.name}
-                </span>
+                <Tooltip content={item.name} className="flex min-w-0 items-center gap-2" tabIndex={0}>
+                  <span className="process-phase-marker" aria-hidden="true">
+                    {completed ? <Check size={13} /> : index + 1}
+                  </span>
+                  <span className="process-phase-name">{item.name}</span>
+                </Tooltip>
                 {index < visiblePhases.length - 1 && (
                   <span
                     className="process-phase-connector"
@@ -2342,73 +2399,21 @@ function ProcessMetaItem({
   icon,
   label,
   value,
+  tone,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
+  tone?: "danger";
 }) {
   return (
-    <div className="process-detail-meta-item" title={`${label}: ${value}`}>
+    <div className={`process-detail-meta-item${tone === "danger" ? " process-detail-meta-item--danger" : ""}`} title={`${label}: ${value}`} role={tone === "danger" ? "status" : undefined} aria-label={tone === "danger" ? `${label}: ${value}` : undefined}>
       <span aria-hidden="true" className="process-detail-meta-icon">
         {icon}
       </span>
-      <span className="text-muted-foreground">{label}:</span>
+      <span className={tone === "danger" ? undefined : "text-muted-foreground"}>{label}:</span>
       <span className="process-detail-meta-value">{value}</span>
     </div>
-  );
-}
-function AuditTimeline({
-  events,
-  auditEvents,
-  db,
-}: {
-  events: ProtocolEvent[];
-  auditEvents: AuditEvent[];
-  db: Database;
-}) {
-  const entries = [
-    ...events.map((event) => ({
-      id: event.id,
-      label: eventLabel[event.kind] ?? "Movimentação registrada",
-      details: event.message,
-      actorUserId: event.actorUserId,
-      createdAt: event.createdAt,
-    })),
-    ...auditEvents.map((event) => ({
-      id: event.id,
-      label: auditActionLabel(event.action),
-      details: event.details,
-      actorUserId: event.actorUserId,
-      createdAt: event.createdAt,
-    })),
-  ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return (
-    <section className="panel mt-3 divide-y divide-border">
-      <header className="px-4 py-3">
-        <h2 className="text-sm font-bold">Auditoria</h2>
-      </header>
-      {entries.map((entry) => (
-        <div
-          key={entry.id}
-          className="flex items-start justify-between gap-4 px-4 py-3 text-sm"
-        >
-          <div>
-            <span className="font-medium">{entry.label}</span>
-            {entry.details && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {entry.details}
-              </p>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              <Name db={db} userId={entry.actorUserId} />
-            </p>
-          </div>
-          <time className="shrink-0 text-xs text-muted-foreground">
-            {dateTime(entry.createdAt)}
-          </time>
-        </div>
-      ))}
-    </section>
   );
 }
 function ProcessSummary({
@@ -2420,15 +2425,7 @@ function ProcessSummary({
   db: Database;
   latestMovement?: ProtocolEvent;
 }) {
-  const elapsedDays = latestMovement
-    ? Math.max(
-        0,
-        Math.floor(
-          (Date.now() - new Date(latestMovement.createdAt).getTime()) /
-            86_400_000,
-        ),
-      )
-    : undefined;
+  const timing = latestMovement ? protocolMovementTiming(protocol, db.events, latestMovement) : undefined;
   const interested = participantName(db, protocol.interestedPersonId);
   const creditor = participantName(db, protocol.creditorPersonId);
   const responsible = participantName(db, protocol.responsiblePersonId);
@@ -2503,11 +2500,7 @@ function ProcessSummary({
         />
         <SummaryField
           label="Tempo na etapa"
-          value={
-            elapsedDays === undefined
-              ? undefined
-              : `${elapsedDays} dia${elapsedDays === 1 ? "" : "s"}`
-          }
+          value={timing?.duration}
         />
         <SummaryField label="Origem da tramitação" value={routingOrigin} />
         <SummaryField
@@ -2675,6 +2668,7 @@ function mapFlowPhasesToEvents(protocol: Protocol, events: ProtocolEvent[]) {
   let phaseIndex = 0;
   const orderedEvents = events
     .slice()
+    .reverse()
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   orderedEvents.forEach((event) => {
     const explicitIndex = event.phaseId
@@ -2716,8 +2710,15 @@ function mapChecklistEvents(
   };
   const orderedEvents = events
     .slice()
+    .reverse()
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   orderedEvents.forEach((event) => {
+    if (event.kind === "REABERTURA") {
+      addPhaseChecklist();
+      phaseId = undefined;
+      phaseEvents = [];
+      result.add(event.id);
+    }
     const eventPhaseId =
       event.phaseId ?? flowPhaseByEventId.get(event.id)?.phaseId;
     if (!eventPhaseId) {
@@ -2735,6 +2736,32 @@ function mapChecklistEvents(
   return result;
 }
 
+function MovementTiming({ event, protocol, events }: { event: ProtocolEvent; protocol: Protocol; events: ProtocolEvent[] }) {
+  const [now, setNow] = useState(Date.now);
+  const timing = protocolMovementTiming(protocol, events, event, now);
+  useEffect(() => {
+    if (!timing.running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [timing.running]);
+  return (
+    <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-[11px] font-medium">
+      <Tooltip content={`Entrada: ${dateTime(timing.startedAt)} · ${timing.endedAt ? `Encerrada em: ${dateTime(timing.endedAt)}` : 'Etapa em andamento'}`} tabIndex={0}>
+        <span aria-label={`Tempo na etapa: ${timing.duration}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-2 py-1 text-slate-600 dark:border-slate-600 dark:text-slate-300">
+          <Clock3 size={13} aria-hidden="true" />{timing.duration}
+        </span>
+      </Tooltip>
+      {timing.dueAt && (
+        <Tooltip content={timing.overdue ? timing.running ? 'Prazo vencido' : 'Etapa encerrada após o prazo' : 'Prazo da etapa'} tabIndex={0}>
+          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 ${timing.overdue ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-400/50 dark:bg-red-500/10 dark:text-red-300' : 'border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}>
+            <AlarmClock size={13} aria-hidden="true" />Prazo <time dateTime={timing.dueAt}>{dateTime(timing.dueAt)}</time>
+          </span>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
 function TimelineRow({
   event: e,
   flowPhase,
@@ -2746,7 +2773,9 @@ function TimelineRow({
   isLast,
   isLatest,
   latestEventId,
+  reveal,
   canAcknowledge,
+  canAssume,
   canAssign,
   canEdit,
   canCreateDocument,
@@ -2758,6 +2787,7 @@ function TimelineRow({
   readOnly,
   showChecklist,
   onConfirmAcknowledge,
+  onConfirmAssume,
   onAssign,
   onAttachFile,
   onReceipt,
@@ -2777,7 +2807,9 @@ function TimelineRow({
   isLast: boolean;
   isLatest: boolean;
   latestEventId?: string;
+  reveal: boolean;
   canAcknowledge: boolean;
+  canAssume: boolean;
   canAssign: boolean;
   canEdit: boolean;
   canCreateDocument: boolean;
@@ -2789,6 +2821,7 @@ function TimelineRow({
   readOnly: boolean;
   showChecklist: boolean;
   onConfirmAcknowledge: () => void;
+  onConfirmAssume: () => void;
   onAssign: () => void;
   onAttachFile: () => void;
   onReceipt: (event: ProtocolEvent) => void;
@@ -2802,24 +2835,29 @@ function TimelineRow({
   useEffect(() => {
     setCollapsed(!isLatest);
   }, [isLatest, latestEventId]);
-  const latestFlowPhase = isLatest
+  useEffect(() => {
+    if (reveal) setCollapsed(false);
+  }, [reveal]);
+  const isTermination = e.kind === "REJEICAO" || e.kind === "CANCELAMENTO";
+  const isReopening = e.kind === "REABERTURA";
+  const latestFlowPhase = isLatest && !isTermination
     ? protocol.flowSnapshot?.phases.find(
         (phase) => phase.phaseId === protocol.currentPhaseId,
       )
     : undefined;
-  const effectiveFlowPhase = flowPhase ?? latestFlowPhase;
+  const effectiveFlowPhase = isTermination ? undefined : flowPhase ?? latestFlowPhase;
   const manualPhase =
-    !effectiveFlowPhase && e.phaseId
+    !isTermination && !effectiveFlowPhase && e.phaseId
       ? db.phases.find((phase) => phase.id === e.phaseId)
       : undefined;
   const latestManualPhase =
-    !effectiveFlowPhase && isLatest && protocol.currentPhaseId
+    !isTermination && !effectiveFlowPhase && isLatest && protocol.currentPhaseId
       ? db.phases.find((phase) => phase.id === protocol.currentPhaseId)
       : undefined;
   const phaseName =
     effectiveFlowPhase?.name ?? manualPhase?.name ?? latestManualPhase?.name;
   const isOpening = e.kind === "ABERTURA";
-  const heading = isOpening
+  const heading = isReopening ? "Reabertura do processo" : isOpening
     ? "Abertura do protocolo"
     : phaseName
       ? `Fase ${phaseName}`
@@ -2841,14 +2879,14 @@ function TimelineRow({
             : e.kind === "RECEBIMENTO"
               ? "CIENCIA"
               : "REGISTRO");
-  const status =
+  const status = isReopening ? "Reaberto" :
     effectiveFlowPhase?.situationType?.name ??
     (statusKey in statusLabel
       ? statusLabel[statusKey as ProtocolStatus]
       : statusKey === "CIENCIA"
         ? "Ciência registrada"
         : eventLabel[e.kind]);
-  const phaseColor =
+  const phaseColor = isReopening ? "#14A7A0" :
     effectiveFlowPhase?.situationType?.color ??
     manualPhase?.color ??
     latestManualPhase?.color;
@@ -2872,6 +2910,14 @@ function TimelineRow({
       badge:
         "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200",
       dot: "bg-violet-500 ring-violet-100 dark:ring-violet-950",
+    },
+    REJEITADO: {
+      badge: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
+      dot: "bg-blue-500 ring-blue-100 dark:ring-blue-950",
+    },
+    CANCELADO: {
+      badge: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+      dot: "bg-red-500 ring-red-100 dark:ring-red-950",
     },
     CIENCIA: {
       badge: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
@@ -2899,9 +2945,10 @@ function TimelineRow({
   const canShowRoute =
     Boolean(e.fromUnitId || destinationUnit || destinationUserId) &&
     e.kind !== "RECEBIMENTO" &&
+    !isTermination &&
     !isOpening;
   const acknowledged = Boolean(assignment.receivedAt);
-  const checklistPhase = effectiveFlowPhase;
+  const checklistPhase = effectiveFlowPhase ?? manualPhase ?? latestManualPhase;
   const checklistQuestions = checklistPhase?.checklistQuestions?.length
     ? checklistPhase.checklistQuestions
     : (checklistPhase?.checklistItems ?? []).map((text, order) => ({
@@ -2914,20 +2961,20 @@ function TimelineRow({
         requiresObservation: false,
       }));
   const checklistAnswers = showChecklist
-    ? (e.checklist?.length ? e.checklist : checklistQuestions.map((question) => ({
+    ? (isLatest && isReopening ? phaseChecklistAnswers(db, protocol, e) : e.checklist?.length ? e.checklist : checklistQuestions.map((question) => ({
         questionId: question.id,
         text: question.text,
         checked: false,
       })))
     : [];
   const canEditChecklist =
-    Boolean(effectiveFlowPhase) &&
+    Boolean(checklistPhase) &&
     canEdit &&
     isLatest &&
     acknowledged &&
     e.assignmentId === protocol.currentAssignmentId;
   return (
-    <article className="relative flex gap-3 pb-2 last:pb-0 sm:gap-4">
+    <article id={`movement-${e.id}`} className="relative flex gap-3 pb-2 last:pb-0 sm:gap-4">
       <TimelineDate value={e.createdAt} />
       <div
         data-timeline-dot
@@ -2959,7 +3006,7 @@ function TimelineRow({
             onClick={() => setCollapsed((value) => !value)}
           >
             <span className="flex min-w-0 flex-wrap items-center gap-2">
-              {!isOpening && phaseName ? (
+              {!isOpening && !isReopening && phaseName ? (
                 <>
                   <strong className="text-sm text-slate-800 dark:text-slate-100">
                     Fase
@@ -3001,8 +3048,7 @@ function TimelineRow({
           </button>
           {!readOnly &&
             isLatest &&
-            isActive(protocol) &&
-            protocol.currentAssigneeId && (
+            isActive(protocol) && (
               <span
                 role="group"
                 aria-label="Ciência e responsável"
@@ -3010,21 +3056,25 @@ function TimelineRow({
               >
                 <button
                   type="button"
-                  className={`timeline-icon-action ${acknowledged ? "timeline-icon-action--done" : canAcknowledge ? "timeline-icon-action--pulse" : ""}`}
+                  className={`timeline-icon-action ${acknowledged ? "timeline-icon-action--done" : canAcknowledge || canAssume ? "timeline-icon-action--pulse" : ""}`}
                   aria-label={
-                    acknowledged
-                      ? "Ciência registrada"
-                      : "Dar ciência da tramitação"
+                    canAssume
+                      ? "Assumir e dar ciência"
+                      : acknowledged
+                        ? "Ciência registrada"
+                        : "Dar ciência da tramitação"
                   }
-                  disabled={acknowledged || !canAcknowledge}
+                  disabled={acknowledged || (!canAcknowledge && !canAssume)}
                   title={
-                    acknowledged
-                      ? `Visualizado em ${dateTime(assignment.receivedAt)}`
-                      : canAcknowledge
-                        ? "Confirmar visualização e registrar ciência"
-                        : "Aguardando ciência do destinatário"
+                    canAssume
+                      ? "Assumir responsabilidade e registrar ciência"
+                      : acknowledged
+                        ? `Visualizado em ${dateTime(assignment.receivedAt)}`
+                        : canAcknowledge
+                          ? "Confirmar visualização e registrar ciência"
+                          : "Aguardando ciência do destinatário"
                   }
-                  onClick={onConfirmAcknowledge}
+                  onClick={canAssume ? onConfirmAssume : onConfirmAcknowledge}
                 >
                   <CheckCheck size={15} />
                 </button>
@@ -3059,7 +3109,8 @@ function TimelineRow({
             className="border-t border-slate-100 dark:border-slate-800"
           >
             {isOpening ? (
-              <div className="px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div>
                 <p className="label">Aberto por</p>
                 <div className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
                   <span className="grid size-7 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
@@ -3067,7 +3118,9 @@ function TimelineRow({
                   </span>
                   <Name db={db} userId={e.actorUserId} />
                 </div>
-                <time dateTime={e.createdAt} className="mt-2 block text-xs text-slate-500 dark:text-slate-400 sm:hidden">
+                </div>
+                <MovementTiming event={e} protocol={protocol} events={db.events} />
+                <time dateTime={e.createdAt} className="basis-full text-xs text-slate-500 dark:text-slate-400 sm:hidden">
                   {dateTime(e.createdAt)}
                 </time>
               </div>
@@ -3082,6 +3135,12 @@ function TimelineRow({
                     <Name db={db} userId={sourceUserId} />
                   </span>
                 </span>
+                {isTermination && (
+                  <span className="inline-flex items-center gap-2 text-muted-foreground">
+                    <Building2 size={15} aria-hidden="true" />
+                    {db.units.find((unit) => unit.id === e.actorUnitId)?.name ?? "—"}
+                  </span>
+                )}
                 {canShowRoute && destinationUnit && (
                   <>
                     <ArrowRight className="shrink-0 text-slate-400" size={16} />
@@ -3113,9 +3172,10 @@ function TimelineRow({
                   </>
                 )}
               </div>
+              <MovementTiming event={e} protocol={protocol} events={db.events} />
               <time
                 dateTime={e.createdAt}
-                className="text-xs text-slate-500 dark:text-slate-400 sm:hidden"
+                className="basis-full text-xs text-slate-500 dark:text-slate-400 sm:hidden"
               >
                 {dateTime(e.createdAt)}
               </time>
@@ -3123,7 +3183,7 @@ function TimelineRow({
             )}
             <div className="border-t border-slate-100 px-3 py-2 dark:border-slate-800">
               <p className="label">
-                {isOpening || e.kind === "TRAMITACAO" || e.kind === "REABERTURA"
+                {isTermination ? "Motivo do encerramento" : isOpening || e.kind === "TRAMITACAO" || e.kind === "REABERTURA"
                     ? "Despacho"
                     : "Registro"}
               </p>
@@ -3133,12 +3193,29 @@ function TimelineRow({
                     ? `Processo cadastrado por ${db.users.find((user) => user.id === e.actorUserId)?.name ?? "usuário responsável"}.`
                     : `Evento registrado por ${db.users.find((user) => user.id === e.actorUserId)?.name ?? "usuário responsável"}.`)}
               </p>
+              {e.batchId && <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--ui-accent)]"><Layers size={13} aria-hidden="true" />Movimentação em lote · {db.batches?.find((batch) => batch.id === e.batchId)?.number ?? e.batchId}</p>}
             </div>
+            {(e.activity?.trim() || e.result?.trim()) && (
+              <dl aria-label="Atividade e resultado da tramitação" className="grid gap-3 border-t border-slate-100 px-3 py-3 dark:border-slate-800 sm:grid-cols-2">
+                {e.activity?.trim() && (
+                  <div className="min-w-0">
+                    <dt className="label">Atividade principal desenvolvida</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600 dark:text-slate-300">{e.activity}</dd>
+                  </div>
+                )}
+                {e.result?.trim() && (
+                  <div className="min-w-0">
+                    <dt className="label">Resultado concreto / produto entregue</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600 dark:text-slate-300">{e.result}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
             {checklistAnswers.length ? (
               <ChecklistTimeline
                 answers={checklistAnswers}
                 questions={checklistQuestions}
-                attachmentCount={attachments.length}
+                attachmentCount={isLatest ? db.attachments.filter((item) => item.protocolId === protocol.id).length : attachments.length}
                 canAttach={allowFiles && canEditChecklist && canAddAttachment}
                 editable={canEditChecklist}
                 pending={checklistPending}
@@ -3161,8 +3238,7 @@ function TimelineRow({
             <footer className="timeline-card-footer">
               {!readOnly && (
                 <div className="timeline-card-actions">
-                  {allowFiles &&
-                    (canCreateDocument && isLatest ? (
+                  {allowFiles && canCreateDocument && isLatest && (
                       <Link
                         className="timeline-action-button"
                         to={`/documentos/novo?protocolId=${protocol.id}&movementEventId=${e.id}`}
@@ -3170,21 +3246,11 @@ function TimelineRow({
                         <FilePlus2 size={14} />
                         Anexar documento
                       </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        className="timeline-action-button"
-                        disabled
-                      >
-                        <FilePlus2 size={14} />
-                        Anexar documento
-                      </button>
-                    ))}
-                  {allowFiles && (
+                    )}
+                  {allowFiles && canAddAttachment && isLatest && (
                     <button
                       type="button"
                       className="timeline-action-button"
-                      disabled={!canAddAttachment || !isLatest}
                       onClick={onAttachFile}
                     >
                       <Paperclip size={14} />
@@ -3498,6 +3564,7 @@ function MoveDialog({
   const [message, setMessage] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [confirmActivity, setConfirmActivity] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activity, setActivity] = useState("");
   const [result, setResult] = useState("");
@@ -3603,12 +3670,12 @@ function MoveDialog({
 
   return (
     <>
-      <Dialog title={title} onClose={onClose}>
+      <Dialog title={title} onClose={mutation.isPending ? () => undefined : onClose}>
         <form
           className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden"
           onSubmit={(event) => {
             event.preventDefault();
-            if (reopen) submitForward();
+            if (reopen) setConfirmReopen(true);
             else setConfirmActivity(true);
           }}
         ><DialogBody className="space-y-5">
@@ -3716,6 +3783,7 @@ function MoveDialog({
               <textarea
                 className="field min-h-28"
                 maxLength={4000}
+                required={reopen}
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
                 placeholder={reopen ? "Explique o motivo da reabertura..." : "Descreva o encaminhamento desta tramitação..."}
@@ -3801,7 +3869,7 @@ function MoveDialog({
             </button>
             <button
               className="btn-primary"
-              disabled={mutation.isPending || (!reopen && !phaseId)}
+              disabled={mutation.isPending || (reopen ? !message.trim() : !phaseId)}
             >
               {mutation.isPending
                 ? "Aguarde…"
@@ -3813,6 +3881,20 @@ function MoveDialog({
         </form>
       </Dialog>
 
+      {confirmReopen && (
+        <Dialog title="Confirmar reabertura" stacked onClose={mutation.isPending ? () => undefined : () => setConfirmReopen(false)}>
+          <DialogBody className="space-y-3">
+            <p className="text-sm">Confirma a reabertura do processo <strong>{protocol.number}</strong>?</p>
+            <p className="text-sm text-muted-foreground">O processo voltará para a fila de trabalho de <strong>{db.units.find((unit) => unit.id === unitId)?.name}</strong>, com registro no histórico de movimentações.</p>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm"><p className="mb-1 text-xs font-semibold text-muted-foreground">Motivo da reabertura</p><p className="whitespace-pre-wrap break-words">{message.trim()}</p></div>
+            {mutation.error && <ErrorBox error={mutation.error} />}
+          </DialogBody>
+          <DialogFooter>
+            <button type="button" className="btn-secondary" disabled={mutation.isPending} onClick={() => setConfirmReopen(false)}>Voltar</button>
+            <button type="button" className="btn-primary" disabled={mutation.isPending} onClick={() => { if (!mutation.isPending) submitForward(); }}>{mutation.isPending ? "Aguarde…" : "Confirmar reabertura"}</button>
+          </DialogFooter>
+        </Dialog>
+      )}
       {confirmActivity && (
         <Dialog
           title="Registrar atividade?"
@@ -3869,8 +3951,8 @@ function MoveDialog({
           ><DialogBody className="space-y-4">
             <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Registre a atividade desenvolvida e o resultado entregue nessa
-              tramitação. Essas informações serão incluídas no Relatório de
-              Produtividade.
+              tramitação. Essas informações ficarão no histórico do processo e
+              serão incluídas no Relatório de Produtividade.
             </p>
             <Field label="Atividade principal desenvolvida *">
               <textarea
@@ -3913,6 +3995,46 @@ function MoveDialog({
         </Dialog>
       )}
     </>
+  );
+}
+function TerminateProtocolDialog({ action, protocol, ctx, onClose, onSaved }: {
+  action: "reject" | "cancel";
+  protocol: Protocol;
+  ctx: ReturnType<typeof useSession>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [message, setMessage] = useState("");
+  const rejected = action === "reject";
+  const label = rejected ? "Rejeitar processo" : "Cancelar processo";
+  const mutation = useMutation({
+    mutationFn: () => api[action](ctx, protocol.id, protocol.version, message),
+    onSuccess: onSaved,
+  });
+  return (
+    <Dialog title={label} onClose={mutation.isPending ? () => undefined : onClose}>
+      <form className="dialog-form flex min-h-0 flex-1 flex-col overflow-hidden" onSubmit={(event) => {
+        event.preventDefault();
+        if (!mutation.isPending) mutation.mutate();
+      }}>
+        <DialogBody className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {rejected ? "Confirma a rejeição" : "Confirma o cancelamento"} do processo <strong>{protocol.number}</strong>?
+            {" "}O processo será encerrado e o motivo ficará registrado no histórico de movimentações.
+          </p>
+          <Field label={rejected ? "Motivo da rejeição *" : "Motivo do cancelamento *"}>
+            <textarea className="field min-h-28" value={message} onChange={(event) => setMessage(event.target.value)} required maxLength={4000} disabled={mutation.isPending} placeholder="Descreva o motivo do encerramento..." />
+          </Field>
+          {mutation.error && <ErrorBox error={mutation.error} />}
+        </DialogBody>
+        <DialogFooter>
+          <button type="button" className="btn-secondary" disabled={mutation.isPending} onClick={onClose}>Voltar</button>
+          <button type="submit" className="btn-primary bg-destructive hover:bg-destructive/90" disabled={mutation.isPending || !message.trim()}>
+            {mutation.isPending ? "Aguarde…" : label}
+          </button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 function CompleteDialog({

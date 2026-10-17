@@ -232,13 +232,33 @@ test('comprovante da movimentação continua separado do comprovante do protocol
   const receipt = await PDFDocument.load(await readFile(downloadedPath!))
   expect(receipt.getTitle()).toBe(await demoText(page, 'Comprovante de tramitação 2026.000010'))
 })
-test('processo concluído não permite edição', async ({ page }) => {
+test('processo concluído não permite edição', async ({ page, isMobile }, testInfo) => {
   await page.goto('/processos/pr-10')
+  const header = page.locator('.page-title')
+  await expect(header.getByRole('button')).toHaveCount(2)
+  await expect(header.getByRole('button', { name: 'Tramitar', exact: true })).toHaveCount(0)
+  await expect(header.getByRole('button', { name: 'Concluir', exact: true })).toHaveCount(0)
+  const actions = page.getByRole('group', { name: 'Ações da movimentação' })
+  await expect(actions.getByRole('button')).toHaveText(['Arquivar'])
+  await expect(actions.locator('button svg')).toHaveCount(1)
+  await expect(actions.getByRole('button', { name: 'Concluir', exact: true })).toHaveCount(0)
+  await expect(actions.getByRole('button', { name: 'Rejeitar', exact: true })).toHaveCount(0)
+  await expect(actions.getByRole('button', { name: 'Cancelar', exact: true })).toHaveCount(0)
+  const panelHeader = page.locator('.timeline-panel > header')
+  const geometry = await panelHeader.evaluate((element) => {
+    const group = element.querySelector('[role="group"]')!
+    const buttons = Array.from(group.querySelectorAll('button')).map((button) => button.getBoundingClientRect())
+    const bounds = element.getBoundingClientRect()
+    return { inside: buttons.every((button) => button.left >= bounds.left && button.right <= bounds.right && button.top >= bounds.top && button.bottom <= bounds.bottom), singleRow: buttons.every((button) => Math.abs(button.top - buttons[0].top) < 1), rightGap: bounds.right - group.getBoundingClientRect().right }
+  })
+  expect(geometry.inside).toBe(true)
+  if (!isMobile) expect(geometry.singleRow).toBe(true)
+  expect(geometry.rightGap).toBeLessThan(20)
+  await panelHeader.screenshot({ path: testInfo.outputPath('movement-actions.png') })
   await page.getByRole('button', { name: 'Ações', exact: true }).click()
 
   const edit = page.getByRole('menuitem', { name: 'Editar', exact: true })
-  await expect(edit).toBeDisabled()
-  await expect(edit).toHaveAttribute('title', 'Processos concluídos ou arquivados não podem ser editados.')
+  await expect(edit).toHaveCount(0)
 })
 test('processo concluído não exibe botão de dossiê', async ({ page }) => {
   await page.goto('/processos/pr-10')
@@ -272,9 +292,9 @@ test('avança a fase configurada somente pela tramitação', async ({ page }, te
   await expect(page.getByRole('heading', { name: await demoText(page, 'Processo 2026.000001') })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Avançar fase' })).toHaveCount(0)
 
-  const forward = page.getByRole('button', { name: 'Tramitar', exact: true })
+  const forward = page.locator('.page-title').getByRole('button', { name: 'Tramitar', exact: true })
   await expect(forward).toHaveAttribute('aria-disabled', 'true')
-  await forward.click({ force: true })
+  await page.getByRole('group', { name: 'Ações da movimentação' }).getByRole('button', { name: 'Tramitar', exact: true }).click({ force: true })
   const pending = page.getByRole('dialog', { name: 'Pendências para tramitar' })
   await expect(pending).toContainText('Conferir dados de abertura')
   await pending.getByRole('button', { name: 'Voltar ao processo' }).click()
@@ -294,11 +314,11 @@ test('filtra destinatários pela unidade selecionada na tramitação', async ({ 
     localStorage.setItem('fluxo-publico:tenant:prefeitura-saomateus-ma:scope-unit', 'u-adm')
   })
   await page.goto('/processos/pr-6')
-  await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
+  await page.locator('.page-title').getByRole('button', { name: 'Tramitar', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Tramitar processo' })
 
   await dialog.getByRole('combobox', { name: 'Unidade organizacional de destino *' }).click()
-  await page.getByRole('option', { name: 'Administração / Financeiro' }).click()
+  await page.getByRole('option', { name: 'Administração / Financeiro', exact: true }).click()
   await dialog.getByRole('combobox', { name: 'Destinatário' }).click()
   await expect(page.getByRole('option', { name: 'Rafael Reis' })).toBeVisible()
   await expect(page.getByRole('option', { name: 'Clara Nunes' })).toHaveCount(0)
@@ -307,7 +327,7 @@ test('filtra destinatários pela unidade selecionada na tramitação', async ({ 
 
   await dialog.getByRole('combobox', { name: 'Unidade organizacional de destino *' }).click()
   await page.getByRole('option', { name: 'Gestão de Processos' }).click()
-  await expect(dialog.getByRole('combobox', { name: 'Destinatário' })).toContainText('Enviar para fila sem responsável')
+  await expect(dialog.getByRole('combobox', { name: 'Destinatário' })).toContainText('Enviar para unidade')
   await dialog.getByRole('combobox', { name: 'Destinatário' }).click()
   await expect(page.getByRole('option', { name: 'Clara Nunes' })).toBeVisible()
   await expect(page.getByRole('option', { name: 'Rafael Reis' })).toHaveCount(0)

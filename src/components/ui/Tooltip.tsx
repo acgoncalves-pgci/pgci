@@ -15,7 +15,7 @@ export function Tooltip({ content, children, className, style, tabIndex, delay =
   const tooltipRef = useRef<HTMLSpanElement>(null)
   const openTimer = useRef<number>()
   const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<{ top: number; left: number }>()
+  const [position, setPosition] = useState<{ top: number; left: number; maxWidth: string }>()
 
   const show = () => {
     window.clearTimeout(openTimer.current)
@@ -24,24 +24,34 @@ export function Tooltip({ content, children, className, style, tabIndex, delay =
   const hide = () => {
     window.clearTimeout(openTimer.current)
     setOpen(false)
+    setPosition(undefined)
   }
 
   useLayoutEffect(() => {
     if (!open) return
-    const frame = window.requestAnimationFrame(() => {
-      const trigger = triggerRef.current?.getBoundingClientRect()
-      const tooltip = tooltipRef.current?.getBoundingClientRect()
-      if (!trigger || !tooltip) return
-      const gap = 8
-      const top = trigger.top >= tooltip.height + gap
-        ? trigger.top - tooltip.height - gap
-        : trigger.bottom + gap
-      setPosition({
-        top: Math.max(gap, Math.min(top, window.innerHeight - tooltip.height - gap)),
-        left: Math.max(gap, Math.min(trigger.left + trigger.width / 2 - tooltip.width / 2, window.innerWidth - tooltip.width - gap)),
-      })
+    const trigger = triggerRef.current?.getBoundingClientRect()
+    const tooltip = tooltipRef.current
+    if (!trigger || !tooltip) return
+    const computedZoom = Number.parseFloat(window.getComputedStyle(document.body).zoom)
+    const zoom = Number.isFinite(computedZoom) && computedZoom > 0 ? computedZoom : 1
+    const gap = 6
+    const padding = 8
+    const viewportWidth = window.innerWidth / zoom
+    const viewportHeight = window.innerHeight / zoom
+    const maxWidth = `min(22rem, ${Math.max(1, viewportWidth - padding * 2)}px)`
+    // O portal herda o zoom do body; os retângulos já estão em coordenadas visuais.
+    tooltip.style.maxWidth = maxWidth
+    const rect = tooltip.getBoundingClientRect()
+    const width = rect.width / zoom
+    const height = rect.height / zoom
+    const top = trigger.top / zoom >= height + gap + padding
+      ? trigger.top / zoom - height - gap
+      : trigger.bottom / zoom + gap
+    setPosition({
+      top: Math.max(padding, Math.min(top, viewportHeight - height - padding)),
+      left: Math.max(padding, Math.min((trigger.left + trigger.width / 2) / zoom - width / 2, viewportWidth - width - padding)),
+      maxWidth,
     })
-    return () => window.cancelAnimationFrame(frame)
   }, [open, content])
 
   useEffect(() => {
@@ -60,7 +70,7 @@ export function Tooltip({ content, children, className, style, tabIndex, delay =
   return <>
     <span
       ref={triggerRef}
-      className={className}
+      className={className ?? 'inline-flex'}
       style={style}
       tabIndex={tabIndex}
       aria-describedby={open ? id : undefined}
@@ -70,6 +80,6 @@ export function Tooltip({ content, children, className, style, tabIndex, delay =
       onBlur={hide}
       onKeyDown={(event) => { if (event.key === 'Escape') hide() }}
     >{children}</span>
-    {open && createPortal(<span ref={tooltipRef} id={id} role="tooltip" className="ui-tooltip" style={{ top: position?.top ?? -9999, left: position?.left ?? -9999, visibility: position ? 'visible' : 'hidden' }}>{content}</span>, document.body)}
+    {open && createPortal(<span ref={tooltipRef} id={id} role="tooltip" className="ui-tooltip" style={{ top: position?.top ?? -9999, left: position?.left ?? -9999, maxWidth: position?.maxWidth, visibility: position ? 'visible' : 'hidden' }}>{content}</span>, document.body)}
   </>
 }

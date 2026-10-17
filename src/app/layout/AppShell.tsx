@@ -16,6 +16,7 @@ import {
   Flag,
   Home,
   Landmark,
+  Layers,
   Menu,
   MessageSquare,
   Moon,
@@ -126,6 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ["/dashboard", "Dashboard", Home],
         ["/relatorios", "Relatórios", BarChart3],
         ["/processos", "Processos", ClipboardList],
+        ["/lotes", "Lotes", Layers],
         ["/documentos", "Documentos", FileText],
       ],
     },
@@ -146,7 +148,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     },
   ];
   const navPermissions: Record<string, Permission> = {
-    '/relatorios': 'reports.view', '/processos': 'processes.view', '/documentos': 'documents.view',
+    '/relatorios': 'reports.view', '/processos': 'processes.view', '/lotes': 'processes.act', '/documentos': 'documents.view',
     '/pessoas': 'people.view', '/estrutura': 'structure.view', '/tipos-processo': 'protocolTypes.view',
     '/categorias-processo': 'protocolTypes.view', '/fases': 'workflow.view', '/situacoes': 'workflow.view',
     '/tipos-documento': 'documentTypes.view', '/usuarios': 'users.view', '/perfis': 'profiles.manage',
@@ -227,7 +229,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {group.group}
               </p>
             )}
-            {group.items.filter(([path]) => !navPermissions[path as string] || Boolean(sessionDb && hasPermission(sessionDb, { userId, activeUnitId }, navPermissions[path as string]))).map(([path, label, Icon]) => (
+            {group.items.filter(([path]) => (!navPermissions[path as string] || Boolean(sessionDb && hasPermission(sessionDb, { userId, activeUnitId }, navPermissions[path as string]))) && (path !== '/lotes' || Boolean(sessionDb && hasPermission(sessionDb, { userId, activeUnitId }, 'processes.view')))).map(([path, label, Icon]) => (
               <NavLink
                 key={`${group.group ?? "principal"}-${label as string}`}
                 to={path as string}
@@ -369,8 +371,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <footer className="pgci-footer no-print shrink-0">
             <span>
-              Programa de Governança, Compliance
-              <br />e Integridade - PGCI
+              Programa de Governança, Compliance e Integridade - PGCI
             </span>
             <span>v. 16.9.26</span>
           </footer>

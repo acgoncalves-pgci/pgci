@@ -13,6 +13,7 @@ export interface Tenant extends Municipality {
 export const TENANTS_KEY = 'fluxo-publico:saas:tenants:v1'
 const legacyRoutes = new Set(['login', 'esqueci-a-senha', 'dashboard', 'relatorios', 'processos', 'protocolos', 'documentos', 'pessoas', 'estrutura', 'tipos-processo', 'categorias-processo', 'situacoes', 'fases', 'tipos-protocolo', 'tipos-documento', 'usuarios', 'perfis', 'configuracoes'])
 legacyRoutes.add('consulta')
+legacyRoutes.add('lotes')
 const reservedSlugs = new Set([...legacyRoutes, 'assets', 'src', 'api', 'admin', 'saas', 'examples', 'pdf-assets'])
 let activeTenant: Tenant | undefined
 

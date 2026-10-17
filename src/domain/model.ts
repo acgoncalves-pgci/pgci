@@ -1,18 +1,18 @@
 import type { DocumentMargins } from '../lib/documentMargins';
-export const STATUSES = ['CADASTRADO', 'EM_ANDAMENTO', 'CONCLUIDO', 'ARQUIVADO'] as const
+export const STATUSES = ['CADASTRADO', 'EM_ANDAMENTO', 'CONCLUIDO', 'ARQUIVADO', 'REJEITADO', 'CANCELADO'] as const
 export type ProtocolStatus = (typeof STATUSES)[number]
 export type Role = 'ADMIN' | 'GESTOR' | 'OPERADOR' | 'LEITOR'
 import type { Permission } from './permissions'
 export type PersonRole = 'INTERESSADO' | 'CREDOR' | 'RESPONSAVEL'
 export type FlowMode = 'NONE' | 'SUGGESTED' | 'REQUIRED'
 export type SituationCategory = 'CADASTRADO' | 'EM_TRAMITACAO' | 'CONCLUIDO' | 'ARQUIVADO' | 'CANCELADO' | 'REABERTO' | 'REJEITADO'
-export type EventKind = 'ABERTURA' | 'RECEBIMENTO' | 'ATRIBUICAO' | 'TRAMITACAO' | 'DOCUMENTO_CRIADO' | 'ANEXO_ADICIONADO' | 'CONCLUSAO' | 'ARQUIVAMENTO' | 'REABERTURA' | 'FASE_AVANCADA' | 'FASE_DEVOLVIDA'
+export type EventKind = 'ABERTURA' | 'RECEBIMENTO' | 'ATRIBUICAO' | 'TRAMITACAO' | 'DOCUMENTO_CRIADO' | 'ANEXO_ADICIONADO' | 'CONCLUSAO' | 'ARQUIVAMENTO' | 'REABERTURA' | 'FASE_AVANCADA' | 'FASE_DEVOLVIDA' | 'REJEICAO' | 'CANCELAMENTO'
 
 export interface Unit { id: string; name: string; abbreviation: string; parentId?: string; position?: number; color?: string; icon?: string; active: boolean }
 export interface AppUser { id: string; name: string; email: string; role: Role; unitId: string; cpf?: string; active: boolean }
 export interface AccessProfile { id: string; name: string; description?: string; isAdmin: boolean; permissions: Permission[]; system?: boolean }
 export interface UserUnitMembership { id: string; userId: string; unitId: string; role: Role; profileId?: string; permissions?: Permission[]; title?: string; signature?: string; startsAt: string; endsAt?: string; active: boolean }
-export interface AuditEvent { id: string; action: string; actorUserId: string; actorUnitId: string; targetType: 'UNIT' | 'USER' | 'MEMBERSHIP' | 'PROFILE' | 'PROTOCOL' | 'ATTACHMENT' | 'DOCUMENT' | 'FLOW' | 'PHASE' | 'SITUATION' | 'CATEGORY' | 'PERSON'; targetId: string; details?: string; createdAt: string }
+export interface AuditEvent { id: string; protocolId?: string; action: string; actorUserId: string; actorUnitId: string; targetType: 'UNIT' | 'USER' | 'MEMBERSHIP' | 'PROFILE' | 'PROTOCOL' | 'ATTACHMENT' | 'DOCUMENT' | 'FLOW' | 'PHASE' | 'SITUATION' | 'CATEGORY' | 'PERSON'; targetId: string; details?: string; createdAt: string }
 export interface ResponsibilityPeriod { id: string; description: string; startsAt: string; endsAt?: string }
 export interface Person { id: string; kind: 'PF' | 'PJ'; name: string; document?: string; email?: string; phone?: string; roles: PersonRole[]; responsibilityPeriods?: ResponsibilityPeriod[]; active: boolean }
 export interface FieldRequirement { enabled: boolean; required?: boolean }
@@ -32,13 +32,33 @@ export interface DocumentType { id: string; name: string; description: string; c
 export interface DocumentTemplate { id: string; typeId: string; name: string; subject: string; description?: string; body: string; active: boolean; isDefault?: boolean; createdAt: string; updatedAt: string }
 export interface Assignment { id: string; protocolId: string; unitId: string; assigneeId?: string; startedAt: string; receivedAt?: string; receivedById?: string; endedAt?: string }
 export interface Protocol { id: string; number: string; typeId: string; typeConfigSnapshot: FieldsConfig; flowModeSnapshot?: FlowMode; flowSnapshot?: ProtocolFlowSnapshot; currentPhaseId?: string; subject: string; description: string; observations?: string; interestedPersonId?: string; creditorPersonId?: string; responsiblePersonId?: string; amountCents?: number; contractNumber?: string; biddingNumber?: string; legalProcessNumber?: string; referenceNumber?: string; status: ProtocolStatus; originUnitId: string; currentUnitId: string; currentAssigneeId?: string; currentAssignmentId: string; dueAt?: string; createdById: string; createdAt: string; updatedAt: string; completedAt?: string; archivedAt?: string; version: number }
-export interface ProtocolEvent { id: string; protocolId: string; kind: EventKind; actorUserId: string; actorUnitId: string; fromUnitId?: string; toUnitId?: string; fromUserId?: string; toUserId?: string; assignmentId?: string; phaseId?: string; message?: string; activity?: string; result?: string; previousStatus?: ProtocolStatus; nextStatus?: ProtocolStatus; relatedDocumentId?: string; relatedAttachmentId?: string; checklist?: ChecklistAnswer[]; createdAt: string }
+export interface ProtocolEvent { id: string; protocolId: string; kind: EventKind; actorUserId: string; actorUnitId: string; fromUnitId?: string; toUnitId?: string; fromUserId?: string; toUserId?: string; assignmentId?: string; phaseId?: string; dueAt?: string | null; message?: string; activity?: string; result?: string; batchId?: string; previousStatus?: ProtocolStatus; nextStatus?: ProtocolStatus; relatedDocumentId?: string; relatedAttachmentId?: string; checklist?: ChecklistAnswer[]; createdAt: string }
 export interface AppDocument { description?: string; pageMargins?: DocumentMargins; id: string; number: string; typeId: string; protocolId?: string; movementEventId?: string; subject: string; body: string; recipientPersonId?: string; unitId: string; authorUserId: string; signerName?: string; signerTitle?: string; createdAt: string }
 export interface Attachment { description?: string; id: string; protocolId?: string; movementEventId?: string; typeId?: string; filename: string; mimeType: string; sizeBytes: number; blobKey: string; uploadedById: string; createdAt: string }
-export interface Database { demoNumberingVersion?: 1; schemaVersion: 8; initializedAt: string; organization: { id: string; name: string; abbreviation: string }; counters: Record<string, number>; units: Unit[]; users: AppUser[]; memberships: UserUnitMembership[]; profiles: AccessProfile[]; auditEvents: AuditEvent[]; people: Person[]; processCategories: ProcessCategory[]; protocolTypes: ProtocolType[]; phases: ProtocolPhase[]; flows: ProtocolFlow[]; flowPhases: FlowPhase[]; situations: SituationType[]; documentTypes: DocumentType[]; documentTemplates: DocumentTemplate[]; protocols: Protocol[]; assignments: Assignment[]; events: ProtocolEvent[]; documents: AppDocument[]; attachments: Attachment[] }
+export interface Database { batches?: ProtocolBatch[]; demoNumberingVersion?: 1; schemaVersion: 8; initializedAt: string; organization: { id: string; name: string; abbreviation: string }; counters: Record<string, number>; units: Unit[]; users: AppUser[]; memberships: UserUnitMembership[]; profiles: AccessProfile[]; auditEvents: AuditEvent[]; people: Person[]; processCategories: ProcessCategory[]; protocolTypes: ProtocolType[]; phases: ProtocolPhase[]; flows: ProtocolFlow[]; flowPhases: FlowPhase[]; situations: SituationType[]; documentTypes: DocumentType[]; documentTemplates: DocumentTemplate[]; protocols: Protocol[]; assignments: Assignment[]; events: ProtocolEvent[]; documents: AppDocument[]; attachments: Attachment[] }
 export interface Context { tenantId?: string; userId: string; activeUnitId: string; scopeUnitId?: string }
+export interface ProtocolBatch {
+  id: string;
+  number: string;
+  actorUserId: string;
+  actorName?: string;
+  actorUnitId: string;
+  createdAt: string;
+  typeIds: string[];
+  phaseId: string;
+  phaseName: string;
+  unitId: string;
+  unitName: string;
+  destinationPath?: string;
+  typeNames?: string[];
+  assigneeId?: string;
+  assigneeName?: string;
+  dueAt?: string;
+  message: string;
+  protocols: Array<{ protocolId: string; number: string; typeId: string; eventId: string; expectedVersion: number; createdAt?: string; description?: string }>;
+}
 export const isActive = (protocol: Protocol) => protocol.status === 'CADASTRADO' || protocol.status === 'EM_ANDAMENTO'
-export const isMovementEvent = (event: ProtocolEvent) => event.kind !== 'DOCUMENTO_CRIADO' && event.kind !== 'ANEXO_ADICIONADO' && event.kind !== 'RECEBIMENTO'
+export const isMovementEvent = (event: Pick<ProtocolEvent, 'kind'>) => event.kind !== 'DOCUMENTO_CRIADO' && event.kind !== 'ANEXO_ADICIONADO' && event.kind !== 'RECEBIMENTO'
 export const isLegacyAssumptionEvent = (events: ProtocolEvent[], candidate: ProtocolEvent) =>
   candidate.kind === 'ATRIBUICAO' &&
   Boolean(candidate.assignmentId && candidate.toUserId) &&
@@ -56,5 +76,5 @@ export const isLegacyAssumptionEvent = (events: ProtocolEvent[], candidate: Prot
     isMovementEvent(event) &&
     event.createdAt <= candidate.createdAt
   )
-export const statusLabel: Record<ProtocolStatus, string> = { CADASTRADO: 'Cadastrado', EM_ANDAMENTO: 'Em andamento', CONCLUIDO: 'Concluído', ARQUIVADO: 'Arquivado' }
-export const eventLabel: Record<EventKind, string> = { ABERTURA: 'Processo aberto', RECEBIMENTO: 'Ciência registrada', ATRIBUICAO: 'Responsável designado', TRAMITACAO: 'Tramitado', DOCUMENTO_CRIADO: 'Documento criado', ANEXO_ADICIONADO: 'Anexo adicionado', CONCLUSAO: 'Concluído', ARQUIVAMENTO: 'Arquivado', REABERTURA: 'Reaberto', FASE_AVANCADA: 'Fase avançada', FASE_DEVOLVIDA: 'Fase devolvida' }
+export const statusLabel: Record<ProtocolStatus, string> = { CADASTRADO: 'Cadastrado', EM_ANDAMENTO: 'Em andamento', CONCLUIDO: 'Concluído', ARQUIVADO: 'Arquivado', REJEITADO: 'Rejeitado', CANCELADO: 'Cancelado' }
+export const eventLabel: Record<EventKind, string> = { ABERTURA: 'Processo aberto', RECEBIMENTO: 'Ciência registrada', ATRIBUICAO: 'Responsável designado', TRAMITACAO: 'Tramitado', DOCUMENTO_CRIADO: 'Documento criado', ANEXO_ADICIONADO: 'Anexo adicionado', CONCLUSAO: 'Concluído', ARQUIVAMENTO: 'Arquivado', REABERTURA: 'Reaberto', FASE_AVANCADA: 'Fase avançada', FASE_DEVOLVIDA: 'Fase devolvida', REJEICAO: 'Processo rejeitado', CANCELAMENTO: 'Processo cancelado' }

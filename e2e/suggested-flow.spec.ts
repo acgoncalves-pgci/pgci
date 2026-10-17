@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 
 test('sugere o caminho e permite desviar de fase e unidade com pendências', async ({ page }, testInfo) => {
   await expect(page.getByText(/Fluxo sugerido · Etapa recomendada: Análise/)).toBeVisible()
-  await page.getByRole('button', { name: 'Tramitar', exact: true }).click()
+  await page.locator('.page-title').getByRole('button', { name: 'Tramitar', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Tramitar processo', exact: true })
   const phase = dialog.getByRole('combobox', { name: 'Fase *', exact: true })
   const unit = dialog.getByRole('combobox', { name: 'Unidade organizacional de destino *', exact: true })

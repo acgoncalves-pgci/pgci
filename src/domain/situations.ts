@@ -25,21 +25,23 @@ const legacySituationIds: Record<ProtocolStatus, string> = {
   EM_ANDAMENTO: 'situation-processing',
   CONCLUIDO: 'situation-completed',
   ARQUIVADO: 'situation-archived',
+  REJEITADO: 'situation-rejected',
+  CANCELADO: 'situation-cancelled',
 }
 
 export const legacySituationTypeId = (status: ProtocolStatus | undefined) => status ? legacySituationIds[status] : undefined
 
 export const currentProtocolSituation = (db: Pick<Database, 'situations' | 'events'>, protocol: Protocol): SituationSnapshot | SituationType | undefined => {
   const systemSituation = (status: ProtocolStatus) => db.situations.find((situation) => situation.id === legacySituationTypeId(status))
-  if (protocol.status === 'CONCLUIDO' || protocol.status === 'ARQUIVADO') return systemSituation(protocol.status)
-
-  const phaseSituation = protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)?.situationType
-  if (phaseSituation) return phaseSituation
+  if (protocol.status === 'CONCLUIDO' || protocol.status === 'ARQUIVADO' || protocol.status === 'REJEITADO' || protocol.status === 'CANCELADO') return systemSituation(protocol.status)
 
   const latestMovement = db.events
     .filter((event) => event.protocolId === protocol.id && event.nextStatus)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
   if (latestMovement?.kind === 'REABERTURA') return db.situations.find((situation) => situation.id === 'situation-reopened')
+
+  const phaseSituation = protocol.flowSnapshot?.phases.find((phase) => phase.phaseId === protocol.currentPhaseId)?.situationType
+  if (phaseSituation) return phaseSituation
 
   return systemSituation(protocol.status)
 }
